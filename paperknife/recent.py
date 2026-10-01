@@ -3,13 +3,15 @@ paperknife.recent
 Recent-file store, thumbnail cache, and time-ago formatter.
 """
 from __future__ import annotations
-import json, os, tempfile, threading
+import json, os, threading
 from pathlib import Path
 from datetime import datetime
 
 import customtkinter as ctk
 from PIL import Image
 import pymupdf as fitz
+
+from .job_queue import atomic_output
 
 APPDIR      = Path.home() / ".paperknifepluspc"
 RECENT_PATH = APPDIR / "recent.json"
@@ -33,19 +35,10 @@ def write_json_atomic(path: Path, data) -> None:
     """Write *data* as JSON so that *path* holds either the old or the new
     content, never a truncated file.  Raises OSError on failure."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(data, f, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    with atomic_output(path) as tmp, open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def _valid_entry(e) -> bool:
@@ -146,5 +139,5 @@ def time_ago(iso: str) -> str:
         if secs < 3600:  return f"{int(secs//60)}m ago"
         if secs < 86400: return f"{int(secs//3600)}h ago"
         return f"{int(secs//86400)}d ago"
-    except Exception:
+    except (TypeError, ValueError):
         return ""

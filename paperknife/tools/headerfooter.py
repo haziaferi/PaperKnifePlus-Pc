@@ -7,10 +7,8 @@ import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
-from ..recent import RECENT
 from ..job_queue import atomic_output
-from ..pages import PageRangeError
-from .crop import selected_pages
+from ..pages import PageRangeError, selected_pages
 
 _TOKENS = (
     "Use {page} for page number · {total} for total pages · "
@@ -140,7 +138,7 @@ class HeaderFooterTool(ToolBase):
         range_str = self._page_range.get().strip()
         today_str = date.today().strftime("%Y-%m-%d")
 
-        doc = self._open_safe(src)
+        doc = self.app._open_pdf_safe(src)
         if doc is None:
             return
         total = len(doc)
@@ -153,6 +151,9 @@ class HeaderFooterTool(ToolBase):
         if not out:
             return doc.close()
 
+        is_top   = pos.startswith("top")
+        is_left  = pos.endswith("left")
+        is_right = pos.endswith("right")
         try:
             with atomic_output(out) as tmp, doc:
                 for pg_num in pages:
@@ -162,20 +163,12 @@ class HeaderFooterTool(ToolBase):
                             .replace("{page}",  str(pg_num + 1))
                             .replace("{total}", str(total))
                             .replace("{date}",  today_str))
-
-                    # Measure text width (approximate)
                     tw = fitz.get_text_length(text, fontname=font, fontsize=size)
-
-                    # X by alignment
-                    is_top    = pos.startswith("top")
-                    is_left   = pos.endswith("left")
-                    is_right  = pos.endswith("right")
-
                     if is_left:
                         x = margin
                     elif is_right:
                         x = w - margin - tw
-                    else:  # center
+                    else:
                         x = (w - tw) / 2
 
                     y = margin + size if is_top else h - margin
@@ -187,7 +180,6 @@ class HeaderFooterTool(ToolBase):
                     )
 
                 doc.save(tmp, deflate=True)
-            RECENT.push(src, total)
             self.app._set_status(
                 f"✓  Stamped {len(pages)} page(s) → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"PDF with header/footer saved:\n{out}")

@@ -2,12 +2,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox, colorchooser
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageTk
 import customtkinter as ctk
 import pymupdf as fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, SUCCESS, WARN, CANVAS_BG, DANGER, _tk_color
-from ..recent import RECENT
+from ..theme import (ACCENT, ACCENT_H, CARD, CARD2, TEXT, SUCCESS, WARN, CANVAS_BG, DANGER,
+                     ON_ACCENT, _tk_color)
+from ..pages import render
 
 
 @register
@@ -15,7 +16,6 @@ class AnnotateTool(ToolBase):
     section = "CONTENT"
     label   = "📝  Annotate"
 
-    # ── instance state ────────────────────────────────────────────────────────
     _doc:    fitz.Document | None = None
     _pg:     int   = 0
     _zoom:   float = 1.5
@@ -66,7 +66,7 @@ class AnnotateTool(ToolBase):
                 trow, text=label, width=95, height=34,
                 fg_color=ACCENT if tid == self._tool else CARD,
                 hover_color=ACCENT_H,
-                text_color="#FFF" if tid == self._tool else TEXT,
+                text_color=ON_ACCENT if tid == self._tool else TEXT,
                 font=ctk.CTkFont(size=12),
                 command=lambda t=tid: self._set_tool(t),
             )
@@ -75,7 +75,6 @@ class AnnotateTool(ToolBase):
 
         opts = ctk.CTkFrame(toolbar, fg_color="transparent")
         opts.pack(fill="x", padx=8, pady=(4, 8))
-        # Color picker
         ctk.CTkLabel(opts, text="Colour:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 4))
         self._color_preview = ctk.CTkFrame(
@@ -83,7 +82,6 @@ class AnnotateTool(ToolBase):
         self._color_preview.pack(side="left", padx=(0, 6))
         ctk.CTkButton(opts, text="Pick…", width=64, height=28,
                       command=self._pick_color).pack(side="left", padx=4)
-        # Opacity
         ctk.CTkLabel(opts, text="Opacity:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(12, 4))
         self._opacity = ctk.CTkSlider(opts, from_=10, to=100, number_of_steps=90,
@@ -94,7 +92,6 @@ class AnnotateTool(ToolBase):
         self._op_lbl.pack(side="left", padx=4)
         self._opacity.configure(
             command=lambda v: self._op_lbl.configure(text=f"{int(v)}%"))
-        # Zoom
         ctk.CTkLabel(opts, text="Zoom:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(12, 4))
         self._zoom_sl = ctk.CTkSlider(opts, from_=0.5, to=3.0, number_of_steps=50,
@@ -102,13 +99,11 @@ class AnnotateTool(ToolBase):
         self._zoom_sl.set(1.5)
         self._zoom_sl.configure(command=self._on_zoom)
         self._zoom_sl.pack(side="left")
-        # Undo / Remove selected
         ctk.CTkButton(opts, text="↩ Undo", width=80, height=28,
                       command=self._undo).pack(side="left", padx=(12, 4))
         ctk.CTkButton(opts, text="✕ Remove sel.", width=110, height=28,
                       fg_color=DANGER, command=self._remove_selected
                       ).pack(side="left", padx=4)
-        # Freetext content
         self._ft_var = tk.StringVar(value="Note")
         self._ft_lbl = ctk.CTkLabel(opts, text="Text:", text_color=TEXT,
                                      font=ctk.CTkFont(size=12))
@@ -130,8 +125,6 @@ class AnnotateTool(ToolBase):
         self._canvas.pack(fill="both", expand=True)
         vbar.configure(command=self._canvas.yview)
         hbar.configure(command=self._canvas.xview)
-        # Leaving the tool destroys the view; close the document so the file is not left locked.
-        self._canvas.bind("<Destroy>", lambda e: self._close_doc())
         self._canvas.bind("<ButtonPress-1>",   self._press)
         self._canvas.bind("<ButtonRelease-1>",  self._release)
         self._canvas.bind("<B1-Motion>",        self._drag)
@@ -154,11 +147,6 @@ class AnnotateTool(ToolBase):
         self._pg  = 0
 
     # ── file ──────────────────────────────────────────────────────────────────
-    def _close_doc(self):
-        if self._doc:
-            self._doc.close()
-            self._doc = None
-
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
@@ -171,7 +159,6 @@ class AnnotateTool(ToolBase):
         self._pg = 0
         self._undo_stack = []
         self._sel_annot = None
-        RECENT.push(f, len(self._doc))
         self._render()
 
     def _nav(self, d):
@@ -193,18 +180,14 @@ class AnnotateTool(ToolBase):
         for t, b in self._tool_btns.items():
             b.configure(
                 fg_color=ACCENT if t == tid else CARD,
-                text_color="#FFF" if t == tid else TEXT,
+                text_color=ON_ACCENT if t == tid else TEXT,
             )
-        # Show/hide freetext entry
         if tid in ("note", "freetext"):
             self._ft_lbl.pack(side="left", padx=(12, 4))
             self._ft_entry.pack(side="left")
         else:
-            try:
-                self._ft_lbl.pack_forget()
-                self._ft_entry.pack_forget()
-            except Exception:
-                pass
+            self._ft_lbl.pack_forget()
+            self._ft_entry.pack_forget()
 
     def _pick_color(self):
         rgb, hexc = colorchooser.askcolor(title="Annotation colour",
@@ -350,16 +333,14 @@ class AnnotateTool(ToolBase):
         c = self._canvas
         c.delete("all")
         page = self._doc[self._pg]
-        mat  = fitz.Matrix(self._zoom, self._zoom)
-        pix  = page.get_pixmap(matrix=mat, alpha=False)
+        pix  = render(page, self._zoom, shrink=True)
         img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        from PIL import ImageTk as _ITK
-        self._raw_img = _ITK.PhotoImage(img)
+        self._raw_img = ImageTk.PhotoImage(img)
         c.create_image(0, 0, anchor="nw", image=self._raw_img)
         c.configure(scrollregion=(0, 0, pix.width, pix.height))
         sel = self._annot_by_xref(page, self._sel_annot) if self._sel_annot else None
         if sel is not None:
-            x0, y0, x1, y1 = sel.rect * page.rotation_matrix * mat
+            x0, y0, x1, y1 = sel.rect * page.rotation_matrix * fitz.Matrix(self._zoom, self._zoom)
             c.create_rectangle(x0 - 3, y0 - 3, x1 + 3, y1 + 3,
                                outline=DANGER, width=2, dash=(4, 2))
         self._pg_lbl.configure(text=f"{self._pg + 1} / {len(self._doc)}")
@@ -372,7 +353,7 @@ class AnnotateTool(ToolBase):
         if not out:
             return
         try:
-            self._doc.save(out, deflate=True)
+            self._save_doc(out, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"Annotated PDF saved:\n{out}")
         except Exception as e:

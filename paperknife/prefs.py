@@ -9,6 +9,8 @@ from .recent import APPDIR, write_json_atomic
 
 PREFS_PATH = APPDIR / "prefs.json"
 
+DPI_RANGE = (72, 600)     # what Settings accepts for default_dpi
+
 _DEFAULTS: dict = {
     "output_dir":      "",        # default save-as directory (empty = last used)
     "default_dpi":     150,       # OCR / PDF→image default DPI
@@ -43,11 +45,11 @@ class Prefs:
     # ── Internal ──────────────────────────────────────────────────────────────
     def _load(self):
         try:
-            raw = PREFS_PATH.read_text(encoding="utf-8")
+            raw = PREFS_PATH.read_bytes()
         except OSError:
             return
         try:
-            stored = json.loads(raw)
+            stored = json.loads(raw.decode("utf-8"))
             if not isinstance(stored, dict):
                 raise ValueError("prefs.json is not an object")
         except ValueError:
@@ -82,6 +84,11 @@ class Prefs:
 
     def get(self, key: str, default=None):
         return self._data.get(key, default)
+
+
+def pref_dpi(lo: int, hi: int) -> int:
+    """The default DPI preference clamped to a tool's own slider range."""
+    return min(hi, max(lo, PREFS.default_dpi))
 
 
 PREFS = Prefs()

@@ -1,4 +1,4 @@
-"""Lane FB: compress, batch, PDF tools, password, header/footer, crop, normalise."""
+"""Compress, batch, PDF tools, password, header/footer, crop and normalise."""
 import io
 import random
 import re
@@ -167,17 +167,20 @@ def test_pdftools_default_run_saves_without_errors(app, dialogs, tmp_path):
 
 def test_pdftools_offers_no_linearise_or_pdfa(app, dialogs, tmp_path):
     import customtkinter as ctk
-    t = tool(app, "PdfToolsTool")
-    values = set()
+    tool(app, "PdfToolsTool")
+    radios, texts = [], []
 
     def walk(w):
         for c in w.winfo_children():
             if isinstance(c, ctk.CTkRadioButton):
-                values.add(c.cget("value"))
+                radios.append(c)
+            if isinstance(c, ctk.CTkLabel):
+                texts.append(c.cget("text"))
             walk(c)
     walk(app.main)
-    assert values == {"repair"}, values
-    assert t._op.get() == "repair"
+    assert radios == [], "a single operation needs no radio button"
+    assert any(t.startswith("Repair") for t in texts), texts
+    assert not any("Linear" in t or "PDF/A" in t for t in texts), texts
 
 
 def test_pdftools_repair_recovers_a_truncated_file(app, dialogs, tmp_path):

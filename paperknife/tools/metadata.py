@@ -6,8 +6,6 @@ from pathlib import Path
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
-from ..recent import RECENT
-from ..job_queue import atomic_output
 
 _FIELDS = [
     ("title",    "Title"),
@@ -87,13 +85,11 @@ class MetadataTool(ToolBase):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
             return
-        if self._doc:
-            self._doc.close()
+        self._close_doc()
         self._doc = self.app._open_pdf_safe(f)
         if not self._doc:
             return
         self._path_var.set(f)
-        RECENT.push(f, len(self._doc))
         meta = self._doc.metadata or {}
         self._loaded = {key: meta.get(key, "") or "" for key, _ in _FIELDS}
         for key, _ in _FIELDS:
@@ -125,8 +121,7 @@ class MetadataTool(ToolBase):
                 # old (or cleared) values.
                 self._doc.del_xml_metadata()
             # garbage=3 drops the replaced Info and XMP objects from the file.
-            with atomic_output(out) as tmp:
-                self._doc.save(tmp, garbage=3, deflate=True)
+            self._save_doc(out, garbage=3, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF with updated metadata saved:\n{out}")
         except Exception as e:

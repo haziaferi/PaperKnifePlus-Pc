@@ -6,7 +6,7 @@ import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
-from ..recent import RECENT
+from ..job_queue import atomic_output
 from ..pages import PageRangeError, parse_ranges
 
 
@@ -35,12 +35,12 @@ class MergeTool(ToolBase):
         self._entries: list[dict] = []   # [{path, range_var, row_frame}, …]
 
         if app._dnd_ok:
+            from tkinterdnd2 import DND_FILES
             try:
-                from tkinterdnd2 import DND_FILES
                 list_frame.drop_target_register(DND_FILES)
                 list_frame.dnd_bind("<<Drop>>", self._on_drop)
-            except Exception:
-                pass
+            except tk.TclError:
+                pass     # the list still fills from "Add PDFs"
 
         # ── list controls ─────────────────────────────────────────────────────
         ctrl = ctk.CTkFrame(body, fg_color="transparent")
@@ -161,7 +161,8 @@ class MergeTool(ToolBase):
 
         def close_all():
             for _, d, _ in jobs:
-                d.close()
+                if not d.is_closed:
+                    d.close()
 
         for e in self._entries:
             path, rng = e["path"], e["range_var"].get().strip()
@@ -182,27 +183,29 @@ class MergeTool(ToolBase):
         n = len(jobs)
 
         def work(stop):
-            merged = fitz.open()
             pg_total = 0
             try:
-                for i, (path, src, groups) in enumerate(jobs):
-                    if stop.is_set():
-                        return
-                    for fr, to in groups:
-                        merged.insert_pdf(src, from_page=fr, to_page=to)
-                        pg_total += to - fr + 1
-                    RECENT.push(path, len(src))
-                    app.after(0, lambda v=(i+1)/n: app._prog_update(v))
-                merged.save(out, deflate=True)
+                with atomic_output(out) as tmp, fitz.open() as merged:
+                    for i, (_, src, groups) in enumerate(jobs):
+                        if stop.is_set():
+                            return
+                        for fr, to in groups:
+                            merged.insert_pdf(src, from_page=fr, to_page=to)
+                            pg_total += to - fr + 1
+                        # The output may be one of the inputs; it must not be open at the replace.
+                        src.close()
+                        app.after(0, lambda v=(i+1)/n: app._prog_update(v))
+                    merged.save(tmp, deflate=True)
             finally:
-                merged.close()
                 close_all()
-            app.after(0, lambda: [
+
+            def done():
                 app._set_status(
                     f"✓  Merged {len(jobs)} file(s) · {pg_total} pages → "
-                    f"{Path(out).name}", SUCCESS),
-                messagebox.showinfo("Merge Complete", f"Merged PDF saved:\n{out}"),
-            ])
+                    f"{Path(out).name}", SUCCESS)
+                messagebox.showinfo("Merge Complete", f"Merged PDF saved:\n{out}")
+            app.after(0, done)
 
         app._set_status("Merging…")
-        app.run_job(work, f"Merging {len(jobs)} PDF(s)…")
+        if app.run_job(work, f"Merging {len(jobs)} PDF(s)…") is None:
+            close_all()

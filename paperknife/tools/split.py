@@ -3,11 +3,12 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
 from pathlib import Path
+import customtkinter as ctk
 import pymupdf as fitz
 from ..pages import PageRangeError, parse_ranges
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, MUTED, SUCCESS
-from ..recent import RECENT
+from ..job_queue import atomic_output
 
 
 @register
@@ -16,7 +17,6 @@ class SplitTool(ToolBase):
     label   = "✂   Split"
 
     def show(self):
-        import customtkinter as ctk
         app  = self.app
         body = self._card("✂  Split PDF",
                           "Extract pages or page ranges · Ctrl+O to pick file · Ctrl+S to split")
@@ -56,18 +56,15 @@ class SplitTool(ToolBase):
                           else [(i, i) for i in range(total)])
             except PageRangeError as e:
                 return messagebox.showerror("Split", str(e))
-            out_dir = filedialog.askdirectory(title="Choose output folder")
+            out_dir = self.app._ask_dir()
             if not out_dir:
                 return
             base = Path(src).stem
             for i, (fr, to) in enumerate(groups):
-                nd = fitz.open()
-                nd.insert_pdf(doc, from_page=fr, to_page=to)
-                nd.save(os.path.join(out_dir,
-                                     f"{base}_part{i + 1:02d}_p{fr + 1}-{to + 1}.pdf"),
-                        deflate=True)
-                nd.close()
-            RECENT.push(src, total)
+                target = os.path.join(out_dir, f"{base}_part{i + 1:02d}_p{fr + 1}-{to + 1}.pdf")
+                with atomic_output(target) as tmp, fitz.open() as nd:
+                    nd.insert_pdf(doc, from_page=fr, to_page=to)
+                    nd.save(tmp, deflate=True)
             self.app._set_status(f"✓  Split into {len(groups)} file(s) → {out_dir}", SUCCESS)
             messagebox.showinfo("Done",
                                 f"Created {len(groups)} file(s) in:\n{out_dir}")

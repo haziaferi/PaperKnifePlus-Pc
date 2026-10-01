@@ -4,13 +4,13 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, MUTED, SUCCESS
-from ..prefs import PREFS, _DEFAULTS
+from ..prefs import PREFS, _DEFAULTS, DPI_RANGE
 from ..recent import RECENT_STORE_MAX
 
 # (label, min, max) for the integer settings.
 _INT_RANGES = {
     "max_recent":  ("Max recent files shown", 1, RECENT_STORE_MAX),
-    "default_dpi": ("Default DPI", 72, 600),
+    "default_dpi": ("Default DPI", *DPI_RANGE),
 }
 
 

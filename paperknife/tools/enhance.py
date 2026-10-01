@@ -7,6 +7,7 @@ import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..job_queue import atomic_output
+from ..prefs import PREFS
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN
 
 
@@ -89,7 +90,6 @@ class CompressTool(ToolBase):
                      font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=TEXT, anchor="w").pack(padx=16, pady=(14, 6), fill="x")
 
-        from ..prefs import PREFS
         self._level = tk.StringVar(value=PREFS.compress_level or "medium")
         for val, label, desc in [
             ("light",      "Light   —  clean & deflate only",
@@ -116,7 +116,7 @@ class CompressTool(ToolBase):
         src = self._path.get()
         if not src:
             return messagebox.showwarning("Compress", "Select a PDF first.")
-        doc = self._open_safe(src)
+        doc = self.app._open_pdf_safe(src)
         if doc is None:
             return
         out = self.app._save_as("compressed.pdf")
@@ -130,26 +130,24 @@ class CompressTool(ToolBase):
             compress_pdf(doc, out, level)
             new  = Path(out).stat().st_size
             orig_kb, new_kb = orig // 1024, new // 1024
-            if new < orig:
-                pct = round((1 - new / orig) * 100)
-                app.after(0, lambda: [
+            def report():
+                if new < orig:
+                    pct = round((1 - new / orig) * 100)
                     app._set_status(
                         f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) → {Path(out).name}",
-                        SUCCESS),
+                        SUCCESS)
                     messagebox.showinfo(
                         "Compressed",
                         f"Compressed PDF saved:\n{out}\n\n"
-                        f"Original: {orig_kb} KB  →  New: {new_kb} KB  ({pct}% smaller)"),
-                ])
-            else:
-                app.after(0, lambda: [
+                        f"Original: {orig_kb} KB  →  New: {new_kb} KB  ({pct}% smaller)")
+                else:
                     app._set_status(
-                        f"⚠  No size reduction: {orig_kb} KB → {new_kb} KB", WARN),
+                        f"⚠  No size reduction: {orig_kb} KB → {new_kb} KB", WARN)
                     messagebox.showwarning(
                         "Compress",
                         f"The output is not smaller than the original:\n{out}\n\n"
-                        f"Original: {orig_kb} KB  →  New: {new_kb} KB"),
-                ])
+                        f"Original: {orig_kb} KB  →  New: {new_kb} KB")
+            app.after(0, report)
 
         app._set_status("Compressing…")
         if app.run_job(work, "Compressing PDF…") is None:
@@ -232,7 +230,7 @@ class WatermarkTool(ToolBase):
             return messagebox.showwarning("Watermark", "Select a PDF first.")
         if not text:
             return messagebox.showwarning("Watermark", "Enter watermark text.")
-        doc = self._open_safe(src)
+        doc = self.app._open_pdf_safe(src)
         if doc is None:
             return
         out = self.app._save_as("watermarked.pdf")
@@ -249,10 +247,11 @@ class WatermarkTool(ToolBase):
         def work(stop):
             if watermark_pdf(doc, out, text, size, opacity, color, stop, progress) is None:
                 return
-            app.after(0, lambda: [
-                app._set_status(f"✓  Watermarked → {Path(out).name}", SUCCESS),
-                messagebox.showinfo("Done", f"Watermarked PDF saved:\n{out}"),
-            ])
+
+            def done():
+                app._set_status(f"✓  Watermarked → {Path(out).name}", SUCCESS)
+                messagebox.showinfo("Done", f"Watermarked PDF saved:\n{out}")
+            app.after(0, done)
 
         app._set_status("Applying watermark…")
         if app.run_job(work, "Applying watermark…") is None:
@@ -321,7 +320,7 @@ class NormaliseTool(ToolBase):
         src = self._path.get()
         if not src:
             return messagebox.showwarning("Normalise", "Select a PDF first.")
-        doc = self._open_safe(src)
+        doc = self.app._open_pdf_safe(src)
         if doc is None:
             return
         out = self.app._save_as("normalised.pdf")

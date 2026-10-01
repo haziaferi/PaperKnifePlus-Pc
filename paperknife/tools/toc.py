@@ -1,12 +1,11 @@
 from __future__ import annotations
-import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import customtkinter as ctk
+import pymupdf as fitz
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, DANGER, DANGER_H, SUCCESS
-from ..recent import RECENT
 
 
 @register
@@ -74,8 +73,6 @@ class TocTool(ToolBase):
         app._big_btn(body, "  Save PDF  →", self._save).pack(fill="x", padx=24, pady=12)
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
-        if getattr(self, "_doc", None) is not None:
-            self._doc.close()
         self._doc = None
         self._toc: list = []   # list of [level, title, page]
 
@@ -84,14 +81,12 @@ class TocTool(ToolBase):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
             return
-        if self._doc:
-            self._doc.close()
+        self._close_doc()
         self._doc = self.app._open_pdf_safe(f)
         if not self._doc:
             return
         self._path_var.set(f)
         self._toc = [list(e) for e in self._doc.get_toc()]
-        RECENT.push(f, len(self._doc))
         self._refresh()
 
     def _refresh(self):
@@ -193,14 +188,12 @@ class TocTool(ToolBase):
         out = self.app._save_as("with_bookmarks.pdf")
         if not out:
             return
-        src = self._path_var.get()
         try:
             self._doc.set_toc(self._toc)
-            # MuPDF refuses a full save over the file it has open.
-            if os.path.exists(out) and os.path.samefile(out, src):
-                self._doc.saveIncr()
-            else:
-                self._doc.save(out, deflate=True)
+            # Saving over the source keeps its password, as the incremental
+            # save this replaced did; a copy elsewhere is written unprotected.
+            keep = {"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) else {}
+            self._save_doc(out, deflate=True, **keep)
             self.app._set_status(
                 f"✓  Saved {len(self._toc)} bookmark(s) → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF with updated bookmarks:\n{out}")

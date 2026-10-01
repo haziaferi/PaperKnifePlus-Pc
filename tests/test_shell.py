@@ -1,4 +1,4 @@
-"""App shell, job lifecycle, prefs and recent store (FE register lane FA)."""
+"""App shell: navigation, job lifecycle, prefs, recent store and atomic_output."""
 import json
 import threading
 import time
@@ -154,7 +154,7 @@ def test_close_during_job_cancels_and_waits_for_worker(app, dialogs, monkeypatch
     end = time.time() + 5
     while not destroyed and time.time() < end:
         pump(app, 0.05)
-    assert job.stop.is_set(), "close did not cancel the job"
+    assert job._stop.is_set(), "close did not cancel the job"
     assert destroyed == [False], "window destroyed while the worker was running"
     assert out.read_bytes() == b"complete"
 

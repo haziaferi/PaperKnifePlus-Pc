@@ -8,7 +8,6 @@ paperknife/tools/__init__.py which populates tool_base.TOOLS.
 """
 from __future__ import annotations
 
-import inspect
 import sys
 import time
 import tkinter as tk
@@ -26,6 +25,8 @@ except ImportError:
     _HAS_DND = False
 
 # ── DPI awareness (Windows only) ──────────────────────────────────────────────
+# app.manifest declares PerMonitorV2 for the PyInstaller build; this call
+# covers running from source, where no manifest is embedded.
 try:
     import ctypes as _ct
     _ct.windll.shcore.SetProcessDpiAwareness(2)
@@ -33,7 +34,7 @@ except Exception:
     pass
 
 from .theme import (ACCENT, ACCENT_H, BG, SIDEBAR, CARD, CARD2,
-                    TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN,
+                    TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN, ON_ACCENT,
                     LB_BG, _tk_color, __version__)
 from .recent import RECENT, get_thumb, time_ago
 from .prefs  import PREFS
@@ -64,11 +65,6 @@ class App(ctk.CTk):
         self.minsize(1060, 720)
         self.configure(fg_color=BG)
 
-        # DPI awareness is declared in app.manifest (PerMonitorV2);
-        # the ctypes shcore call is kept as a runtime fallback for environments
-        # where the manifest is not embedded (e.g., running from source without
-        # the PyInstaller build).
-
         # Tooltip state
         self._tooltip_win:  tk.Toplevel | None = None
         self._last_hover_path = ""
@@ -84,6 +80,9 @@ class App(ctk.CTk):
         # Bumped by every _set_status; run_job compares it to tell whether
         # the tool reported its own outcome while the job ran.
         self._status_seq = 0
+
+        # The tool whose view is shown; told to release its files when left
+        self._active_tool = None
 
         # Path queued for the Reader tool when opened via a Recent-file click
         self._reader_pending_path: str | None = None
@@ -104,7 +103,7 @@ class App(ctk.CTk):
         if PREFS.window_geometry:
             try:
                 self.geometry(PREFS.window_geometry)
-            except Exception:
+            except tk.TclError:
                 pass
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -360,21 +359,26 @@ class App(ctk.CTk):
     # NAVIGATION
     # ══════════════════════════════════════════════════════════════════════════
     def _nav_click(self, active_label: str, cmd):
-        """Highlight the active nav button; reset keyboard hooks; run cmd."""
+        """Highlight the active nav button; reset keyboard hooks; run cmd,
+        which is show_home or a tool's bound activate."""
         for lbl, btn in self._nav_btns.items():
             if lbl == active_label:
-                btn.configure(fg_color=ACCENT, text_color="#FFFFFF")
+                btn.configure(fg_color=ACCENT, text_color=ON_ACCENT)
             else:
                 btn.configure(fg_color="transparent", text_color=TEXT)
         self._cur_open_fn = None
         self._cur_save_fn = None
         self._cur_del_fn  = None
         self._cur_undo_fn = None
-        # cmd is either a plain callable (show_home) or tool.activate(app)
-        if inspect.signature(cmd).parameters:
-            cmd(self)
-        else:
+        if self._active_tool is not None:
+            self._active_tool.deactivate()
+        owner = getattr(cmd, "__self__", None)
+        if owner is self:
+            self._active_tool = None
             cmd()
+        else:
+            self._active_tool = owner
+            cmd(self)
 
     def _clear_main(self):
         self._hide_tooltip()
@@ -386,11 +390,8 @@ class App(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════════
     def run_job(self, worker_fn, label: str = "Working…") -> CancellableJob:
         """
-        Run *worker_fn* in a background thread with full progress + cancel UI.
-
-        worker_fn may be:
-          • def work()           — legacy; no cancel support
-          • def work(stop)       — receives threading.Event; check stop.is_set()
+        Run *worker_fn(stop)* in a background thread with full progress +
+        cancel UI; stop is a threading.Event the worker checks with is_set().
 
         Only one job runs at a time; while one is running this shows a
         warning and returns None.
@@ -610,7 +611,7 @@ class App(ctk.CTk):
         lb = tk.Listbox(fr, bg=_tk_color(LB_BG), fg=_tk_color(TEXT), selectbackground=_tk_color(ACCENT),
                         font=("Segoe UI", 12), relief="flat", bd=0,
                         activestyle="none", highlightthickness=0,
-                        selectforeground="#FFFFFF", height=height)
+                        selectforeground=ON_ACCENT, height=height)
         sb = tk.Scrollbar(fr, orient="vertical", command=lb.yview)
         lb.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
@@ -639,12 +640,15 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=16, weight="bold"),
             fg_color=color, hover_color=hover, **kw)
 
-    def _save_as(self, default="output.pdf", ext=".pdf"):
-        ft = [(ext.lstrip(".").upper(), f"*{ext}")]
-        init_dir = PREFS.output_dir if PREFS.output_dir else None
+    def _save_as(self, default="output.pdf", ext=".pdf", filetypes=None):
+        ft = filetypes or [(ext.lstrip(".").upper(), f"*{ext}")]
         return filedialog.asksaveasfilename(
             defaultextension=ext, filetypes=ft, initialfile=default,
-            initialdir=init_dir)
+            initialdir=PREFS.output_dir or None)
+
+    def _ask_dir(self, title="Choose output folder"):
+        return filedialog.askdirectory(title=title,
+                                       initialdir=PREFS.output_dir or None)
 
     def _open_pdf_safe(self, path: str):
         try:
@@ -663,6 +667,7 @@ class App(ctk.CTk):
                 messagebox.showerror("Error", "Incorrect password.")
                 doc.close()
                 return None
+        RECENT.push(path, len(doc))
         return doc
 
     def _widget_set(self, widget, **kwargs):

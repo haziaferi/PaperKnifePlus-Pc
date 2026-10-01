@@ -13,6 +13,7 @@ thread via app.after(), where they become PhotoImages and are cached
 View-only: no save action, nothing here mutates the PDF.
 """
 from __future__ import annotations
+import os
 import threading
 import queue
 from collections import OrderedDict
@@ -21,11 +22,10 @@ import tkinter as tk
 from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image, ImageTk
-import pymupdf as fitz
 
 from ..tool_base import ToolBase, register
-from ..theme import TEXT, MUTED, CARD2, CANVAS_BG, _tk_color
-from ..recent import RECENT
+from ..theme import TEXT, MUTED, CARD2, WARN, CANVAS_BG, _tk_color
+from ..pages import render
 
 _PRELOAD   = 2     # extra pages rendered beyond the visible window, each side
 _CACHE_MAX = 16     # bounded PhotoImage cache (pages currently displayed are exempt)
@@ -40,7 +40,6 @@ class ReaderTool(ToolBase):
     _doc  = None
     _path = ""
     _zoom = 1.25
-    _page_rects: list = []
 
     def show(self):
         app  = self.app
@@ -86,6 +85,7 @@ class ReaderTool(ToolBase):
             self._inflight    = set()           # (gen, page_idx, zoom) queued, not yet drawn
             self._window      = (0, -1)         # pages wanted now; the worker skips the rest
             self._doc_lock    = None
+            self._page_rects  = []
             self._scroll_frac = 0.0
             self._worker_stop = threading.Event()
             self._worker = threading.Thread(target=self._render_worker, daemon=True)
@@ -99,13 +99,21 @@ class ReaderTool(ToolBase):
         if pending:
             app._reader_pending_path = None
             self.open_path(pending)
-        elif self._doc:
-            # Re-entering the tool with a document already open — rebuild
-            # geometry on the fresh canvas and restore scroll position.
-            self._path_var.set(self._path)
-            self._layout_pages()
-            self._canvas.yview_moveto(self._scroll_frac)
-            app.after(30, self._update_viewport)
+        elif self._path and os.path.exists(self._path):
+            # Re-entering the tool: reopen the document closed on leaving it
+            # and restore the scroll position.
+            frac = self._scroll_frac
+            self._load(self._path)
+            if self._doc:
+                self._canvas.yview_moveto(frac)
+                app.after(30, self._update_viewport)
+
+    def deactivate(self):
+        # Keep the path and scroll position for re-entry, but not the file open.
+        if self._doc is not None:
+            self._gen += 1
+            self._close_off_thread(self._doc, self._doc_lock)
+            self._doc = None
 
     # ── public: other parts of the app can open a file straight into the reader ──
     def open_path(self, path: str):
@@ -118,7 +126,7 @@ class ReaderTool(ToolBase):
             self.open_path(f)
 
     def _load(self, path: str):
-        doc = self._open_safe(path)
+        doc = self.app._open_pdf_safe(path)
         if not doc:
             return
         old_doc, old_lock = self._doc, self._doc_lock
@@ -128,7 +136,6 @@ class ReaderTool(ToolBase):
         self._gen += 1
         self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
         self._path_var.set(path)
-        RECENT.push(path, len(doc))
 
         self._cache.clear()
         self._items.clear()
@@ -138,12 +145,16 @@ class ReaderTool(ToolBase):
         self._update_viewport()
 
         if old_doc is not None:
-            # Close off-thread, holding the old lock, so a render already
-            # in flight against old_doc finishes before close() runs.
-            def _close_when_idle(d=old_doc, lk=old_lock):
-                with lk:
-                    d.close()
-            threading.Thread(target=_close_when_idle, daemon=True).start()
+            self._close_off_thread(old_doc, old_lock)
+
+    @staticmethod
+    def _close_off_thread(doc, lock):
+        # Holding the document's lock, so a render already in flight against
+        # it finishes before close() runs.
+        def _close_when_idle():
+            with lock:
+                doc.close()
+        threading.Thread(target=_close_when_idle, daemon=True).start()
 
     # ── layout: page geometry only — no rasterising ──────────────────────────
     def _layout_pages(self):
@@ -253,13 +264,17 @@ class ReaderTool(ToolBase):
                 continue
             try:
                 with lock:
-                    page = doc[idx]
-                    pix  = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-                    img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            except Exception:
-                self.app.after(0, lambda f=flight: self._inflight.discard(f))
+                    pix = render(doc[idx], zoom, shrink=True)
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            except Exception as e:
+                self.app.after(0, lambda f=flight, i=idx, ex=e: self._on_failed(f, i, ex))
                 continue
             self.app.after(0, lambda i=idx, z=zoom, g=gen, im=img: self._on_rendered(g, i, z, im))
+
+    def _on_failed(self, flight, idx, exc):
+        self._inflight.discard(flight)
+        if flight[0] == self._gen:
+            self.app._set_status(f"Page {idx + 1} could not be shown: {exc}", WARN)
 
     def _on_rendered(self, gen, idx, zoom, pil_img):
         self._inflight.discard((gen, idx, zoom))

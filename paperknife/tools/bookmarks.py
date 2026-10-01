@@ -6,7 +6,7 @@ import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import CARD2, TEXT, MUTED, SUCCESS, WARN
-from ..recent import RECENT
+from ..job_queue import atomic_output
 
 
 @register
@@ -44,8 +44,6 @@ class BookmarksTool(ToolBase):
 
         app._big_btn(body, "  Split by Bookmarks  →",
                      self._run).pack(fill="x", padx=24, pady=16)
-        if getattr(self, "_doc", None) is not None:
-            self._doc.close()
         self._doc = None
         self._toc = []
 
@@ -57,8 +55,7 @@ class BookmarksTool(ToolBase):
         doc = self.app._open_pdf_safe(f)
         if not doc:
             return
-        if self._doc is not None:
-            self._doc.close()
+        self._close_doc()
         self._doc = doc
         self._path.set(f)
         toc = doc.get_toc()
@@ -90,8 +87,7 @@ class BookmarksTool(ToolBase):
         if not self._toc:
             return messagebox.showwarning("Bookmarks", "PDF has no bookmarks.")
         all_levels = "All" in self._level_var.get()
-        doc   = self._doc
-        total = len(doc)
+        total = len(self._doc)
         chosen = [(title, page) for level, title, page, *_ in self._toc
                   if all_levels or level == 1]
         # get_toc reports -1 for a bookmark with no page target; levels can
@@ -102,7 +98,7 @@ class BookmarksTool(ToolBase):
         if not entries:
             return messagebox.showwarning("Bookmarks",
                                           "No matching bookmarks point to a page.")
-        out_dir = filedialog.askdirectory(title="Choose output folder")
+        out_dir = self.app._ask_dir()
         if not out_dir:
             return
         try:
@@ -113,13 +109,12 @@ class BookmarksTool(ToolBase):
                 if start > end:
                     continue
                 safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title)[:50].strip()
-                nd   = fitz.open()
-                nd.insert_pdf(doc, from_page=start, to_page=end)
-                nd.save(os.path.join(out_dir, f"{i + 1:02d}_{safe}.pdf"),
-                        deflate=True)
-                nd.close()
+                target = os.path.join(out_dir, f"{i + 1:02d}_{safe}.pdf")
+                self._release(target)
+                with atomic_output(target) as tmp, fitz.open() as nd:
+                    nd.insert_pdf(self._doc, from_page=start, to_page=end)
+                    nd.save(tmp, deflate=True)
                 count += 1
-            RECENT.push(src, total)
             self.app._set_status(
                 f"✓  Split into {count} chapter(s) → {out_dir}", SUCCESS)
             note = (f"\n\n{skipped} bookmark(s) with no page target were skipped."

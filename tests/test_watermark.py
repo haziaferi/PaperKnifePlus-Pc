@@ -1,4 +1,4 @@
-"""Watermark tool end to end through the real view (FE register: L2-01, L2-03)."""
+"""Watermark tool end to end through the real view."""
 import re
 
 import pymupdf as fitz

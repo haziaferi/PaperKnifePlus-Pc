@@ -154,7 +154,7 @@ def wait_job(app, timeout: float = 60.0):
 
 
 def make_pdf(path, pages: int = 3, text: str = "Page {n}", **page_kw) -> str:
-    import fitz
+    import pymupdf as fitz
     doc = fitz.open()
     for i in range(pages):
         p = doc.new_page(**page_kw)

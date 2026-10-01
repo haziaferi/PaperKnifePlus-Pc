@@ -1,4 +1,4 @@
-"""Lane FE: convert, OCR, metadata and reader fixes (register 2026-10-01)."""
+"""Convert tools, OCR, metadata and the reader."""
 import time
 
 import pymupdf as fitz

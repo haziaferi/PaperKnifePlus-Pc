@@ -6,11 +6,12 @@ from pathlib import Path
 import importlib.util as _ilu
 import customtkinter as ctk
 import pymupdf as fitz
+from PIL import Image
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
-from ..recent import RECENT
-from ..prefs import PREFS
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN_BG, WARN_TITLE, WARN_BODY
+from ..prefs import PREFS, pref_dpi
 from ..job_queue import atomic_output
+from ..pages import render
 
 _HAS_OCR = _ilu.find_spec("pytesseract") is not None
 _MIN_CONF = 30
@@ -70,19 +71,19 @@ class OCRTool(ToolBase):
             "Make a scanned or image-only PDF searchable · powered by Tesseract")
 
         if not _HAS_OCR:
-            warn = ctk.CTkFrame(body, fg_color="#FEF3C7", corner_radius=10)
+            warn = ctk.CTkFrame(body, fg_color=WARN_BG, corner_radius=10)
             warn.pack(fill="x", padx=24, pady=24)
             ctk.CTkLabel(
                 warn,
                 text="⚠  pytesseract not installed",
                 font=ctk.CTkFont(size=15, weight="bold"),
-                text_color="#92400E").pack(padx=20, pady=(16, 4), anchor="w")
+                text_color=WARN_TITLE).pack(padx=20, pady=(16, 4), anchor="w")
             ctk.CTkLabel(
                 warn,
                 text="Install it with:  pip install pytesseract\n"
                      "Then install the Tesseract binary from:\n"
                      "https://github.com/UB-Mannheim/tesseract/wiki",
-                font=ctk.CTkFont(size=13), text_color="#78350F",
+                font=ctk.CTkFont(size=13), text_color=WARN_BODY,
                 justify="left").pack(padx=20, pady=(0, 16), anchor="w")
             return
 
@@ -92,7 +93,6 @@ class OCRTool(ToolBase):
         card = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
         card.pack(fill="x", padx=24, pady=8)
 
-        # Language
         r1 = ctk.CTkFrame(card, fg_color="transparent")
         r1.pack(fill="x", padx=16, pady=(14, 4))
         ctk.CTkLabel(r1, text="Language code:", width=160,
@@ -106,16 +106,12 @@ class OCRTool(ToolBase):
                      text_color=MUTED, font=ctk.CTkFont(size=12)
                      ).pack(side="left", padx=12)
 
-        # DPI
         r2 = ctk.CTkFrame(card, fg_color="transparent")
         r2.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(r2, text="Render DPI:", width=160,
                      text_color=TEXT, anchor="w").pack(side="left")
         self._dpi = ctk.CTkSlider(r2, from_=72, to=400, number_of_steps=328)
-        try:
-            dpi = min(400, max(72, int(PREFS.default_dpi)))
-        except (TypeError, ValueError):
-            dpi = 300
+        dpi = pref_dpi(72, 400)
         self._dpi.set(dpi)
         self._dpi.pack(side="left", fill="x", expand=True)
         self._dpi_lbl = ctk.CTkLabel(r2, text=f"{dpi} DPI", width=80,
@@ -124,7 +120,6 @@ class OCRTool(ToolBase):
         self._dpi.configure(
             command=lambda v: self._dpi_lbl.configure(text=f"{int(v)} DPI"))
 
-        # Mode
         r3 = ctk.CTkFrame(card, fg_color="transparent")
         r3.pack(fill="x", padx=16, pady=(4, 14))
         ctk.CTkLabel(r3, text="Output mode:", width=160,
@@ -136,7 +131,6 @@ class OCRTool(ToolBase):
         self._mode.set("Overlay (invisible text layer)")
         self._mode.pack(side="left")
 
-        # Log
         self._log = ctk.CTkLabel(card, text="",
                                   font=ctk.CTkFont(size=12), text_color=MUTED)
         self._log.pack(padx=16, pady=(0, 4))
@@ -153,9 +147,12 @@ class OCRTool(ToolBase):
         src = self._path.get()
         if not src:
             return messagebox.showwarning("OCR", "Select a PDF first.")
+        doc = self.app._open_pdf_safe(src)
+        if doc is None:
+            return
         out = self.app._save_as("ocr_output.pdf")
         if not out:
-            return
+            return doc.close()
         lang = self._lang.get().strip() or "eng"
         dpi  = int(self._dpi.get())
         mode = self._mode.get()
@@ -164,22 +161,20 @@ class OCRTool(ToolBase):
 
         def work(stop):
             import pytesseract
-            from PIL import Image as _PIL_Image
 
             try:
                 pytesseract.get_tesseract_version()
-            except Exception:
+            except pytesseract.TesseractNotFoundError:
+                doc.close()
                 raise RuntimeError(
                     "Tesseract binary not found on PATH.\n"
                     "Install it from: https://github.com/UB-Mannheim/tesseract/wiki") from None
 
             text_only = "Text-only" in mode
-            with fitz.open(src) as doc:
-                total  = len(doc)
-                scale  = dpi / 72.0
-                mat    = fitz.Matrix(scale, scale)
-                nd     = fitz.open() if text_only else None
-
+            total = len(doc)
+            scale = dpi / 72.0
+            # doc is closed before the replace, so the output may be the input file.
+            with atomic_output(out) as tmp, doc, fitz.open() as nd:
                 for pg_i, page in enumerate(doc):
                     if stop.is_set():
                         return
@@ -188,9 +183,8 @@ class OCRTool(ToolBase):
                     app.after(0,
                               lambda v=(pg_i + 1) / total: app._prog_update(v))
 
-                    pix = page.get_pixmap(matrix=mat, alpha=False)
-                    img = _PIL_Image.frombytes(
-                        "RGB", [pix.width, pix.height], pix.samples)
+                    pix = render(page, scale)
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
                     if text_only:
                         text = pytesseract.image_to_string(img, lang=lang)
@@ -203,22 +197,19 @@ class OCRTool(ToolBase):
                         add_text_layer(page, ocr_words(img, lang, scale))
 
                 if text_only:
-                    data = nd.tobytes(deflate=True)
-                    nd.close()
+                    nd.save(tmp, deflate=True)
                 else:
-                    data = doc.tobytes(garbage=3, deflate=True)
-            # Written after the source is closed, so the output may replace it.
-            with atomic_output(out) as tmp:
-                Path(tmp).write_bytes(data)
-            RECENT.push(src, total)
-            done_msg = f"✓  OCR complete — {total} page(s) → {Path(out).name}"
-            app.after(0, lambda: [
-                app._widget_set(log, text=f"✓  Done — {total} page(s) processed"),
-                app._set_status(done_msg, SUCCESS),
+                    doc.save(tmp, garbage=3, deflate=True)
+
+            def done():
+                app._widget_set(log, text=f"✓  Done — {total} page(s) processed")
+                app._set_status(f"✓  OCR complete — {total} page(s) → {Path(out).name}",
+                                SUCCESS)
                 messagebox.showinfo("OCR Complete",
                                     f"OCR PDF saved:\n{out}\n\n"
-                                    f"Pages processed: {total}"),
-            ])
+                                    f"Pages processed: {total}")
+            app.after(0, done)
 
         app._set_status(f"Starting OCR ({lang}, {dpi} DPI)…")
-        app.run_job(work, f"OCR — {dpi} DPI · lang={lang}")
+        if app.run_job(work, f"OCR — {dpi} DPI · lang={lang}") is None:
+            doc.close()

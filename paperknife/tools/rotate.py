@@ -7,7 +7,7 @@ import customtkinter as ctk
 import pymupdf as fitz
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, CARD, CARD2, TEXT, MUTED, SUCCESS
-from ..recent import RECENT
+from ..job_queue import atomic_output
 
 
 @register
@@ -47,8 +47,6 @@ class RotateTool(ToolBase):
 
         app._big_btn(body, "  Save PDF  →", self._save).pack(fill="x", padx=24, pady=12)
 
-        if getattr(self, "_doc", None) is not None:
-            self._doc.close()
         self._doc   = None
         self._order  = []
         self._extra  = {}
@@ -75,7 +73,6 @@ class RotateTool(ToolBase):
         self._sel    = None
         self._cells  = []
         self._thumbs = {}
-        RECENT.push(f, len(self._doc))
         self._render()
 
     def _render(self):
@@ -145,16 +142,16 @@ class RotateTool(ToolBase):
         if not out:
             return
         try:
-            nd = fitz.open()
-            for pi in self._order:
-                nd.insert_pdf(self._doc, from_page=pi, to_page=pi)
-            for ni, pi in enumerate(self._order):
-                ex = self._extra[pi]
-                if ex:
-                    p = nd[ni]
-                    p.set_rotation((p.rotation + ex) % 360)
-            nd.save(out, deflate=True)
-            nd.close()
+            self._release(out)
+            with atomic_output(out) as tmp, fitz.open() as nd:
+                for pi in self._order:
+                    nd.insert_pdf(self._doc, from_page=pi, to_page=pi)
+                for ni, pi in enumerate(self._order):
+                    ex = self._extra[pi]
+                    if ex:
+                        p = nd[ni]
+                        p.set_rotation((p.rotation + ex) % 360)
+                nd.save(tmp, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF saved:\n{out}")
         except Exception as e:

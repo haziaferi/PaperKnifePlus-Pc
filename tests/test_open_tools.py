@@ -1,4 +1,4 @@
-"""Every registered tool view must build without raising (FE register: L3-01..04, L4-37)."""
+"""Every registered tool view must build without raising."""
 import pytest
 
 from conftest import tool

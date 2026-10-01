@@ -6,18 +6,8 @@ import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN
-from ..recent import RECENT
 from ..job_queue import atomic_output
-from ..pages import PageRangeError, parse_ranges
-
-
-def selected_pages(range_str: str, total: int) -> list[int]:
-    """Sorted unique 0-based pages for a page-range field; blank or 'all' is
-    every page.  Raises PageRangeError for input naming no real pages."""
-    if range_str.strip().lower() in ("", "all"):
-        return list(range(total))
-    return sorted({p for a, b in parse_ranges(range_str, total)
-                   for p in range(a, b + 1)})
+from ..pages import PageRangeError, selected_pages
 
 
 @register
@@ -111,7 +101,7 @@ class CropTool(ToolBase):
             return messagebox.showwarning("Crop", "All margins are 0 — nothing to crop.")
         range_str = self._page_range.get().strip()
         reset     = self._reset_var.get()
-        doc = self._open_safe(src)
+        doc = self.app._open_pdf_safe(src)
         if doc is None:
             return
         total = len(doc)
@@ -140,7 +130,6 @@ class CropTool(ToolBase):
                     page.set_cropbox(new + (cb.x0, cb.y0, cb.x0, cb.y0))
                     cropped += 1
                 doc.save(tmp, deflate=True)
-            RECENT.push(src, total)
             skipped = len(pages) - cropped
             note = (f" · {skipped} skipped (margins larger than the page)"
                     if skipped else "")

@@ -8,10 +8,11 @@ import pymupdf as fitz
 from PIL import Image, ImageOps
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN
-from ..recent import RECENT
-from ..prefs import PREFS
+from ..theme import (ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN,
+                     WARN_BG, WARN_BODY)
+from ..prefs import pref_dpi
 from ..job_queue import atomic_output
+from ..pages import render
 import importlib.util as _ilu
 
 def _pkg(name): return _ilu.find_spec(name) is not None
@@ -19,6 +20,14 @@ def _pkg(name): return _ilu.find_spec(name) is not None
 _HAS_DOCX     = _pkg("docx")
 _HAS_PPTX     = _pkg("pptx")
 _HAS_OPENPYXL = _pkg("openpyxl")
+
+_FMTS  = ["TXT", "HTML", "XML", "RTF", "DOCX", "PPTX", "XLSX", "PNG", "JPEG"]
+# format -> (pip package, installed)
+_NEEDS = {
+    "DOCX": ("python-docx", _HAS_DOCX),
+    "PPTX": ("python-pptx", _HAS_PPTX),
+    "XLSX": ("openpyxl",    _HAS_OPENPYXL),
+}
 
 # Characters XML 1.0 forbids; python-docx and openpyxl refuse strings holding them.
 _XML_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -30,11 +39,28 @@ class _Cancelled(Exception):
     """Raised inside atomic_output on Cancel so the partial file is discarded."""
 
 
-def _pref_dpi(lo: int, hi: int) -> int:
-    try:
-        return min(hi, max(lo, int(PREFS.default_dpi)))
-    except (TypeError, ValueError):
-        return 150
+def _require(fmt: str) -> None:
+    lib, installed = _NEEDS[fmt]
+    if not installed:
+        raise RuntimeError(f"{lib} not installed.\nRun: pip install {lib}")
+
+
+def _pages_to_zip(path, doc, dpi, fmt, quality, stop, progress) -> None:
+    """Write every page of *doc* into a ZIP at *path* as PNG or JPEG images."""
+    total = len(doc)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, page in enumerate(doc):
+            if stop.is_set():
+                raise _Cancelled
+            progress((i + 1) / total)
+            pix = render(page, dpi / 72.0)
+            if fmt == "JPEG":
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                buf = io.BytesIO()
+                img.save(buf, "JPEG", quality=quality)
+                zf.writestr(f"page_{i + 1:04d}.jpg", buf.getvalue())
+            else:
+                zf.writestr(f"page_{i + 1:04d}.png", pix.tobytes("png"))
 
 
 def _image_page(doc, path) -> None:
@@ -63,16 +89,26 @@ def _text_story(text: str):
     return fitz.Story(html=f"<pre>{html.escape(text)}</pre>", user_css=_STORY_CSS)
 
 
-def _write_story(writer, story, page_rect, stop) -> None:
-    """Typeset *story* onto as many *page_rect* pages as it needs, inside the margins."""
+def _write_story(writer, story, page_rect, stop) -> bool:
+    """Typeset *story* onto as many *page_rect* pages as it needs, inside the
+    margins.  Returns False when the story cannot be laid out on pages."""
     where = page_rect + _MARGIN
+    last = None
     while True:
         dev = writer.begin_page(page_rect)
-        more, _ = story.place(where)          # place() returns (more, filled)
+        more, filled = story.place(where)
         story.draw(dev)
         writer.end_page()
         if not more or stop.is_set():
-            return
+            return True
+        # An element that cannot be split and is taller than the page (a long
+        # table row) makes place() return more forever without consuming it;
+        # it shows as the same overflowing area page after page.  A paragraph
+        # margin overflows the area by a few points while the text still flows.
+        filled = fitz.Rect(filled)
+        if filled == last and filled.y1 - where.y1 > where.height * 0.05:
+            return False
+        last = filled
 
 
 def _rtf_escape(text: str) -> str:
@@ -106,12 +142,12 @@ class Img2PdfTool(ToolBase):
         lf, self._lb = app._listbox(body)
         lf.pack(fill="both", expand=True, padx=24, pady=4)
         if app._dnd_ok:
+            from tkinterdnd2 import DND_FILES
             try:
-                from tkinterdnd2 import DND_FILES
                 self._lb.drop_target_register(DND_FILES)
                 self._lb.dnd_bind("<<Drop>>", self._on_drop)
-            except Exception:
-                pass
+            except tk.TclError:
+                pass     # the list still fills from "Add Images"
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x", padx=24, pady=8)
         ctk.CTkButton(row, text="＋ Add Images", width=130,
@@ -151,20 +187,20 @@ class Img2PdfTool(ToolBase):
         app = self.app
 
         def work(stop):
-            doc = fitz.open()
-            for i, p in enumerate(paths):
-                if stop.is_set():
-                    return
-                _image_page(doc, p)
-                app.after(0, lambda v=(i + 1) / len(paths): app._prog_update(v))
-            with atomic_output(out) as tmp:
+            n = len(paths)
+            with atomic_output(out) as tmp, fitz.open() as doc:
+                for i, p in enumerate(paths):
+                    if stop.is_set():
+                        return
+                    _image_page(doc, p)
+                    app.after(0, lambda v=(i + 1) / n: app._prog_update(v))
                 doc.save(tmp, deflate=True)
-            doc.close()
-            app.after(0, lambda: [
+
+            def done():
                 app._set_status(
-                    f"✓  Converted {len(paths)} image(s) → {Path(out).name}", SUCCESS),
-                messagebox.showinfo("Done", f"PDF saved:\n{out}"),
-            ])
+                    f"✓  Converted {len(paths)} image(s) → {Path(out).name}", SUCCESS)
+                messagebox.showinfo("Done", f"PDF saved:\n{out}")
+            app.after(0, done)
 
         app._set_status(f"Converting {len(paths)} image(s)…")
         app.run_job(work, f"Converting {len(paths)} image(s)…")
@@ -190,7 +226,7 @@ class Pdf2ImgTool(ToolBase):
         sr = ctk.CTkFrame(opt, fg_color="transparent")
         sr.pack(fill="x", padx=16, pady=4)
         self._dpi = ctk.CTkSlider(sr, from_=72, to=300, number_of_steps=228)
-        dpi = _pref_dpi(72, 300)
+        dpi = pref_dpi(72, 300)
         self._dpi.set(dpi)
         self._dpi.pack(side="left", fill="x", expand=True)
         self._dpi_lbl = ctk.CTkLabel(sr, text=f"{dpi} DPI", width=80,
@@ -211,37 +247,32 @@ class Pdf2ImgTool(ToolBase):
         if not src:
             return messagebox.showwarning("Export", "Select a PDF first.")
         dpi = int(self._dpi.get())
-        out = filedialog.asksaveasfilename(
-            defaultextension=".zip",
-            filetypes=[("ZIP", "*.zip")], initialfile="pages.zip")
-        if not out:
-            return
         app = self.app
+        doc = app._open_pdf_safe(src)
+        if doc is None:
+            return
+        out = app._save_as("pages.zip", ".zip", [("ZIP", "*.zip")])
+        if not out:
+            return doc.close()
+        total = len(doc)
 
         def work(stop):
-            scale = dpi / 72
-            mat   = fitz.Matrix(scale, scale)
             try:
-                with atomic_output(out) as tmp, fitz.open(src) as doc:
-                    total = len(doc)
-                    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-                        for i, page in enumerate(doc):
-                            if stop.is_set():
-                                raise _Cancelled
-                            pix = page.get_pixmap(matrix=mat, alpha=False)
-                            zf.writestr(f"page_{i + 1:04d}.png", pix.tobytes("png"))
-                            app.after(0, lambda v=(i + 1) / total: app._prog_update(v))
+                with atomic_output(out) as tmp, doc:
+                    _pages_to_zip(tmp, doc, dpi, "PNG", 0, stop,
+                                  lambda v: app.after(0, lambda: app._prog_update(v)))
             except _Cancelled:
                 return
-            RECENT.push(src, total)
-            app.after(0, lambda: [
+
+            def done():
                 app._set_status(
-                    f"✓  Exported {total} pages → {Path(out).name}", SUCCESS),
-                messagebox.showinfo("Done", f"Exported {total} pages to:\n{out}"),
-            ])
+                    f"✓  Exported {total} pages → {Path(out).name}", SUCCESS)
+                messagebox.showinfo("Done", f"Exported {total} pages to:\n{out}")
+            app.after(0, done)
 
         app._set_status("Exporting pages…")
-        app.run_job(work, "Exporting pages to PNG…")
+        if app.run_job(work, "Exporting pages to PNG…") is None:
+            doc.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -294,64 +325,70 @@ class ExtractTool(ToolBase):
             min_px = int(self._minpx.get() or "50")
         except ValueError:
             min_px = 50
-        out_dir = filedialog.askdirectory(title="Choose output folder")
-        if not out_dir:
-            return
-        fmt = self._fmt.get()
         app = self.app
+        doc = app._open_pdf_safe(src)
+        if doc is None:
+            return
+        out_dir = app._ask_dir()
+        if not out_dir:
+            return doc.close()
+        fmt = self._fmt.get()
         log = self._log
 
         def work(stop):
-            doc  = fitz.open(src)
             seen, count, failed = set(), 0, 0
             total = len(doc)
-            for pg_i, page in enumerate(doc):
-                if stop.is_set():
-                    return
-                app.after(0, lambda v=(pg_i + 1) / total: app._prog_update(v))
-                for img_info in page.get_images(full=True):
-                    xref = img_info[0]
-                    if xref in seen:
-                        continue
-                    seen.add(xref)
-                    try:
-                        base = doc.extract_image(xref)
-                        w, h = base["width"], base["height"]
-                        if w < min_px or h < min_px:
+            with doc:
+                for pg_i, page in enumerate(doc):
+                    if stop.is_set():
+                        return
+                    app.after(0, lambda v=(pg_i + 1) / total: app._prog_update(v))
+                    for img_info in page.get_images(full=True):
+                        xref = img_info[0]
+                        if xref in seen:
                             continue
-                        data = base["image"]
-                        ext  = base["ext"]
-                        if fmt == "PNG":
-                            img = Image.open(io.BytesIO(data))
-                            if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
-                                img = img.convert("RGB")      # PNG cannot store CMYK
-                            buf = io.BytesIO()
-                            img.save(buf, "PNG")
-                            data = buf.getvalue()
-                            ext  = "png"
-                        elif fmt == "JPEG":
-                            img = Image.open(io.BytesIO(data)).convert("RGB")
-                            buf = io.BytesIO()
-                            img.save(buf, "JPEG", quality=92)
-                            data = buf.getvalue()
-                            ext  = "jpg"
-                        fname = os.path.join(out_dir, f"img_{xref:05d}.{ext}")
-                        Path(fname).write_bytes(data)
-                        count += 1
-                    except Exception:
-                        failed += 1
-            doc.close()
+                        seen.add(xref)
+                        try:
+                            base = doc.extract_image(xref)
+                            w, h = base["width"], base["height"]
+                            if w < min_px or h < min_px:
+                                continue
+                            data = base["image"]
+                            ext  = base["ext"]
+                            if fmt == "PNG":
+                                img = Image.open(io.BytesIO(data))
+                                if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
+                                    img = img.convert("RGB")      # PNG cannot store CMYK
+                                buf = io.BytesIO()
+                                img.save(buf, "PNG")
+                                data = buf.getvalue()
+                                ext  = "png"
+                            elif fmt == "JPEG":
+                                img = Image.open(io.BytesIO(data)).convert("RGB")
+                                buf = io.BytesIO()
+                                img.save(buf, "JPEG", quality=92)
+                                data = buf.getvalue()
+                                ext  = "jpg"
+                            fname = os.path.join(out_dir, f"img_{xref:05d}.{ext}")
+                            with atomic_output(fname) as tmp:
+                                Path(tmp).write_bytes(data)
+                            count += 1
+                        except Exception:
+                            failed += 1
             msg = (f"Found and extracted {count} image(s)  "
                    f"({len(seen)} unique xrefs scanned)")
             fail_txt = f"\n{failed} image(s) could not be extracted." if failed else ""
-            app.after(0, lambda m=msg, c=count: [
-                app._widget_set(log, text=m + fail_txt.replace("\n", "  ·  ")),
-                app._set_status(f"✓  Extracted {c} image(s) → {out_dir}",
-                                WARN if failed else SUCCESS),
-                messagebox.showinfo("Done", f"Extracted {c} image(s) to:\n{out_dir}{fail_txt}"),
-            ])
 
-        app.run_job(work, "Extracting images…")
+            def done():
+                app._widget_set(log, text=msg + fail_txt.replace("\n", "  ·  "))
+                app._set_status(f"✓  Extracted {count} image(s) → {out_dir}",
+                                WARN if failed else SUCCESS)
+                messagebox.showinfo("Done",
+                                    f"Extracted {count} image(s) to:\n{out_dir}{fail_txt}")
+            app.after(0, done)
+
+        if app.run_job(work, "Extracting images…") is None:
+            doc.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -360,7 +397,6 @@ class Pdf2DocTool(ToolBase):
     section = "CONVERT"
     label   = "📄  PDF → Doc / Text"
 
-    _FMTS = ["TXT", "HTML", "XML", "RTF", "DOCX", "PPTX", "XLSX", "PNG", "JPEG"]
     _INFO = {
         "TXT":  "Extracts all selectable text from the PDF into a plain .txt file.",
         "HTML": "Exports each page with HTML text structure — opens in any browser.",
@@ -371,11 +407,6 @@ class Pdf2DocTool(ToolBase):
         "XLSX": "Extracts text per page; each page goes to its own Excel sheet.  Requires: openpyxl",
         "PNG":  "Renders every page as a PNG image, bundled together in a ZIP.",
         "JPEG": "Renders every page as a JPEG image, bundled together in a ZIP.",
-    }
-    _NEEDS = {
-        "DOCX": ("python-docx", lambda: _HAS_DOCX),
-        "PPTX": ("python-pptx", lambda: _HAS_PPTX),
-        "XLSX": ("openpyxl",    lambda: _HAS_OPENPYXL),
     }
     _OUT = {
         "TXT":  (".txt",  "Text File",      "output.txt"),
@@ -403,7 +434,7 @@ class Pdf2DocTool(ToolBase):
         ctk.CTkLabel(r1, text="Output format:", width=150,
                      text_color=TEXT, anchor="w").pack(side="left")
         self._fmt = ctk.CTkOptionMenu(
-            r1, values=self._FMTS, width=150, height=40,
+            r1, values=_FMTS, width=150, height=40,
             command=self._fmt_changed)
         self._fmt.set("TXT")
         self._fmt.pack(side="left")
@@ -424,15 +455,15 @@ class Pdf2DocTool(ToolBase):
         self._quality = None
         for w in self._opts.winfo_children():
             w.destroy()
-        if fmt in self._NEEDS:
-            lib, ok_fn = self._NEEDS[fmt]
-            if not ok_fn():
-                warn = ctk.CTkFrame(self._opts, fg_color="#FEF3C7", corner_radius=8)
+        if fmt in _NEEDS:
+            lib, installed = _NEEDS[fmt]
+            if not installed:
+                warn = ctk.CTkFrame(self._opts, fg_color=WARN_BG, corner_radius=8)
                 warn.pack(fill="x", pady=(0, 6))
                 ctk.CTkLabel(warn,
                              text=f"⚠  '{lib}' is not installed.\n"
                                   f"Install it:  pip install {lib}",
-                             font=ctk.CTkFont(size=12), text_color="#78350F",
+                             font=ctk.CTkFont(size=12), text_color=WARN_BODY,
                              justify="left").pack(padx=16, pady=10, anchor="w")
         if fmt in ("PNG", "JPEG", "PPTX"):
             dr = ctk.CTkFrame(self._opts, fg_color="transparent")
@@ -440,7 +471,7 @@ class Pdf2DocTool(ToolBase):
             ctk.CTkLabel(dr, text="Resolution:", width=140,
                          text_color=TEXT, anchor="w").pack(side="left")
             self._dpi = ctk.CTkSlider(dr, from_=72, to=300, number_of_steps=228)
-            dpi = _pref_dpi(72, 300)
+            dpi = pref_dpi(72, 300)
             self._dpi.set(dpi)
             self._dpi.pack(side="left", fill="x", expand=True)
             dpi_lbl = ctk.CTkLabel(dr, text=f"{dpi} DPI", width=80, text_color=TEXT)
@@ -471,19 +502,19 @@ class Pdf2DocTool(ToolBase):
             return messagebox.showwarning("Convert", "Select a PDF first.")
         fmt = self._fmt.get()
         ext, desc, default = self._OUT[fmt]
-        out = filedialog.asksaveasfilename(
-            defaultextension=ext,
-            filetypes=[(desc, f"*{ext}"), ("All", "*.*")],
-            initialfile=default)
-        if not out:
+        app = self.app
+        doc = app._open_pdf_safe(src)
+        if doc is None:
             return
+        out = app._save_as(default, ext, [(desc, f"*{ext}"), ("All", "*.*")])
+        if not out:
+            return doc.close()
         dpi     = int(self._dpi.get())     if self._dpi     is not None else 150
         quality = int(self._quality.get()) if self._quality is not None else 92
-        app = self.app
 
         def work(stop):
             try:
-                with atomic_output(out) as tmp, fitz.open(src) as doc:
+                with atomic_output(out) as tmp, doc:
                     total = len(doc)
 
                     if fmt == "TXT":
@@ -534,8 +565,7 @@ class Pdf2DocTool(ToolBase):
                         Path(tmp).write_bytes("".join(rtf).encode("ascii"))
 
                     elif fmt == "DOCX":
-                        if not _HAS_DOCX:
-                            raise RuntimeError("python-docx not installed.\nRun: pip install python-docx")
+                        _require(fmt)
                         from docx import Document as _DocxDoc
                         wdoc = _DocxDoc()
                         for i, page in enumerate(doc):
@@ -552,8 +582,7 @@ class Pdf2DocTool(ToolBase):
                         wdoc.save(tmp)
 
                     elif fmt == "PPTX":
-                        if not _HAS_PPTX:
-                            raise RuntimeError("python-pptx not installed.\nRun: pip install python-pptx")
+                        _require(fmt)
                         from pptx import Presentation as _PptxPrs
                         scale = dpi / 72.0
                         prs   = _PptxPrs()
@@ -565,7 +594,7 @@ class Pdf2DocTool(ToolBase):
                         for i, page in enumerate(doc):
                             if stop.is_set(): raise _Cancelled
                             app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                            pix  = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                            pix  = render(page, scale)
                             buf  = io.BytesIO(pix.tobytes("png"))
                             slide = prs.slides.add_slide(blank)
                             # Pages of another size or orientation than page 1 are fitted, not stretched.
@@ -575,8 +604,7 @@ class Pdf2DocTool(ToolBase):
                         prs.save(tmp)
 
                     elif fmt == "XLSX":
-                        if not _HAS_OPENPYXL:
-                            raise RuntimeError("openpyxl not installed.\nRun: pip install openpyxl")
+                        _require(fmt)
                         import openpyxl as _openpyxl
                         wb = _openpyxl.Workbook()
                         wb.remove(wb.active)
@@ -590,29 +618,19 @@ class Pdf2DocTool(ToolBase):
                         wb.save(tmp)
 
                     elif fmt in ("PNG", "JPEG"):
-                        mat = fitz.Matrix(dpi / 72.0, dpi / 72.0)
-                        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
-                            for i, page in enumerate(doc):
-                                if stop.is_set(): raise _Cancelled
-                                app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                                pix = page.get_pixmap(matrix=mat, alpha=False)
-                                if fmt == "JPEG":
-                                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                                    buf = io.BytesIO()
-                                    img.save(buf, "JPEG", quality=quality)
-                                    zf.writestr(f"page_{i+1:04d}.jpg", buf.getvalue())
-                                else:
-                                    zf.writestr(f"page_{i+1:04d}.png", pix.tobytes("png"))
+                        _pages_to_zip(tmp, doc, dpi, fmt, quality, stop,
+                                      lambda v: app.after(0, lambda: app._prog_update(v)))
             except _Cancelled:
                 return
 
-            app.after(0, lambda: [
-                app._set_status(f"✓  PDF → {fmt}: {Path(out).name}", SUCCESS),
-                messagebox.showinfo("Done", f"Saved:\n{out}"),
-            ])
+            def done():
+                app._set_status(f"✓  PDF → {fmt}: {Path(out).name}", SUCCESS)
+                messagebox.showinfo("Done", f"Saved:\n{out}")
+            app.after(0, done)
 
         app._set_status(f"Converting PDF → {fmt}…")
-        app.run_job(work, f"Converting PDF → {fmt}…")
+        if app.run_job(work, f"Converting PDF → {fmt}…") is None:
+            doc.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -621,7 +639,6 @@ class Doc2PdfTool(ToolBase):
     section = "CONVERT"
     label   = "📤  Doc / Text → PDF"
 
-    _FMTS = ["TXT", "HTML", "XML", "RTF", "DOCX", "PPTX", "XLSX", "PNG", "JPEG"]
     _EXTS = {
         "TXT":  [("Text Files",       "*.txt"),        ("All","*.*")],
         "HTML": [("HTML Files",       "*.html *.htm"), ("All","*.*")],
@@ -644,11 +661,6 @@ class Doc2PdfTool(ToolBase):
         "PNG":  "The PNG image is placed on a page sized to match the image exactly.",
         "JPEG": "The JPEG image is placed on a page sized to match the image exactly.",
     }
-    _NEEDS = {
-        "DOCX": ("python-docx", lambda: _HAS_DOCX),
-        "PPTX": ("python-pptx", lambda: _HAS_PPTX),
-        "XLSX": ("openpyxl",    lambda: _HAS_OPENPYXL),
-    }
     _EXT2FMT = {
         ".txt": "TXT", ".html": "HTML", ".htm": "HTML", ".xml": "XML",
         ".rtf": "RTF", ".docx": "DOCX", ".pptx": "PPTX", ".xlsx": "XLSX",
@@ -667,7 +679,7 @@ class Doc2PdfTool(ToolBase):
         ctk.CTkLabel(r1, text="Input format:", width=150,
                      text_color=TEXT, anchor="w").pack(side="left")
         self._fmt = ctk.CTkOptionMenu(
-            r1, values=self._FMTS, width=150, height=40,
+            r1, values=_FMTS, width=150, height=40,
             command=self._fmt_changed)
         self._fmt.set("TXT")
         self._fmt.pack(side="left")
@@ -680,13 +692,13 @@ class Doc2PdfTool(ToolBase):
         ctk.CTkButton(r2, text="Open File", width=136, height=44,
                       command=self._pick).pack(side="left")
         if app._dnd_ok:
+            from tkinterdnd2 import DND_FILES
             try:
-                from tkinterdnd2 import DND_FILES
                 for w in (r2, self._entry, *self._entry.winfo_children()):
                     w.drop_target_register(DND_FILES)
                     w.dnd_bind("<<Drop>>", self._on_drop)
-            except Exception:
-                pass
+            except tk.TclError:
+                pass     # the file still opens from "Open File"
         self._info_lbl = ctk.CTkLabel(card, text="",
                                        font=ctk.CTkFont(size=12), text_color=MUTED,
                                        justify="left", wraplength=640)
@@ -704,9 +716,9 @@ class Doc2PdfTool(ToolBase):
         for w in self._warn_frame.winfo_children():
             w.destroy()
         self._info_lbl.configure(text=self._INFO.get(fmt, ""))
-        if fmt in self._NEEDS:
-            lib, ok_fn = self._NEEDS[fmt]
-            if not ok_fn():
+        if fmt in _NEEDS:
+            lib, installed = _NEEDS[fmt]
+            if not installed:
                 ctk.CTkLabel(self._warn_frame,
                              text=f"⚠  '{lib}' not installed — pip install {lib}",
                              font=ctk.CTkFont(size=12), text_color=WARN).pack(anchor="w")
@@ -741,10 +753,10 @@ class Doc2PdfTool(ToolBase):
 
         def work(stop):
             A4 = fitz.paper_rect("A4")
+            notes = []      # fallbacks that changed what was typeset
 
             if fmt == "PPTX":
-                if not _HAS_PPTX:
-                    raise RuntimeError("python-pptx not installed.\nRun: pip install python-pptx")
+                _require(fmt)
                 from pptx import Presentation as _PptxPrs
                 prs = _PptxPrs(src)
                 nd  = fitz.open()
@@ -787,21 +799,26 @@ class Doc2PdfTool(ToolBase):
                     try:
                         root = ET.parse(src).getroot()
                         text = " ".join(root.itertext())
-                    except Exception:
+                    except ET.ParseError as e:
                         text = Path(src).read_text(encoding="utf-8", errors="replace")
+                        notes.append(f"The XML could not be parsed ({e}), "
+                                     "so the file was typeset as raw text, tags included.")
                     stories.append((_text_story(text), A4))
 
                 elif fmt == "RTF":
+                    raw = Path(src).read_text(encoding="latin-1", errors="replace")
                     try:
                         from striprtf.striprtf import rtf_to_text
-                        text = rtf_to_text(Path(src).read_text(encoding="latin-1", errors="replace"))
-                    except Exception:
-                        text = Path(src).read_text(encoding="latin-1", errors="replace")
+                    except ImportError:
+                        text = raw
+                        notes.append("striprtf is not installed (pip install striprtf), "
+                                     "so the RTF markup was typeset as raw text.")
+                    else:
+                        text = rtf_to_text(raw)
                     stories.append((_text_story(text), A4))
 
                 elif fmt == "DOCX":
-                    if not _HAS_DOCX:
-                        raise RuntimeError("python-docx not installed.\nRun: pip install python-docx")
+                    _require(fmt)
                     from docx import Document as _DocxDoc
                     from docx.table import Table as _DocxTable
                     from docx.text.paragraph import Paragraph as _DocxPara
@@ -834,8 +851,7 @@ class Doc2PdfTool(ToolBase):
                                  "td { border: 1px solid #888; padding: 2px 4px; }"), A4))
 
                 elif fmt == "XLSX":
-                    if not _HAS_OPENPYXL:
-                        raise RuntimeError("openpyxl not installed.\nRun: pip install openpyxl")
+                    _require(fmt)
                     import openpyxl as _openpyxl
                     wb   = _openpyxl.load_workbook(src, data_only=True)
                     LAND = fitz.paper_rect("A4-L")
@@ -850,7 +866,13 @@ class Doc2PdfTool(ToolBase):
                         writer = fitz.DocumentWriter(tmp)
                         try:
                             for story, rect in stories:
-                                _write_story(writer, story, rect, stop)
+                                # Raised here, not in _write_story, so no traceback
+                                # frame keeps the writer (and its open file) alive.
+                                if not _write_story(writer, story, rect, stop):
+                                    raise RuntimeError(
+                                        "The document contains an element, such as a table "
+                                        "row, that is taller than a page and cannot be split "
+                                        "across pages.")
                                 if stop.is_set():
                                     raise _Cancelled
                         finally:
@@ -863,10 +885,13 @@ class Doc2PdfTool(ToolBase):
 
             if stop.is_set():
                 return
-            app.after(0, lambda: [
-                app._set_status(f"✓  {fmt} → PDF: {Path(out).name}", SUCCESS),
-                messagebox.showinfo("Done", f"Converted PDF saved:\n{out}"),
-            ])
+
+            def done():
+                note = "\n\n" + "\n".join(notes) if notes else ""
+                app._set_status(f"✓  {fmt} → PDF: {Path(out).name}",
+                                WARN if notes else SUCCESS)
+                messagebox.showinfo("Done", f"Converted PDF saved:\n{out}{note}")
+            app.after(0, done)
 
         app._set_status(f"Converting {fmt} → PDF…")
         app.run_job(work, f"Converting {fmt} → PDF…")

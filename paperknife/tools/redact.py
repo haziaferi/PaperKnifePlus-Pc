@@ -3,14 +3,20 @@ import re
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageTk
 import customtkinter as ctk
 import pymupdf as fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER, DANGER_H, CANVAS_BG, _tk_color
-from ..recent import RECENT
+from ..theme import (ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER, DANGER_H,
+                     CANVAS_BG, WARN_BG, WARN_TITLE, WARN_BODY, _tk_color)
+from ..pages import render
 
 _INFO_KEYS = ("title", "author", "subject", "keywords", "creator", "producer")
+# Annotation text a reader sees; the other info keys are dates, ids and icon names.
+_ANNOT_TEXT_KEYS = ("content", "title", "subject")
+# A line under a drawn box shorter than this (a page number, a year suffix)
+# would match far too much elsewhere in the document.
+_MIN_BOX_PHRASE = 4
 
 
 @register
@@ -18,13 +24,9 @@ class RedactTool(ToolBase):
     section = "CONTENT"
     label   = "⬛  Redact"
 
-    # ── instance state ────────────────────────────────────────────────────────
     _doc:      fitz.Document | None = None
     _pg:       int   = 0
     _zoom:     float = 1.5
-    # (page_num, fitz.Rect in unrotated page space, search phrase or None) — not yet applied
-    _pending:  list  = []
-    _secrets:  set   = set()  # phrases already burned out of page content
     _start:    tuple | None = None
     _drag_id:  int | None   = None
 
@@ -35,19 +37,19 @@ class RedactTool(ToolBase):
             "Draw rectangles over sensitive content · Apply burns them in permanently")
 
         # ── warning banner ────────────────────────────────────────────────────
-        warn = ctk.CTkFrame(body, fg_color="#FEF3C7", corner_radius=8)
+        warn = ctk.CTkFrame(body, fg_color=WARN_BG, corner_radius=8)
         warn.pack(fill="x", padx=24, pady=(12, 4))
         ctk.CTkLabel(
             warn,
             text="⚠  Redaction is permanent and irreversible once applied.",
             font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#92400E",
+            text_color=WARN_TITLE,
         ).pack(padx=16, pady=(10, 2), anchor="w")
         ctk.CTkLabel(
             warn,
             text="Content under redaction boxes is completely destroyed — "
                  "not merely covered. Always work on a copy.",
-            font=ctk.CTkFont(size=12), text_color="#78350F", justify="left",
+            font=ctk.CTkFont(size=12), text_color=WARN_BODY, justify="left",
         ).pack(padx=16, pady=(0, 10), anchor="w")
 
         # ── file row ──────────────────────────────────────────────────────────
@@ -95,7 +97,6 @@ class RedactTool(ToolBase):
                       command=self._mark_search
                       ).pack(side="left", padx=(0, 12))
 
-        # Zoom
         ctk.CTkLabel(trow, text="Zoom:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(4, 4))
         self._zoom_sl = ctk.CTkSlider(trow, from_=0.5, to=3.0,
@@ -104,7 +105,6 @@ class RedactTool(ToolBase):
         self._zoom_sl.configure(command=self._on_zoom)
         self._zoom_sl.pack(side="left")
 
-        # Pending count + undo
         self._pending_lbl = ctk.CTkLabel(
             trow, text="0 box(es) pending", width=130,
             text_color=MUTED, font=ctk.CTkFont(size=12))
@@ -126,8 +126,6 @@ class RedactTool(ToolBase):
         self._canvas.pack(fill="both", expand=True)
         vbar.configure(command=self._canvas.yview)
         hbar.configure(command=self._canvas.xview)
-        # Leaving the tool destroys the view; close the document so the file is not left locked.
-        self._canvas.bind("<Destroy>", lambda e: self._close_doc())
         self._canvas.bind("<ButtonPress-1>",  self._press)
         self._canvas.bind("<B1-Motion>",       self._drag)
         self._canvas.bind("<ButtonRelease-1>", self._release)
@@ -162,15 +160,12 @@ class RedactTool(ToolBase):
         app._cur_undo_fn = self._undo
         self._doc     = None
         self._pg      = 0
-        self._pending = []
-        self._secrets = set()
+        # (page_num, fitz.Rect in unrotated page space, search phrase or None) — not yet applied
+        self._pending: list = []
+        # phrase burned out of page content -> match whole words only (drawn boxes)
+        self._secrets: dict[str, bool] = {}
 
     # ── file / navigation ─────────────────────────────────────────────────────
-    def _close_doc(self):
-        if self._doc:
-            self._doc.close()
-            self._doc = None
-
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
@@ -178,12 +173,11 @@ class RedactTool(ToolBase):
         self._close_doc()
         self._doc     = self.app._open_pdf_safe(f)
         self._pending = []
-        self._secrets = set()
+        self._secrets = {}
         if not self._doc:
             return
         self._path_var.set(f)
         self._pg = 0
-        RECENT.push(f, len(self._doc))
         self._render()
 
     def _nav(self, d):
@@ -227,7 +221,7 @@ class RedactTool(ToolBase):
         x0, y0 = self._start
         self._start = None
         if abs(cx - x0) < 4 and abs(cy - y0) < 4:
-            return  # accidental click, ignore
+            return
         z   = self._zoom
         # The preview shows the page rotated; redaction annots live in unrotated space.
         r   = fitz.Rect(min(x0,cx)/z, min(y0,cy)/z,
@@ -245,6 +239,8 @@ class RedactTool(ToolBase):
             return messagebox.showwarning("Mark", "Enter search text.")
         count = 0
         for pg_num in range(len(self._doc)):
+            # search_for ignores case; for redaction over-marking is the safe side
+            # (Find & Replace needs exact case and searches the characters itself).
             for rect in self._doc[pg_num].search_for(needle):
                 self._pending.append((pg_num, rect, needle))
                 count += 1
@@ -273,12 +269,12 @@ class RedactTool(ToolBase):
         for pg_num, r, phrase in self._pending:
             by_page.setdefault(pg_num, []).append(r)
             if phrase:
-                self._secrets.add(phrase)
+                self._secrets[phrase] = False
             else:
                 # Remember what a drawn box covered so _save can find it outside the page content.
-                self._secrets.update(
-                    ln.strip() for ln in self._doc[pg_num].get_textbox(r).splitlines()
-                    if len(ln.strip()) >= 2)
+                for ln in self._doc[pg_num].get_textbox(r).splitlines():
+                    if len(ln.strip()) >= _MIN_BOX_PHRASE:
+                        self._secrets.setdefault(ln.strip(), True)
         for pg_num, rects in by_page.items():
             page = self._doc[pg_num]
             # apply_redactions removes only the redact annots themselves; a note or a
@@ -319,17 +315,14 @@ class RedactTool(ToolBase):
             return
         c    = self._canvas
         page = self._doc[self._pg]
-        mat  = fitz.Matrix(self._zoom, self._zoom)
-        pix  = page.get_pixmap(matrix=mat, alpha=False)
+        pix  = render(page, self._zoom, shrink=True)
         img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        from PIL import ImageTk as _ITK
-        self._raw_img = _ITK.PhotoImage(img)
+        self._raw_img = ImageTk.PhotoImage(img)
         c.delete("all")
         c.create_image(0, 0, anchor="nw", image=self._raw_img)
         c.configure(scrollregion=(0, 0, pix.width, pix.height))
         self._pg_lbl.configure(
             text=f"{self._pg + 1} / {len(self._doc)}")
-        # Draw pending boxes for this page
         z    = self._zoom
         fill = "black" if self._fill_var.get() == "Black" else "white"
         for pg_num, r, _ in self._pending:
@@ -363,7 +356,7 @@ class RedactTool(ToolBase):
             removed = self._scrub_secrets()
             # garbage=4 + no incremental save: the old content streams, Info dict
             # and XMP stream must not survive as unreferenced objects in the file.
-            self._doc.save(out, deflate=True, garbage=4, clean=True)
+            self._save_doc(out, deflate=True, garbage=4, clean=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             extra = ("\n\nAlso removed from: " + ", ".join(removed)) if removed else ""
             messagebox.showinfo("Saved", f"Redacted PDF saved:\n{out}{extra}")
@@ -378,7 +371,10 @@ class RedactTool(ToolBase):
         if not self._secrets:
             return []
         doc  = self._doc
-        pats = [re.compile(re.escape(s), re.IGNORECASE) for s in self._secrets]
+        # A phrase taken from under a drawn box must not cut a longer word apart.
+        pats = [re.compile(rf"(?<!\w){re.escape(s)}(?!\w)" if whole else re.escape(s),
+                           re.IGNORECASE)
+                for s, whole in self._secrets.items()]
 
         def hit(text) -> bool:
             return bool(text) and any(p.search(text) for p in pats)
@@ -407,8 +403,11 @@ class RedactTool(ToolBase):
         for name in doc.embfile_names():
             info = doc.embfile_info(name)
             body = doc.embfile_get(name)
-            texts = [name, info.get("filename"), info.get("ufilename"), info.get("description")]
-            texts += [body.decode(enc, "ignore") for enc in ("utf-8", "utf-16")]
+            texts = [name, info.get("filename"), info.get("ufilename"), info.get("description"),
+                     body.decode("utf-8", "ignore")]
+            # Any binary decodes to some UTF-16 text; only a marked UTF-16 file is text.
+            if body[:2] in (b"\xff\xfe", b"\xfe\xff"):
+                texts.append(body.decode("utf-16", "ignore"))
             if any(hit(t) for t in texts):
                 doc.embfile_del(name)
                 removed.append(f"attachment '{name}'")
@@ -416,7 +415,7 @@ class RedactTool(ToolBase):
         notes = fields = 0
         for page in doc:
             for annot in list(page.annots()):
-                if any(hit(v) for v in annot.info.values()):
+                if any(hit(annot.info.get(k)) for k in _ANNOT_TEXT_KEYS):
                     page.delete_annot(annot)
                     notes += 1
             for widget in list(page.widgets()):

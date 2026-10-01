@@ -1,16 +1,18 @@
 from __future__ import annotations
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from pathlib import Path
 import os
 import pymupdf as fitz
 import customtkinter as ctk
+from PIL import Image
 from ..tool_base import ToolBase, register
 from .enhance import compress_pdf, watermark_pdf
 from .ocr import add_text_layer, ocr_words
 from ..job_queue import atomic_output
+from ..pages import render
 from ..theme import CARD, TEXT, MUTED, SUCCESS, WARN
-from ..prefs import PREFS
+from ..prefs import PREFS, DPI_RANGE
 
 # ── Per-operation worker functions ────────────────────────────────────────────
 # Each accepts (src_path, out_dir, opts, stop) → out_path or raises.
@@ -37,18 +39,16 @@ def _do_watermark(src, out_dir, opts, stop):
                          (0.5, 0.5, 0.5), stop)
 
 def _do_ocr(src, out_dir, opts, stop):
-    from PIL import Image as _PIL
     lang  = opts.get("lang", "eng")
     scale = opts.get("dpi", 150) / 72.0
     out   = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
-    with _open_input(src) as doc:
+    with atomic_output(out) as tmp, _open_input(src) as doc:
         for page in doc:
             if stop.is_set(): return None
-            pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-            img = _PIL.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            pix = render(page, scale)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             add_text_layer(page, ocr_words(img, lang, scale))
-        with atomic_output(out) as tmp:
-            doc.save(tmp, garbage=3, deflate=True)
+        doc.save(tmp, garbage=3, deflate=True)
     return out
 
 def _do_pdf2txt(src, out_dir, opts, stop):
@@ -60,14 +60,15 @@ def _do_pdf2txt(src, out_dir, opts, stop):
             parts.append(page.get_text())
             if i < len(doc) - 1:
                 parts.append("\n\n── Page Break ──\n\n")
-    Path(out).write_text("".join(parts), encoding="utf-8")
+    with atomic_output(out) as tmp:
+        Path(tmp).write_text("".join(parts), encoding="utf-8")
     return out
 
 _OPS = {
-    "Compress":      (_do_compress,  ["level"]),
-    "Watermark":     (_do_watermark, ["text", "size", "opacity"]),
-    "OCR":           (_do_ocr,       ["lang", "dpi"]),
-    "PDF → TXT":     (_do_pdf2txt,   []),
+    "Compress":      _do_compress,
+    "Watermark":     _do_watermark,
+    "OCR":           _do_ocr,
+    "PDF → TXT":     _do_pdf2txt,
 }
 
 
@@ -93,9 +94,9 @@ class BatchTool(ToolBase):
         self._op.pack(side="left", padx=(0, 16))
 
         # ── Folders ───────────────────────────────────────────────────────────
-        for attr, label, btn_lbl in [
-            ("_in_dir",  "Input folder:",  "Browse…"),
-            ("_out_dir", "Output folder:", "Browse…"),
+        for attr, label, btn_lbl, title in [
+            ("_in_dir",  "Input folder:",  "Browse…", "Choose input folder"),
+            ("_out_dir", "Output folder:", "Browse…", "Choose output folder"),
         ]:
             row = ctk.CTkFrame(body, fg_color="transparent")
             row.pack(fill="x", padx=24, pady=4)
@@ -106,9 +107,8 @@ class BatchTool(ToolBase):
             ctk.CTkEntry(row, textvariable=var, state="readonly",
                          height=40, placeholder_text="Not set…"
                          ).pack(side="left", fill="x", expand=True, padx=(0, 8))
-            a = attr
             ctk.CTkButton(row, text=btn_lbl, width=100, height=40,
-                          command=lambda a=a: self._pick_dir(a)
+                          command=lambda v=var, t=title: self._pick_dir(v, t)
                           ).pack(side="left")
 
         # ── Options card (dynamic) ────────────────────────────────────────────
@@ -126,10 +126,10 @@ class BatchTool(ToolBase):
 
         app._big_btn(body, "  Run Batch  →", self._run).pack(fill="x", padx=24, pady=12)
 
-    def _pick_dir(self, attr):
-        d = filedialog.askdirectory()
+    def _pick_dir(self, var, title):
+        d = self.app._ask_dir(title)
         if d:
-            getattr(self, attr + "_var").set(d)
+            var.set(d)
 
     def _op_changed(self, op):
         for w in self._opts_frame.winfo_children():
@@ -156,12 +156,11 @@ class BatchTool(ToolBase):
         row.pack(fill="x", padx=16, pady=3)
         ctk.CTkLabel(row, text=label, width=110, text_color=TEXT,
                      anchor="w").pack(side="left")
+        var = tk.StringVar(value=default)
         if kind == "optionmenu":
-            var = tk.StringVar(value=default)
             ctk.CTkOptionMenu(row, variable=var, values=choices,
                               width=160, height=34).pack(side="left")
         else:
-            var = tk.StringVar(value=default)
             ctk.CTkEntry(row, textvariable=var, width=160, height=34).pack(side="left")
         self._opt_widgets[key] = var
 
@@ -175,27 +174,35 @@ class BatchTool(ToolBase):
         if not files:
             return messagebox.showwarning("Batch", "No PDF files found in input folder.")
         opts = {k: v.get() for k, v in self._opt_widgets.items()}
+        lo, hi = DPI_RANGE
         try:
-            for k in ("size", "dpi"):
-                if k in opts:
-                    opts[k] = int(opts[k])
-                    if opts[k] <= 0:
-                        raise ValueError
+            if "size" in opts:
+                opts["size"] = int(opts["size"])
+                if opts["size"] <= 0:
+                    raise ValueError
+            if "dpi" in opts:
+                opts["dpi"] = int(opts["dpi"])
+                if not lo <= opts["dpi"] <= hi:
+                    raise ValueError
             if "opacity" in opts:
                 opts["opacity"] = float(opts["opacity"])
                 if not 0 < opts["opacity"] <= 1:
                     raise ValueError
         except ValueError:
             return messagebox.showwarning(
-                "Batch", "Size and DPI must be positive whole numbers; "
-                         "opacity a number above 0 and up to 1.")
-        fn, _ = _OPS[op]
-        app   = self.app
-        lb    = self._lb
+                "Batch", f"Size must be a positive whole number, DPI a whole number "
+                         f"from {lo} to {hi}, opacity a number above 0 and up to 1.")
+        fn  = _OPS[op]
+        app = self.app
+        lb  = self._lb
         lb.delete(0, "end")
 
+        def show_result(text):
+            lb.delete("end")
+            lb.insert("end", text)
+
         def work(stop):
-            ok = err = 0
+            ok = err = done = 0
             n_files = len(files)
             for i, src in enumerate(files):
                 if stop.is_set():
@@ -207,20 +214,20 @@ class BatchTool(ToolBase):
                     result = fn(src, out_dir, opts, stop)
                     if result:
                         ok += 1
-                        app.after(0, lambda n=name: (
-                            lb.delete("end"),
-                            lb.insert("end", f"✓  {n}")))
+                        app.after(0, lambda n=name: show_result(f"✓  {n}"))
                     else:
-                        app.after(0, lambda n=name: (
-                            lb.delete("end"),
-                            lb.insert("end", f"—  {n}  (cancelled)")))
+                        app.after(0, lambda n=name: show_result(f"—  {n}  (cancelled)"))
                 except Exception as e:
                     err += 1
-                    app.after(0, lambda n=name, ex=e: (
-                        lb.delete("end"),
-                        lb.insert("end", f"✗  {n}  — {ex}")))
-            app.after(0, lambda: app._set_status(
-                f"✓  Batch done — {ok} OK, {err} errors", SUCCESS if not err else WARN))
+                    app.after(0, lambda n=name, ex=e: show_result(f"✗  {n}  — {ex}"))
+                done = i + 1
+            if stop.is_set():
+                msg, color = (f"Batch cancelled after {done} of {n_files} file(s) — "
+                              f"{ok} OK, {err} errors"), WARN
+            else:
+                msg, color = (f"✓  Batch done — {ok} OK, {err} errors",
+                              SUCCESS if not err else WARN)
+            app.after(0, lambda: app._set_status(msg, color))
 
         app._set_status(f"Batch {op} on {len(files)} file(s)…")
         app.run_job(work, f"Batch {op} · {len(files)} file(s)…")

@@ -44,6 +44,17 @@ DANGER   = "#9B1B1B"
 DANGER_H = "#7A1414"
 SUCCESS  = "#2D6A4F"
 WARN     = "#9A5A00"
+ON_ACCENT = "#FFFFFF"               # text on an ACCENT fill
+
+# Amber notice banner: background, heading, body text
+WARN_BG    = ("#FEF3C7", "#3D3220")
+WARN_TITLE = ("#92400E", "#F2C27B")
+WARN_BODY  = ("#78350F", "#E6C9A0")
+
+# Search-hit marks drawn over the white page image, so mode-invariant
+HIT_CUR  = "#FFD700"
+HIT      = "#FFFACD"
+HIT_EDGE = "#CCCCCC"
 
 # ── Native-tk widget colours (resolved strings, not tuples) ──────────────────
 # These are used by tk.Canvas and tk.Listbox which cannot accept tuples.

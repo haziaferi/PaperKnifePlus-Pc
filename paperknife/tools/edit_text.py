@@ -2,12 +2,20 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageTk
 import customtkinter as ctk
 import pymupdf as fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, CANVAS_BG, _tk_color
-from ..recent import RECENT
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN, CANVAS_BG, _tk_color
+from ..pages import render, textwriter_point
+
+
+def _block_font(name: str) -> tuple[fitz.Font, bool]:
+    """(font, True) for a font MuPDF has built in, else (Helvetica, False)."""
+    try:
+        return fitz.Font(name), True
+    except fitz.mupdf.FzErrorBase:
+        return fitz.Font("helv"), False
 
 
 @register
@@ -15,11 +23,9 @@ class EditTextTool(ToolBase):
     section = "CONTENT"
     label   = "✏️   Edit Text"
 
-    # ── Instance state ────────────────────────────────────────────────────────
     _doc:      fitz.Document | None = None
     _pg:       int = 0
     _zoom:     float = 1.5
-    _blocks:   list = []
     _sel_bi:   int | None = None
     _canvas:   tk.Canvas | None = None
     _edit_box: ctk.CTkTextbox | None = None
@@ -65,8 +71,6 @@ class EditTextTool(ToolBase):
         self._canvas.pack(fill="both", expand=True)
         vbar.configure(command=self._canvas.yview)
         hbar.configure(command=self._canvas.xview)
-        # Leaving the tool destroys the view; close the document so the file is not left locked.
-        self._canvas.bind("<Destroy>", lambda e: self._close_doc())
         self._canvas.bind("<Button-1>", self._on_click)
         self._canvas.bind("<MouseWheel>",
                           lambda e: self._canvas.yview_scroll(-1 * (e.delta // 120), "units"))
@@ -94,16 +98,12 @@ class EditTextTool(ToolBase):
         app._cur_save_fn = self._save
         app._cur_undo_fn = self._undo
 
-        self._undo_stack: list = []
+        self._undo_stack: list = []   # (page, document bytes) before each edit
+        self._blocks: list = []
         self._doc = None
         self._pg = 0
 
     # ── file / page navigation ────────────────────────────────────────────────
-    def _close_doc(self):
-        if self._doc:
-            self._doc.close()
-            self._doc = None
-
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
@@ -112,13 +112,9 @@ class EditTextTool(ToolBase):
         self._doc = self.app._open_pdf_safe(f)
         if not self._doc:
             return
-        # apply_redactions rewrites the page resources as well as the content
-        # stream, so undo needs MuPDF's object journal, not a content snapshot.
-        self._doc.journal_enable()
         self._undo_stack = []
         self._path_var.set(f)
         self._pg = 0
-        RECENT.push(f, len(self._doc))
         self._render()
 
     def _nav(self, d):
@@ -141,15 +137,12 @@ class EditTextTool(ToolBase):
         c = self._canvas
         c.delete("all")
         page = self._doc[self._pg]
-        mat  = fitz.Matrix(self._zoom, self._zoom)
-        pix  = page.get_pixmap(matrix=mat, alpha=False)
+        pix  = render(page, self._zoom, shrink=True)
         img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        from PIL import ImageTk as _ITK
-        self._raw_img = _ITK.PhotoImage(img)
+        self._raw_img = ImageTk.PhotoImage(img)
         c.create_image(0, 0, anchor="nw", image=self._raw_img)
         c.configure(scrollregion=(0, 0, pix.width, pix.height))
 
-        # Collect & draw block overlays
         self._blocks = []
         # "dict" spans carry their 'text'; "rawdict" spans only have per-char entries.
         raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
@@ -180,13 +173,11 @@ class EditTextTool(ToolBase):
 
     def _select_block(self, bi):
         self._sel_bi = bi
-        # Redraw outlines
         for item in self._blocks:
             self._canvas.itemconfigure(
                 item["rid"],
                 outline=_tk_color(ACCENT) if item["bi"] == bi else "")
-        # Build the full text of the block — preserve original line breaks
-        # so the user can see and edit multi-line content explicitly.
+        # Keep the block's line breaks so multi-line content can be edited as such.
         block = next((it["block"] for it in self._blocks if it["bi"] == bi), None)
         if not block:
             return
@@ -216,21 +207,10 @@ class EditTextTool(ToolBase):
             return "helv", 11, (0, 0, 0)
 
     @staticmethod
-    def _text_width(text: str, font_name: str, font_size: float) -> float:
-        """Measure text width in points using PyMuPDF font metrics."""
-        try:
-            return fitz.Font(font_name).text_length(text, fontsize=font_size)
-        except Exception:
-            return len(text) * font_size * 0.6   # safe fallback
-
-    @staticmethod
-    def _word_wrap(text: str, font_name: str, font_size: float,
+    def _word_wrap(text: str, font: fitz.Font, font_size: float,
                    max_width: float) -> list:
-        """
-        Break *text* into lines that fit within *max_width* points.
-        Explicit \\n in the input are treated as hard line breaks.
-        Returns a list of strings, one per output line.
-        """
+        """Lines of *text* that fit within *max_width* points; a newline in
+        *text* is a hard break."""
         result = []
         for paragraph in text.split("\n"):
             words = paragraph.split()
@@ -240,7 +220,7 @@ class EditTextTool(ToolBase):
             current = ""
             for word in words:
                 candidate = f"{current} {word}".lstrip() if current else word
-                if EditTextTool._text_width(candidate, font_name, font_size) <= max_width:
+                if font.text_length(candidate, fontsize=font_size) <= max_width:
                     current = candidate
                 else:
                     if current:
@@ -256,30 +236,38 @@ class EditTextTool(ToolBase):
         block = next((it["block"] for it in self._blocks if it["bi"] == self._sel_bi), None)
         if not block:
             return
-
-        page   = self._doc[self._pg]
         new_tx = self._edit_box.get("1.0", "end-1c")
 
-        self._doc.journal_start_op("Edit text")
+        self._push_undo()
         try:
-            self._write_block(page, block, new_tx)
-        finally:
-            self._doc.journal_stop_op()
-        self._undo_stack.append(self._pg)
+            own_font = self._write_block(self._doc[self._pg], block, new_tx)
+        except Exception as e:
+            # The original text may already be redacted away; put it back.
+            self._pop_undo()
+            self._render()
+            return messagebox.showerror("Edit Text", f"The edit could not be applied:\n{e}")
 
         self._sel_bi = None
         self._edit_box.delete("1.0", "end")
         self._edit_box.configure(state="disabled")
         self._apply_btn.configure(state="disabled")
-        self.app._set_status("Edit applied — use Save to write to disk", SUCCESS)
+        if own_font:
+            self.app._set_status("Edit applied — use Save to write to disk", SUCCESS)
+        else:
+            self.app._set_status(
+                f"Edit applied in Helvetica: the block's font "
+                f"'{self._block_style(block)[0]}' is not built in — use Save to write to disk",
+                WARN)
         self._render()
 
-    def _write_block(self, page, block: dict, new_tx: str):
-        # ── Block geometry (all in PDF points, no zoom) ───────────────────────
-        bx0, by0, bx1, by1 = block["bbox"]
+    def _write_block(self, page, block: dict, new_tx: str) -> bool:
+        """Replace *block*'s text with *new_tx*.  Returns False when the
+        block's font is not built in and Helvetica was used instead."""
+        bx0, by0, bx1, _ = block["bbox"]
         block_width = bx1 - bx0
 
         font_name, font_size, rgb = self._block_style(block)
+        font, own_font = _block_font(font_name)
 
         # Derive line height from original spacing; fall back to 1.2× size.
         lines_raw = block.get("lines", [])
@@ -290,7 +278,6 @@ class EditTextTool(ToolBase):
         else:
             line_height = font_size * 1.2
 
-        # ── Redact all original spans ─────────────────────────────────────────
         for line in lines_raw:
             for span in line.get("spans", []):
                 page.add_redact_annot(fitz.Rect(span["bbox"]))
@@ -298,30 +285,23 @@ class EditTextTool(ToolBase):
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
                               graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
-        # ── Word-wrap the new text to fit the block width ─────────────────────
-        wrapped = self._word_wrap(new_tx, font_name, font_size, block_width)
+        wrapped = self._word_wrap(new_tx, font, font_size, block_width)
 
-        # ── Re-insert with TextWriter for precise baseline control ────────────
         tw = fitz.TextWriter(page.rect)
-        try:
-            f = fitz.Font(font_name)
-        except Exception:
-            f = fitz.Font("helv")
-
         # by0 is the top of the first line; add font_size to get the baseline.
         baseline_y = by0 + font_size
         for i, wline in enumerate(wrapped):
             if wline:
-                tw.append(fitz.Point(bx0, baseline_y + i * line_height),
-                          wline, font=f, fontsize=font_size)
+                tw.append(textwriter_point(page, (bx0, baseline_y + i * line_height)),
+                          wline, font=font, fontsize=font_size)
 
         tw.write_text(page, color=rgb)
+        return own_font
 
     def _undo(self):
         if not self._undo_stack or not self._doc:
             return
-        self._pg = self._undo_stack.pop()
-        self._doc.journal_undo()
+        self._pop_undo()
         self._sel_bi = None
         self._render()
         self.app._set_status("Undo applied", SUCCESS)
@@ -333,7 +313,7 @@ class EditTextTool(ToolBase):
         if not out:
             return
         try:
-            self._doc.save(out, deflate=True)
+            self._save_doc(out, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"Edited PDF saved:\n{out}")
         except Exception as e:

@@ -1,8 +1,8 @@
-"""Redact, Edit Text, Find & Replace and Annotate through the real views (FE register: lane FD)."""
+"""Redact, Edit Text, Find & Replace and Annotate through the real views."""
 import io
 from types import SimpleNamespace
 
-import fitz
+import pymupdf as fitz
 from PIL import Image
 
 from conftest import tool

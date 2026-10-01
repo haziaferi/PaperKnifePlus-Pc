@@ -1,7 +1,7 @@
-"""Merge / Split / Rotate / Split-by-Bookmarks / TOC (FE register lane FC)."""
+"""Merge / Split / Rotate / Split-by-Bookmarks / TOC."""
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from conftest import make_pdf, tool, wait_job
@@ -229,13 +229,14 @@ def test_rotate_thumbnail_keeps_aspect(app, dialogs, tmp_path):
     assert h > w
 
 
-def test_navigating_away_closes_the_open_documents(app, dialogs, tmp_path):
+@pytest.mark.parametrize("name", ["TocTool", "RotateTool", "BookmarksTool", "MetadataTool",
+                                  "EditTextTool", "FindReplaceTool", "AnnotateTool",
+                                  "RedactTool"])
+def test_navigating_away_closes_the_open_documents(app, dialogs, tmp_path, name):
     src = make_pdf(tmp_path / "in.pdf", pages=2)
-    docs = []
-    for name in ("TocTool", "RotateTool", "BookmarksTool"):
-        t = tool(app, name)
-        dialogs.open(src)
-        t._open()
-        docs.append(t._doc)
-        tool(app, name)
-    assert all(d.is_closed for d in docs)
+    t = tool(app, name)
+    dialogs.open(src)
+    t._open()
+    held = t._doc
+    tool(app, "CropTool")
+    assert held.is_closed

@@ -2,12 +2,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageTk
 import customtkinter as ctk
 import pymupdf as fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, CANVAS_BG, _tk_color
-from ..recent import RECENT
+from ..theme import (ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, CANVAS_BG,
+                     HIT, HIT_CUR, HIT_EDGE, _tk_color)
+from ..pages import render, textwriter_point
 
 
 def _find_matches(page, needle: str) -> list[dict]:
@@ -60,7 +61,6 @@ class FindReplaceTool(ToolBase):
     _doc:      fitz.Document | None = None
     _pg:       int = 0
     _zoom:     float = 1.5
-    _hits:     list  = []   # list of (page_num, [rect per line of the match])
     _hit_idx:  int   = -1
 
     def show(self):
@@ -125,8 +125,6 @@ class FindReplaceTool(ToolBase):
         self._canvas.pack(fill="both", expand=True)
         vbar.configure(command=self._canvas.yview)
         hbar.configure(command=self._canvas.xview)
-        # Leaving the tool destroys the view; close the document so the file is not left locked.
-        self._canvas.bind("<Destroy>", lambda e: self._close_doc())
         self._canvas.bind("<MouseWheel>",
                           lambda e: self._canvas.yview_scroll(
                               -1 * (e.delta // 120), "units"))
@@ -141,16 +139,11 @@ class FindReplaceTool(ToolBase):
         app._cur_save_fn = self._save
         app._cur_undo_fn = self._undo
         self._doc  = None
-        self._hits = []
+        self._hits: list = []   # (page_num, [rect per line of the match])
         self._pg   = 0
-        self._undo_stack: list = []
+        self._undo_stack: list = []   # (page, document bytes) before each Replace All
 
     # ── file ──────────────────────────────────────────────────────────────────
-    def _close_doc(self):
-        if self._doc:
-            self._doc.close()
-            self._doc = None
-
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
@@ -159,12 +152,10 @@ class FindReplaceTool(ToolBase):
         self._doc = self.app._open_pdf_safe(f)
         if not self._doc:
             return
-        self._doc.journal_enable()
         self._undo_stack = []
         self._path_var.set(f)
         self._pg = 0
         self._hits = []
-        RECENT.push(f, len(self._doc))
         self._render()
 
     # ── search ────────────────────────────────────────────────────────────────
@@ -220,8 +211,14 @@ class FindReplaceTool(ToolBase):
                  if (ms := _find_matches(self._doc[pg_num], needle))]
         count = sum(len(ms) for _, ms in found)
         if found:
-            self._replace(found, repl, font)
-            self._undo_stack.append(self._pg)
+            self._push_undo()
+            try:
+                self._replace(found, repl, font)
+            except Exception as e:
+                # Pages already done would keep the text removed; put it all back.
+                self._pop_undo()
+                self._render()
+                return messagebox.showerror("Replace", f"Nothing was replaced:\n{e}")
         self._hits = []
         self._hit_idx = -1
         self._hit_lbl.configure(text=f"Replaced {count} occurrence(s)")
@@ -230,25 +227,22 @@ class FindReplaceTool(ToolBase):
         self._render()
 
     def _replace(self, found: list, repl: str, font):
-        self._doc.journal_start_op("Replace all")
-        try:
-            for pg_num, matches in found:
-                page = self._doc[pg_num]
-                for m in matches:
-                    for r in m["rects"]:
-                        page.add_redact_annot(r)
-                page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
-                                      graphics=fitz.PDF_REDACT_LINE_ART_NONE)
-                for m in matches:
-                    if not repl:
-                        continue
-                    c = m["span"]["color"]
-                    rgb = ((c >> 16) / 255, ((c >> 8) & 0xFF) / 255, (c & 0xFF) / 255)
-                    tw = fitz.TextWriter(page.rect, color=rgb)
-                    tw.append(m["origin"], repl, font=font, fontsize=m["span"]["size"])
-                    tw.write_text(page)
-        finally:
-            self._doc.journal_stop_op()
+        for pg_num, matches in found:
+            page = self._doc[pg_num]
+            for m in matches:
+                for r in m["rects"]:
+                    page.add_redact_annot(r)
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
+                                  graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+            for m in matches:
+                if not repl:
+                    continue
+                c = m["span"]["color"]
+                rgb = ((c >> 16) / 255, ((c >> 8) & 0xFF) / 255, (c & 0xFF) / 255)
+                tw = fitz.TextWriter(page.rect, color=rgb)
+                tw.append(textwriter_point(page, m["origin"]), repl,
+                          font=font, fontsize=m["span"]["size"])
+                tw.write_text(page)
 
     # ── render ────────────────────────────────────────────────────────────────
     def _render(self):
@@ -257,24 +251,22 @@ class FindReplaceTool(ToolBase):
         c = self._canvas
         c.delete("all")
         page = self._doc[self._pg]
-        mat  = fitz.Matrix(self._zoom, self._zoom)
-        pix  = page.get_pixmap(matrix=mat, alpha=False)
+        pix  = render(page, self._zoom, shrink=True)
         img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        from PIL import ImageTk as _ITK
-        self._raw_img = _ITK.PhotoImage(img)
+        self._raw_img = ImageTk.PhotoImage(img)
         c.create_image(0, 0, anchor="nw", image=self._raw_img)
         c.configure(scrollregion=(0, 0, pix.width, pix.height))
-        # Draw hit highlights on current page; hit rects are unrotated page space.
-        to_screen = page.rotation_matrix * mat
+        # Hit rects are in unrotated page space; the pixmap shows the page rotated.
+        to_screen = page.rotation_matrix * fitz.Matrix(self._zoom, self._zoom)
         for hi, (pg_num, rects) in enumerate(self._hits):
             if pg_num != self._pg:
                 continue
             is_cur = hi == self._hit_idx
-            fill   = "#FFD700" if is_cur else "#FFFACD"
+            fill   = HIT_CUR if is_cur else HIT
             for rect in rects:
                 x0, y0, x1, y1 = rect * to_screen
                 c.create_rectangle(x0, y0, x1, y1,
-                                   fill=fill, outline=_tk_color(ACCENT) if is_cur else "#CCC",
+                                   fill=fill, outline=_tk_color(ACCENT) if is_cur else HIT_EDGE,
                                    stipple="gray50" if not is_cur else "",
                                    width=2)
 
@@ -282,8 +274,7 @@ class FindReplaceTool(ToolBase):
     def _undo(self):
         if not self._undo_stack or not self._doc:
             return
-        self._pg = self._undo_stack.pop()
-        self._doc.journal_undo()
+        self._pop_undo()
         self._hits = []
         self._hit_idx = -1
         self._hit_lbl.configure(text="Replace undone")
@@ -297,7 +288,7 @@ class FindReplaceTool(ToolBase):
         if not out:
             return
         try:
-            self._doc.save(out, deflate=True)
+            self._save_doc(out, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF saved:\n{out}")
         except Exception as e:
