@@ -1,11 +1,17 @@
 from __future__ import annotations
+import secrets
 import tkinter as tk
 from tkinter import messagebox
 from pathlib import Path
-import fitz
+import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
+from ..job_queue import atomic_output
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, DANGER, DANGER_H, SUCCESS
+
+_ALL_PERMS = (fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_COPY
+              | fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_ANNOTATE | fitz.PDF_PERM_FORM
+              | fitz.PDF_PERM_ACCESSIBILITY | fitz.PDF_PERM_ASSEMBLE)
 
 
 @register
@@ -14,7 +20,6 @@ class PasswordTool(ToolBase):
     label   = "🔒  Password"
 
     def show(self):
-        app  = self.app
         body = self._card("🔒  Password Protect",
                           "Add AES-256 encryption or remove an existing password")
         self._path = tk.StringVar()
@@ -29,7 +34,7 @@ class PasswordTool(ToolBase):
                                   placeholder_text="Open (user) password")
         self._pw1.pack(fill="x", padx=16, pady=4)
         self._pw2 = ctk.CTkEntry(add, height=42, show="•",
-                                  placeholder_text="Owner password (defaults to same)")
+                                  placeholder_text="Owner password (blank = random)")
         self._pw2.pack(fill="x", padx=16, pady=4)
         pf = ctk.CTkFrame(add, fg_color="transparent")
         pf.pack(fill="x", padx=16, pady=4)
@@ -64,18 +69,25 @@ class PasswordTool(ToolBase):
         pw = self._pw1.get()
         if not pw:
             return messagebox.showwarning("Protect", "Enter a password.")
-        owner = self._pw2.get() or pw
+        # Anyone who knows the owner password gets every right, so an owner
+        # password equal to the open password would void the restrictions.
+        owner = self._pw2.get() or secrets.token_urlsafe(24)
         out   = self.app._save_as("protected.pdf")
         if not out:
             return
         try:
-            perm = 0
-            if self._allow_print.get(): perm |= fitz.PDF_PERM_PRINT
-            if self._allow_copy.get():  perm |= fitz.PDF_PERM_COPY
-            doc = fitz.open(src)
-            doc.save(out, encryption=fitz.PDF_ENCRYPT_AES_256,
-                     user_pw=pw, owner_pw=owner, permissions=perm)
-            doc.close()
+            perm = _ALL_PERMS
+            if not self._allow_print.get():
+                perm &= ~(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ)
+            if not self._allow_copy.get():
+                perm &= ~fitz.PDF_PERM_COPY
+            with atomic_output(out) as tmp, fitz.open(src) as doc:
+                if doc.needs_pass and not doc.authenticate(self._cur_pw.get()):
+                    return messagebox.showerror(
+                        "Protect", "This PDF is already encrypted. Enter its password "
+                                   "in “Current password” below to change it.")
+                doc.save(tmp, encryption=fitz.PDF_ENCRYPT_AES_256,
+                         user_pw=pw, owner_pw=owner, permissions=perm)
             self.app._set_status(f"✓  Protected → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"Protected PDF saved:\n{out}")
         except Exception as e:
@@ -90,13 +102,10 @@ class PasswordTool(ToolBase):
         if not out:
             return
         try:
-            doc = fitz.open(src)
-            if doc.is_encrypted and not doc.authenticate(pw):
-                messagebox.showerror("Error", "Incorrect password.")
-                doc.close()
-                return
-            doc.save(out, encryption=fitz.PDF_ENCRYPT_NONE)
-            doc.close()
+            with atomic_output(out) as tmp, fitz.open(src) as doc:
+                if doc.is_encrypted and not doc.authenticate(pw):
+                    return messagebox.showerror("Error", "Incorrect password.")
+                doc.save(tmp, encryption=fitz.PDF_ENCRYPT_NONE)
             self.app._set_status(f"✓  Unlocked → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"Unlocked PDF saved:\n{out}")
         except Exception as e:

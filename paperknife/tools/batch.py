@@ -1,55 +1,38 @@
 from __future__ import annotations
-import html
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import io, os
-import fitz
-from PIL import Image
+import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER
+from .enhance import compress_pdf, watermark_pdf
+from ..theme import CARD, TEXT, MUTED, SUCCESS, WARN
 from ..prefs import PREFS
 
 # ── Per-operation worker functions ────────────────────────────────────────────
 # Each accepts (src_path, out_dir, opts, stop) → out_path or raises.
 
+def _open_input(src):
+    # A batch cannot stop for a password prompt per file; name the cause
+    # instead of letting save() fail with "document closed or encrypted".
+    doc = fitz.open(src)
+    if doc.needs_pass:
+        doc.close()
+        raise ValueError("password-protected (open it in the single-file tool)")
+    return doc
+
 def _do_compress(src, out_dir, opts, stop):
-    level = opts.get("level", "medium")
-    out   = os.path.join(out_dir, Path(src).stem + "_compressed.pdf")
-    with fitz.open(src) as doc:
-        if level == "light":
-            doc.save(out, deflate=True, garbage=4, clean=True)
-        else:
-            dpi   = 96 if level == "aggressive" else 150
-            scale = dpi / 72.0
-            nd    = fitz.open()
-            for page in doc:
-                if stop.is_set(): return None
-                pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                buf = io.BytesIO()
-                img.save(buf, "JPEG", quality=80)
-                buf.seek(0)
-                np = nd.new_page(width=page.rect.width, height=page.rect.height)
-                np.insert_image(np.rect, stream=buf.read())
-            nd.save(out, deflate=True, garbage=4)
-            nd.close()
+    if stop.is_set(): return None
+    out = os.path.join(out_dir, Path(src).stem + "_compressed.pdf")
+    compress_pdf(_open_input(src), out, opts.get("level", "medium"))
     return out
 
 def _do_watermark(src, out_dir, opts, stop):
-    text    = opts.get("text", "DRAFT")
-    size    = opts.get("size", 60)
-    opacity = opts.get("opacity", 0.25)
-    out     = os.path.join(out_dir, Path(src).stem + "_watermarked.pdf")
-    with fitz.open(src) as doc:
-        for page in doc:
-            if stop.is_set(): return None
-            w, h = page.rect.width, page.rect.height
-            page.insert_text(fitz.Point(w * 0.1, h * 0.55), text,
-                             fontsize=size, color=(0.5, 0.5, 0.5), rotate=45)
-        doc.save(out, deflate=True)
-    return out
+    out = os.path.join(out_dir, Path(src).stem + "_watermarked.pdf")
+    return watermark_pdf(_open_input(src), out, opts.get("text", "DRAFT"),
+                         opts.get("size", 60), opts.get("opacity", 0.25),
+                         (0.5, 0.5, 0.5), stop)
 
 def _do_ocr(src, out_dir, opts, stop):
     import pytesseract
@@ -58,8 +41,7 @@ def _do_ocr(src, out_dir, opts, stop):
     dpi   = opts.get("dpi", 150)
     out   = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
     scale = dpi / 72.0
-    with fitz.open(src) as doc:
-        nd = fitz.open()
+    with _open_input(src) as doc, fitz.open() as nd:
         for page in doc:
             if stop.is_set(): return None
             pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
@@ -69,16 +51,23 @@ def _do_ocr(src, out_dir, opts, stop):
             img.save(buf, "JPEG", quality=90)
             buf.seek(0)
             np.insert_image(np.rect, stream=buf.read())
-            text = pytesseract.image_to_string(img, lang=lang)
-            np.insert_htmlbox(np.rect, f"<pre>{html.escape(text)}</pre>",
-                              css="pre{font-size:10pt;color:transparent}")
+            # Invisible (render mode 3) words at their OCR boxes, as the OCR
+            # tool does; CSS color:transparent in insert_htmlbox writes no text.
+            data = pytesseract.image_to_data(
+                img, lang=lang, output_type=pytesseract.Output.DICT)
+            for word, x, y, h in zip(data["text"], data["left"], data["top"],
+                                     data["height"], strict=True):
+                word = word.strip()
+                if not word or h <= 0:
+                    continue
+                np.insert_text(fitz.Point(x / scale, (y + h) / scale), word,
+                               fontsize=max(1, h / scale * 0.85), render_mode=3)
         nd.save(out, deflate=True)
-        nd.close()
     return out
 
 def _do_pdf2txt(src, out_dir, opts, stop):
     out = os.path.join(out_dir, Path(src).stem + ".txt")
-    with fitz.open(src) as doc:
+    with _open_input(src) as doc:
         parts = []
         for i, page in enumerate(doc):
             if stop.is_set(): return None
@@ -164,7 +153,6 @@ class BatchTool(ToolBase):
                      font=ctk.CTkFont(size=13, weight="bold"),
                      text_color=TEXT, anchor="w").pack(padx=16, pady=(12, 6), fill="x")
         if op == "Compress":
-            from ..prefs import PREFS
             self._make_opt("level", "Level:", "optionmenu",
                            ["light", "medium", "aggressive"], PREFS.compress_level or "medium")
         elif op == "Watermark":
@@ -201,15 +189,20 @@ class BatchTool(ToolBase):
         if not files:
             return messagebox.showwarning("Batch", "No PDF files found in input folder.")
         opts = {k: v.get() for k, v in self._opt_widgets.items()}
-        # Coerce numeric opts
-        for k in ("size", "dpi"):
-            if k in opts:
-                try: opts[k] = int(opts[k])
-                except: pass
-        for k in ("opacity",):
-            if k in opts:
-                try: opts[k] = float(opts[k])
-                except: pass
+        try:
+            for k in ("size", "dpi"):
+                if k in opts:
+                    opts[k] = int(opts[k])
+                    if opts[k] <= 0:
+                        raise ValueError
+            if "opacity" in opts:
+                opts["opacity"] = float(opts["opacity"])
+                if not 0 < opts["opacity"] <= 1:
+                    raise ValueError
+        except ValueError:
+            return messagebox.showwarning(
+                "Batch", "Size and DPI must be positive whole numbers; "
+                         "opacity a number above 0 and up to 1.")
         fn, _ = _OPS[op]
         app   = self.app
         lb    = self._lb
@@ -217,12 +210,13 @@ class BatchTool(ToolBase):
 
         def work(stop):
             ok = err = 0
+            n_files = len(files)
             for i, src in enumerate(files):
                 if stop.is_set():
                     break
                 name = Path(src).name
                 app.after(0, lambda n=name: lb.insert("end", f"⏳  {n}"))
-                app.after(0, lambda v=(i+1)/len(files): app._prog_update(v))
+                app.after(0, lambda v=(i + 1) / n_files: app._prog_update(v))
                 try:
                     result = fn(src, out_dir, opts, stop)
                     if result:

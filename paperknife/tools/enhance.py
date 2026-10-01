@@ -1,13 +1,74 @@
 from __future__ import annotations
+import math
 import tkinter as tk
-from tkinter import filedialog, messagebox, colorchooser
+from tkinter import messagebox, colorchooser
 from pathlib import Path
-import io
-import fitz
-from PIL import Image
+import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN
+from ..job_queue import atomic_output
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN
+
+
+_COMPRESS_DPI = {"medium": 150, "aggressive": 96}
+
+
+def _image_rewrite_options(dpi: int):
+    # rewrite_images() hard-codes FZ_SUBSAMPLE_AVERAGE, which only divides by
+    # whole factors (a 360-DPI image lands at 180, not 150); bicubic hits the
+    # target exactly.  Bitonal images are left alone.
+    opts = fitz.mupdf.PdfImageRewriterOptions()
+    opts.recompress_when = fitz.mupdf.FZ_RECOMPRESS_WHEN_SMALLER
+    for kind in ("color_lossless", "color_lossy", "gray_lossless", "gray_lossy"):
+        setattr(opts, f"{kind}_image_recompress_method", fitz.mupdf.FZ_RECOMPRESS_JPEG)
+        setattr(opts, f"{kind}_image_recompress_quality", "80")
+        setattr(opts, f"{kind}_image_subsample_method", fitz.mupdf.FZ_SUBSAMPLE_BICUBIC)
+        setattr(opts, f"{kind}_image_subsample_threshold", dpi + 1)
+        setattr(opts, f"{kind}_image_subsample_to", dpi)
+    return opts
+
+
+# Both helpers take an open document and close it before the output is moved
+# into place, so *out* may be the input file itself.
+
+def compress_pdf(doc, out: str, level: str) -> None:
+    """Light: clean + deflate.  Medium/aggressive: also resample embedded
+    images above 150/96 DPI down to that DPI; page content is kept."""
+    with atomic_output(out) as tmp, doc:
+        dpi = _COMPRESS_DPI.get(level)
+        if dpi:
+            doc.rewrite_images(options=_image_rewrite_options(dpi))
+        doc.save(tmp, deflate=True, garbage=4, clean=True)
+
+
+def watermark_pdf(doc, out, text, size, opacity, color, stop, progress=None):
+    """Stamp *text* at 45° through the centre of every page.  Returns *out*,
+    or None when *stop* was set."""
+    with atomic_output(out) as tmp, doc:
+        total = len(doc)
+        for i, page in enumerate(doc):
+            if stop.is_set():
+                return None
+            r = page.rect
+            # A 45° line of length L and height fs spans (L + fs) / sqrt(2) on
+            # both axes; shrink the font until that fits inside the page.
+            per_pt = fitz.get_text_length(text, fontname="helv", fontsize=1)
+            fit = min(r.width, r.height) * 0.9 * math.sqrt(2) / (per_pt + 1)
+            fs = min(size, fit)
+            length = per_pt * fs
+            # insert_text works in unrotated page space, so place the centre
+            # there and add the page's /Rotate to keep the stamp at 45° on screen.
+            centre = fitz.Point(r.width / 2, r.height / 2) * page.derotation_matrix
+            page.insert_text(
+                fitz.Point(centre.x - length / 2, centre.y + fs * 0.35),
+                text, fontname="helv", fontsize=fs, color=color,
+                fill_opacity=opacity, stroke_opacity=opacity,
+                morph=(centre, fitz.Matrix(45 + page.rotation)),
+            )
+            if progress:
+                progress(i + 1, total)
+        doc.save(tmp, deflate=True)
+    return out
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -17,7 +78,6 @@ class CompressTool(ToolBase):
     label   = "🗜   Compress"
 
     def show(self):
-        app  = self.app
         body = self._card("🗜  Compress PDF",
                           "Reduce file size by cleaning streams and downsampling images")
         self._path = tk.StringVar()
@@ -56,53 +116,44 @@ class CompressTool(ToolBase):
         src = self._path.get()
         if not src:
             return messagebox.showwarning("Compress", "Select a PDF first.")
+        doc = self._open_safe(src)
+        if doc is None:
+            return
         out = self.app._save_as("compressed.pdf")
         if not out:
-            return
+            return doc.close()
         level = self._level.get()
         app   = self.app
+        orig  = Path(src).stat().st_size
 
         def work(stop):
-            with fitz.open(src) as doc:
-                total = len(doc)
-                if level in ("medium", "aggressive"):
-                    dpi    = 96 if level == "aggressive" else 150
-                    scale  = dpi / 72.0
-                    nd     = fitz.open()
-                    for i, page in enumerate(doc):
-                        if stop.is_set():
-                            return
-                        pix = page.get_pixmap(
-                            matrix=fitz.Matrix(scale, scale), alpha=False)
-                        img = Image.frombytes(
-                            "RGB", [pix.width, pix.height], pix.samples)
-                        buf = io.BytesIO()
-                        img.save(buf, "JPEG", quality=80)
-                        buf.seek(0)
-                        np = nd.new_page(
-                            width=page.rect.width, height=page.rect.height)
-                        np.insert_image(np.rect, stream=buf.read())
-                        app.after(0, lambda v=(i + 1) / total: app._prog_update(v))
-                    nd.save(out, deflate=True, garbage=4)
-                    nd.close()
-                else:
-                    doc.save(out, deflate=True, garbage=4, clean=True)
-
-            orig_kb = Path(src).stat().st_size // 1024
-            new_kb  = Path(out).stat().st_size // 1024
-            pct     = 100 - int(new_kb / max(orig_kb, 1) * 100)
-            app.after(0, lambda: [
-                app._set_status(
-                    f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) → {Path(out).name}",
-                    SUCCESS),
-                messagebox.showinfo(
-                    "Compressed",
-                    f"Compressed PDF saved:\n{out}\n\n"
-                    f"Original: {orig_kb} KB  →  New: {new_kb} KB  ({pct}% smaller)"),
-            ])
+            compress_pdf(doc, out, level)
+            new  = Path(out).stat().st_size
+            orig_kb, new_kb = orig // 1024, new // 1024
+            if new < orig:
+                pct = round((1 - new / orig) * 100)
+                app.after(0, lambda: [
+                    app._set_status(
+                        f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) → {Path(out).name}",
+                        SUCCESS),
+                    messagebox.showinfo(
+                        "Compressed",
+                        f"Compressed PDF saved:\n{out}\n\n"
+                        f"Original: {orig_kb} KB  →  New: {new_kb} KB  ({pct}% smaller)"),
+                ])
+            else:
+                app.after(0, lambda: [
+                    app._set_status(
+                        f"⚠  No size reduction: {orig_kb} KB → {new_kb} KB", WARN),
+                    messagebox.showwarning(
+                        "Compress",
+                        f"The output is not smaller than the original:\n{out}\n\n"
+                        f"Original: {orig_kb} KB  →  New: {new_kb} KB"),
+                ])
 
         app._set_status("Compressing…")
-        app.run_job(work, "Compressing PDF…")
+        if app.run_job(work, "Compressing PDF…") is None:
+            doc.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -112,7 +163,6 @@ class WatermarkTool(ToolBase):
     label   = "💧  Watermark"
 
     def show(self):
-        app  = self.app
         body = self._card("💧  Watermark PDF",
                           "Stamp a diagonal text watermark across every page")
         self._path = tk.StringVar()
@@ -182,37 +232,31 @@ class WatermarkTool(ToolBase):
             return messagebox.showwarning("Watermark", "Select a PDF first.")
         if not text:
             return messagebox.showwarning("Watermark", "Enter watermark text.")
+        doc = self._open_safe(src)
+        if doc is None:
+            return
         out = self.app._save_as("watermarked.pdf")
         if not out:
-            return
+            return doc.close()
         size    = int(self._size.get())
         opacity = self._opacity.get() / 100.0
         color   = self._color_rgb
         app     = self.app
 
+        def progress(n, total):
+            app.after(0, lambda v=n / total: app._prog_update(v))
+
         def work(stop):
-            with fitz.open(src) as doc:
-                total = len(doc)
-                for i, page in enumerate(doc):
-                    if stop.is_set():
-                        return
-                    w, h = page.rect.width, page.rect.height
-                    page.insert_text(
-                        fitz.Point(w * 0.1, h * 0.55),
-                        text, fontsize=size,
-                        color=color, rotate=45,
-                        render_mode=0,
-                    )
-                    page.draw_rect(page.rect, color=None, fill=None)
-                    app.after(0, lambda v=(i + 1) / total: app._prog_update(v))
-                doc.save(out, deflate=True)
+            if watermark_pdf(doc, out, text, size, opacity, color, stop, progress) is None:
+                return
             app.after(0, lambda: [
                 app._set_status(f"✓  Watermarked → {Path(out).name}", SUCCESS),
                 messagebox.showinfo("Done", f"Watermarked PDF saved:\n{out}"),
             ])
 
         app._set_status("Applying watermark…")
-        app.run_job(work, "Applying watermark…")
+        if app.run_job(work, "Applying watermark…") is None:
+            doc.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -227,7 +271,6 @@ class NormaliseTool(ToolBase):
     }
 
     def show(self):
-        app  = self.app
         body = self._card("📐  Normalise Pages",
                           "Resize all pages to a standard paper size")
         self._path = tk.StringVar()
@@ -278,37 +321,37 @@ class NormaliseTool(ToolBase):
         src = self._path.get()
         if not src:
             return messagebox.showwarning("Normalise", "Select a PDF first.")
+        doc = self._open_safe(src)
+        if doc is None:
+            return
         out = self.app._save_as("normalised.pdf")
         if not out:
-            return
+            return doc.close()
+        tw, th  = self._PAGE_SIZES[self._size.get()]
+        orient  = self._orient.get()
+        if orient == "Landscape":
+            tw, th = th, tw
+        stretch = "Stretch" in self._scale.get()
         try:
-            tw, th  = self._PAGE_SIZES[self._size.get()]
-            orient  = self._orient.get()
-            if orient == "Landscape":
-                tw, th = th, tw
-            stretch = "Stretch" in self._scale.get()
-            doc = fitz.open(src)
-            nd  = fitz.open()
-            for page in doc:
-                pw, ph = page.rect.width, page.rect.height
-                if orient == "Keep original":
-                    ftw, fth = (tw, th) if pw <= ph else (th, tw)
-                else:
-                    ftw, fth = tw, th
-                np = nd.new_page(width=ftw, height=fth)
-                if stretch:
-                    clip = fitz.Rect(0, 0, ftw, fth)
-                else:
-                    sx = ftw / pw
-                    sy = fth / ph
-                    sc = min(sx, sy)
-                    ox = (ftw - pw * sc) / 2
-                    oy = (fth - ph * sc) / 2
-                    clip = fitz.Rect(ox, oy, ox + pw * sc, oy + ph * sc)
-                np.show_pdf_page(clip, doc, page.number)
-            nd.save(out, deflate=True)
-            nd.close()
-            doc.close()
+            with atomic_output(out) as tmp, doc, fitz.open() as nd:
+                for page in doc:
+                    pw, ph = page.rect.width, page.rect.height
+                    if orient == "Keep original":
+                        ftw, fth = (tw, th) if pw <= ph else (th, tw)
+                    else:
+                        ftw, fth = tw, th
+                    np = nd.new_page(width=ftw, height=fth)
+                    if stretch:
+                        clip = fitz.Rect(0, 0, ftw, fth)
+                    else:
+                        sx = ftw / pw
+                        sy = fth / ph
+                        sc = min(sx, sy)
+                        ox = (ftw - pw * sc) / 2
+                        oy = (fth - ph * sc) / 2
+                        clip = fitz.Rect(ox, oy, ox + pw * sc, oy + ph * sc)
+                    np.show_pdf_page(clip, doc, page.number, keep_proportion=not stretch)
+                nd.save(tmp, deflate=True)
             self.app._set_status(f"✓  Normalised → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"Normalised PDF saved:\n{out}")
         except Exception as e:

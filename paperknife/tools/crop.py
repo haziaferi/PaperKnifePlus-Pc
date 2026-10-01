@@ -2,11 +2,22 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-import fitz
+import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN
 from ..recent import RECENT
+from ..job_queue import atomic_output
+from ..pages import PageRangeError, parse_ranges
+
+
+def selected_pages(range_str: str, total: int) -> list[int]:
+    """Sorted unique 0-based pages for a page-range field; blank or 'all' is
+    every page.  Raises PageRangeError for input naming no real pages."""
+    if range_str.strip().lower() in ("", "all"):
+        return list(range(total))
+    return sorted({p for a, b in parse_ranges(range_str, total)
+                   for p in range(a, b + 1)})
 
 
 @register
@@ -71,7 +82,7 @@ class CropTool(ToolBase):
 
         # Reset crop option
         self._reset_var = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(card, text="Reset to original crop box first (undo previous crops)",
+        ctk.CTkCheckBox(card, text="Reset to full media box first (undo previous crops)",
                         variable=self._reset_var, text_color=TEXT
                         ).pack(padx=16, pady=(4, 14), anchor="w")
 
@@ -94,49 +105,48 @@ class CropTool(ToolBase):
             ml = float(self._margins["left"].get()   or "0")
         except ValueError:
             return messagebox.showwarning("Crop", "Enter numeric values for all margins.")
+        if min(mt, mr, mb, ml) < 0:
+            return messagebox.showwarning("Crop", "Margins cannot be negative.")
         if mt == mr == mb == ml == 0:
             return messagebox.showwarning("Crop", "All margins are 0 — nothing to crop.")
-        out = self.app._save_as("cropped.pdf")
-        if not out:
-            return
         range_str = self._page_range.get().strip()
         reset     = self._reset_var.get()
+        doc = self._open_safe(src)
+        if doc is None:
+            return
+        total = len(doc)
         try:
-            doc   = fitz.open(src)
-            total = len(doc)
-            # Parse page range
-            if not range_str:
-                pages = list(range(total))
-            else:
-                pages = []
-                for part in range_str.split(","):
-                    part = part.strip().lower().replace("end", str(total))
-                    if "-" in part:
-                        a, b = part.split("-")
-                        pages += list(range(int(a)-1, int(b)))
-                    else:
-                        pages.append(int(part)-1)
-                pages = [p for p in pages if 0 <= p < total]
-
-            for pg_num in pages:
-                page = doc[pg_num]
-                if reset:
-                    # Restore media box as the crop box baseline
-                    page.set_cropbox(page.mediabox)
-                cb = page.cropbox
-                new = fitz.Rect(
-                    cb.x0 + ml, cb.y0 + mt,
-                    cb.x1 - mr, cb.y1 - mb,
-                )
-                if new.is_empty or new.is_infinite:
-                    continue
-                page.set_cropbox(new)
-
-            doc.save(out, deflate=True)
+            pages = selected_pages(range_str, total)
+        except PageRangeError as e:
             doc.close()
+            return messagebox.showerror("Crop", str(e))
+        out = self.app._save_as("cropped.pdf")
+        if not out:
+            return doc.close()
+        try:
+            with atomic_output(out) as tmp, doc:
+                cropped = 0
+                for pg_num in pages:
+                    page = doc[pg_num]
+                    if reset:
+                        page.set_cropbox(page.mediabox)
+                    # Margins are given as the page is seen (page.rect, rotation
+                    # applied); the crop box lives in unrotated space.
+                    seen = fitz.Rect(ml, mt, page.rect.width - mr, page.rect.height - mb)
+                    if seen.is_empty:
+                        continue
+                    cb  = page.cropbox
+                    new = (seen * page.derotation_matrix).normalize()
+                    page.set_cropbox(new + (cb.x0, cb.y0, cb.x0, cb.y0))
+                    cropped += 1
+                doc.save(tmp, deflate=True)
             RECENT.push(src, total)
+            skipped = len(pages) - cropped
+            note = (f" · {skipped} skipped (margins larger than the page)"
+                    if skipped else "")
             self.app._set_status(
-                f"✓  Cropped {len(pages)} page(s) → {Path(out).name}", SUCCESS)
+                f"✓  Cropped {cropped} page(s){note} → {Path(out).name}",
+                WARN if skipped else SUCCESS)
             messagebox.showinfo("Done", f"Cropped PDF saved:\n{out}")
         except Exception as e:
             messagebox.showerror("Error", str(e))
