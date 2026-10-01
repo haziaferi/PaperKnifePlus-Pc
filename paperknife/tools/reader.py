@@ -1,0 +1,258 @@
+"""
+paperknife.tools.reader
+📖  Read / Preview — front-facing, continuous smooth-scroll PDF viewer.
+
+Pages are laid out in one tall scrollable Canvas. Only pages inside the
+viewport (+ a small preload margin) are rasterised — page sizes are known
+cheaply from page.rect, so the scrollregion is correct before anything is
+rendered. Rasterisation runs on a background daemon thread so scrolling
+never blocks the Tk event loop; PIL images are handed back to the main
+thread via app.after(), where they become PhotoImages and are cached
+(bounded, LRU) so re-visiting a page never re-renders it.
+
+View-only: no save action, nothing here mutates the PDF.
+"""
+from __future__ import annotations
+import threading
+import queue
+from collections import OrderedDict
+
+import tkinter as tk
+from tkinter import filedialog
+import customtkinter as ctk
+from PIL import Image, ImageTk
+import fitz
+
+from ..tool_base import ToolBase, register
+from ..theme import TEXT, MUTED, CARD2, CANVAS_BG, _tk_color
+from ..recent import RECENT
+
+_PRELOAD   = 2     # extra pages rendered beyond the visible window, each side
+_CACHE_MAX = 16     # bounded PhotoImage cache (pages currently displayed are exempt)
+_GAP       = 10     # px between pages
+
+
+@register
+class ReaderTool(ToolBase):
+    section = "READ"
+    label   = "📖  Read / Preview"
+
+    _doc  = None
+    _path = ""
+    _zoom = 1.25
+
+    def show(self):
+        app  = self.app
+        body = self._card("📖  Read / Preview",
+                          "Continuous smooth-scroll viewer — view-only")
+
+        self._path_var = tk.StringVar()
+        top = ctk.CTkFrame(body, fg_color="transparent")
+        top.pack(fill="x", padx=24, pady=(8, 4))
+        ctk.CTkEntry(top, textvariable=self._path_var, state="readonly",
+                     placeholder_text="Open a PDF…", height=40
+                     ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+        ctk.CTkButton(top, text="Open PDF", width=120, height=40,
+                      command=self._open).pack(side="left", padx=4)
+        ctk.CTkLabel(top, text="Zoom:", text_color=TEXT,
+                     font=ctk.CTkFont(size=12)).pack(side="left", padx=(16, 4))
+        ctk.CTkSlider(top, from_=0.5, to=3.0, number_of_steps=50, width=120,
+                      command=self._on_zoom).pack(side="left")
+        self._pg_lbl = ctk.CTkLabel(top, text="—", width=80, text_color=MUTED)
+        self._pg_lbl.pack(side="left", padx=(12, 0))
+
+        cf = ctk.CTkFrame(body, fg_color=CARD2, corner_radius=8)
+        cf.pack(fill="both", expand=True, padx=24, pady=4)
+        vbar = tk.Scrollbar(cf, orient="vertical")
+        vbar.pack(side="right", fill="y")
+        self._canvas = tk.Canvas(cf, bg=_tk_color(CANVAS_BG), highlightthickness=0,
+                                  yscrollcommand=vbar.set)
+        self._canvas.pack(fill="both", expand=True)
+        vbar.configure(command=self._yview)
+
+        self._canvas.bind("<MouseWheel>", lambda e: self._scroll_px(-e.delta * 0.5))   # Win/macOS
+        self._canvas.bind("<Button-4>",   lambda e: self._scroll_px(-60))              # Linux
+        self._canvas.bind("<Button-5>",   lambda e: self._scroll_px(60))
+        self._canvas.bind("<Configure>",  lambda e: self._update_viewport())
+
+        first_run = not hasattr(self, "_worker") or not self._worker.is_alive()
+        if first_run:
+            self._req_q       = queue.Queue()
+            self._cache       = OrderedDict()   # (page_idx, zoom) -> PhotoImage
+            self._gen         = 0
+            self._doc_lock    = None
+            self._scroll_frac = 0.0
+            self._worker_stop = threading.Event()
+            self._worker = threading.Thread(target=self._render_worker, daemon=True)
+            self._worker.start()
+
+        self._items = {}        # page_idx -> canvas image item (current canvas only)
+        self._gen  += 1          # invalidate any renders still in flight for the old canvas
+        app._cur_open_fn = self._open
+
+        pending = getattr(app, "_reader_pending_path", None)
+        if pending:
+            app._reader_pending_path = None
+            self.open_path(pending)
+        elif self._doc:
+            # Re-entering the tool with a document already open — rebuild
+            # geometry on the fresh canvas and restore scroll position.
+            self._path_var.set(self._path)
+            self._layout_pages()
+            self._canvas.yview_moveto(self._scroll_frac)
+            app.after(30, self._update_viewport)
+
+    # ── public: other parts of the app can open a file straight into the reader ──
+    def open_path(self, path: str):
+        self._load(path)
+
+    # ── file ──────────────────────────────────────────────────────────────────
+    def _open(self):
+        f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
+        if f:
+            self.open_path(f)
+
+    def _load(self, path: str):
+        doc = self._open_safe(path)
+        if not doc:
+            return
+        old_doc, old_lock = self._doc, self._doc_lock
+        self._gen += 1
+        self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
+        self._path_var.set(path)
+        RECENT.push(path, len(doc))
+
+        self._cache.clear()
+        self._items.clear()
+        self._canvas.delete("all")
+        self._layout_pages()
+        self._canvas.yview_moveto(0)
+        self._update_viewport()
+
+        if old_doc is not None:
+            # Close off-thread, holding the old lock, so a render already
+            # in flight against old_doc finishes before close() runs.
+            def _close_when_idle(d=old_doc, lk=old_lock):
+                with lk:
+                    d.close()
+            threading.Thread(target=_close_when_idle, daemon=True).start()
+
+    # ── layout: page geometry only — no rasterising ──────────────────────────
+    def _layout_pages(self):
+        self._page_tops, self._page_px = [], []
+        y, max_w = _GAP, 0
+        for page in self._doc:
+            w = int(page.rect.width  * self._zoom)
+            h = int(page.rect.height * self._zoom)
+            self._page_tops.append(y)
+            self._page_px.append((w, h))
+            y += h + _GAP
+            max_w = max(max_w, w)
+        self._total_h = y
+        self._canvas.configure(scrollregion=(0, 0, max_w + 2 * _GAP, y))
+
+    def _on_zoom(self, v):
+        if not self._doc:
+            return
+        self._zoom = float(v)
+        self._gen += 1
+        self._cache.clear()
+        self._items.clear()
+        self._canvas.delete("all")
+        self._layout_pages()
+        self._update_viewport()
+
+    # ── scrolling ─────────────────────────────────────────────────────────────
+    def _yview(self, *args):
+        self._canvas.yview(*args)
+        self._update_viewport()
+
+    def _scroll_px(self, delta_px: float):
+        """Pixel-accurate scroll — this (not a fixed-unit jump) is what makes
+        multi-page scroll feel continuous rather than paged."""
+        if not self._doc or self._total_h <= 0:
+            return
+        cur_top  = self._canvas.canvasy(0)
+        view_h   = self._canvas.winfo_height()
+        new_top  = min(max(0, cur_top + delta_px), max(0, self._total_h - view_h))
+        self._canvas.yview_moveto(new_top / self._total_h)
+        self._update_viewport()
+
+    # ── viewport → request visible (+preload) pages ──────────────────────────
+    def _update_viewport(self):
+        if not self._doc:
+            return
+        top    = self._canvas.canvasy(0)
+        bottom = top + self._canvas.winfo_height()
+        first = last = None
+        for i, (y0, (_, h)) in enumerate(zip(self._page_tops, self._page_px)):
+            y1 = y0 + h
+            if y1 < top or y0 > bottom:
+                continue
+            first = i if first is None else first
+            last  = i
+        if first is None:
+            return
+
+        lo = max(0, first - _PRELOAD)
+        hi = min(len(self._doc) - 1, last + _PRELOAD)
+        for i in range(lo, hi + 1):
+            self._request_page(i)
+        # Free canvas images that scrolled well outside the window; the
+        # PhotoImage stays in _cache so scrolling back redraws instantly.
+        for idx in list(self._items.keys()):
+            if idx < lo or idx > hi:
+                self._canvas.delete(self._items.pop(idx))
+
+        self._scroll_frac = self._canvas.yview()[0]
+        self._pg_lbl.configure(text=f"{first + 1}–{last + 1} / {len(self._doc)}")
+
+    def _request_page(self, idx: int):
+        key = (idx, self._zoom)
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            if idx not in self._items:
+                self._draw_page(idx, cached)
+            return
+        self._req_q.put((self._gen, self._doc, self._doc_lock, idx, self._zoom))
+
+    def _draw_page(self, idx: int, photo):
+        y0 = self._page_tops[idx]
+        if idx in self._items:
+            self._canvas.delete(self._items[idx])
+        self._items[idx] = self._canvas.create_image(_GAP, y0, anchor="nw", image=photo)
+
+    # ── background worker: rasterise off the Tk thread ───────────────────────
+    def _render_worker(self):
+        while not self._worker_stop.is_set():
+            try:
+                gen, doc, lock, idx, zoom = self._req_q.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if gen != self._gen or doc is None:
+                continue          # stale request — doc/zoom changed since it was queued
+            try:
+                with lock:
+                    page = doc[idx]
+                    pix  = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                    img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            except Exception:
+                continue
+            self.app.after(0, lambda i=idx, z=zoom, g=gen, im=img: self._on_rendered(g, i, z, im))
+
+    def _on_rendered(self, gen, idx, zoom, pil_img):
+        if gen != self._gen or not self._canvas.winfo_exists():
+            return                # stale — canvas/doc/zoom changed while this rendered
+        photo = ImageTk.PhotoImage(pil_img)
+        key = (idx, zoom)
+        self._cache[key] = photo                 # keep a strong ref — Tk drops GC'd images
+        self._cache.move_to_end(key)
+        while len(self._cache) > _CACHE_MAX:
+            for k in list(self._cache.keys()):
+                if k[0] not in self._items:       # never evict a page on screen right now
+                    del self._cache[k]
+                    break
+            else:
+                break
+        self._draw_page(idx, photo)

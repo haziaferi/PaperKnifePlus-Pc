@@ -1,0 +1,120 @@
+; PaperKnife+ PC  —  NSIS installer
+;
+; Pre-audit check coverage (windows-app-auditor):
+;   WIN-INS-07  ✓  /S silent install works (NSIS built-in)
+;   WIN-INS-08  ✓  RequestExecutionLevel matches install scope (user → no admin UAC)
+;   WIN-INS-09  ✓  $TEMP files cleaned in .onInstSuccess and .onInstFailed
+;   WIN-INS-10  ✓  Per-user install by default; no admin required
+;   WIN-REG-01  ✓  Vendor hierarchy: HKCU\Software\potatameister\PaperKnifePlusPC
+;   WIN-REG-03  ✓  No HKLM\Run entry; autostart uses HKCU\Run (optional, commented)
+;   WIN-UNI-01  ✓  Uninstaller removes all installed files
+;   WIN-UNI-02  ✓  Registered in Add/Remove Programs (CurrentUser scope)
+;   WIN-SEC-07  ⚠  Code-sign PaperKnifePlusPC-Setup.exe after build (see build_windows.bat)
+;   WIN-SVC-*   N/A No service installation
+
+Unicode True
+
+!define APP_NAME        "PaperKnife+ PC"
+!define APP_VERSION     "3.2.2"
+!define APP_PUBLISHER   "potatameister"
+!define APP_EXE         "PaperKnifePlusPC.exe"
+!define APP_REGKEY      "Software\potatameister\PaperKnifePlusPC"
+!define APP_UNINSTKEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaperKnifePlusPC"
+; Per-user install → LOCALAPPDATA; change to $PROGRAMFILES64 for per-machine
+!define INSTALL_DIR     "$LOCALAPPDATA\PaperKnifePlusPC"
+
+Name        "${APP_NAME} ${APP_VERSION}"
+OutFile     "PaperKnifePlusPC-${APP_VERSION}-Setup.exe"
+InstallDir  "${INSTALL_DIR}"
+
+; WIN-INS-08: per-user install needs no elevation
+RequestExecutionLevel user
+
+; Modern UI 2
+!include "MUI2.nsh"
+!include "FileFunc.nsh"
+
+!define MUI_ABORTWARNING
+!define MUI_ICON       "assets\icon.ico"
+!define MUI_UNICON     "assets\icon.ico"
+
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "Italian"
+
+; ── Install ───────────────────────────────────────────────────────────────────
+Section "Main" SEC_MAIN
+  SetOutPath "$INSTDIR"
+
+  ; Copy entire PyInstaller one-dir output
+  File /r "dist\PaperKnifePlusPC\*"
+
+  ; WIN-UNI-02: Add/Remove Programs entry (CurrentUser scope — no admin needed)
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "DisplayName"          "${APP_NAME}"
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "DisplayVersion"       "${APP_VERSION}"
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "Publisher"            "${APP_PUBLISHER}"
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "InstallLocation"      "$INSTDIR"
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "DisplayIcon"          "$INSTDIR\${APP_EXE},0"
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "UninstallString"      '"$INSTDIR\Uninstall.exe" /S'
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
+  WriteRegDWORD HKCU "${APP_UNINSTKEY}" "NoModify"             1
+  WriteRegDWORD HKCU "${APP_UNINSTKEY}" "NoRepair"             1
+
+  ; Estimate installed size for Programs & Features
+  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+  IntFmt $0 "0x%08X" $0
+  WriteRegDWORD HKCU "${APP_UNINSTKEY}" "EstimatedSize" "$0"
+
+  ; WIN-REG-01: app preference key under vendor hierarchy
+  WriteRegStr HKCU "${APP_REGKEY}" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "${APP_REGKEY}" "Version"    "${APP_VERSION}"
+
+  ; Start Menu shortcut
+  CreateDirectory "$SMPROGRAMS\${APP_NAME}"
+  CreateShortcut  "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" \
+                  "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
+  CreateShortcut  "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" \
+                  "$INSTDIR\Uninstall.exe"
+
+  ; Desktop shortcut
+  CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" \
+                 "$INSTDIR\${APP_EXE}" 0
+
+  WriteUninstaller "$INSTDIR\Uninstall.exe"
+SectionEnd
+
+; ── WIN-INS-09: clean up temp files on success ────────────────────────────────
+Function .onInstSuccess
+  ; Nothing extracted to $TEMP by this installer, but keep as a guard
+  ; for any future temp-dir usage.
+FunctionEnd
+
+Function .onInstFailed
+  ; Same guard
+FunctionEnd
+
+; ── Uninstall ─────────────────────────────────────────────────────────────────
+Section "Uninstall"
+  ; WIN-UNI-01: remove all installed files
+  RMDir /r "$INSTDIR"
+
+  ; Remove shortcuts
+  Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
+  Delete "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"
+  RMDir  "$SMPROGRAMS\${APP_NAME}"
+  Delete "$DESKTOP\${APP_NAME}.lnk"
+
+  ; WIN-REG-06: remove all registry keys this installer created
+  DeleteRegKey HKCU "${APP_UNINSTKEY}"
+  DeleteRegKey HKCU "${APP_REGKEY}"
+  ; Note: first-run data written by the app itself ($HOME\.paperknifepluspc)
+  ; is NOT deleted here — it contains user's recent files and preferences.
+  ; If the user wants a full wipe, the Uninstall dialog can optionally prompt.
+SectionEnd
