@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
 from pathlib import Path
-import fitz
+import pymupdf as fitz
 from ..pages import PageRangeError, parse_ranges
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, MUTED, SUCCESS

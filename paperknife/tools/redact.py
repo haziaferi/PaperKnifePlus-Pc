@@ -5,7 +5,7 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 from PIL import Image
 import customtkinter as ctk
-import fitz
+import pymupdf as fitz
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER, DANGER_H, CANVAS_BG, _tk_color
 from ..recent import RECENT

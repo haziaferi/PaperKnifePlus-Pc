@@ -2,7 +2,7 @@ from __future__ import annotations
 import re, os
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import fitz
+import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import CARD2, TEXT, MUTED, SUCCESS, WARN

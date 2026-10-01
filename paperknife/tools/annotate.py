@@ -4,7 +4,7 @@ from tkinter import filedialog, messagebox, colorchooser
 from pathlib import Path
 from PIL import Image
 import customtkinter as ctk
-import fitz
+import pymupdf as fitz
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, SUCCESS, WARN, CANVAS_BG, DANGER, _tk_color
 from ..recent import RECENT

@@ -2,11 +2,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-import io, os
+import os
 import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from .enhance import compress_pdf, watermark_pdf
+from .ocr import add_text_layer, ocr_words
+from ..job_queue import atomic_output
 from ..theme import CARD, TEXT, MUTED, SUCCESS, WARN
 from ..prefs import PREFS
 
@@ -35,34 +37,18 @@ def _do_watermark(src, out_dir, opts, stop):
                          (0.5, 0.5, 0.5), stop)
 
 def _do_ocr(src, out_dir, opts, stop):
-    import pytesseract
     from PIL import Image as _PIL
     lang  = opts.get("lang", "eng")
-    dpi   = opts.get("dpi", 150)
+    scale = opts.get("dpi", 150) / 72.0
     out   = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
-    scale = dpi / 72.0
-    with _open_input(src) as doc, fitz.open() as nd:
+    with _open_input(src) as doc:
         for page in doc:
             if stop.is_set(): return None
             pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
             img = _PIL.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            np  = nd.new_page(width=page.rect.width, height=page.rect.height)
-            buf = io.BytesIO()
-            img.save(buf, "JPEG", quality=90)
-            buf.seek(0)
-            np.insert_image(np.rect, stream=buf.read())
-            # Invisible (render mode 3) words at their OCR boxes, as the OCR
-            # tool does; CSS color:transparent in insert_htmlbox writes no text.
-            data = pytesseract.image_to_data(
-                img, lang=lang, output_type=pytesseract.Output.DICT)
-            for word, x, y, h in zip(data["text"], data["left"], data["top"],
-                                     data["height"], strict=True):
-                word = word.strip()
-                if not word or h <= 0:
-                    continue
-                np.insert_text(fitz.Point(x / scale, (y + h) / scale), word,
-                               fontsize=max(1, h / scale * 0.85), render_mode=3)
-        nd.save(out, deflate=True)
+            add_text_layer(page, ocr_words(img, lang, scale))
+        with atomic_output(out) as tmp:
+            doc.save(tmp, garbage=3, deflate=True)
     return out
 
 def _do_pdf2txt(src, out_dir, opts, stop):

@@ -131,7 +131,7 @@ def test_batch_ocr_writes_an_invisible_text_layer(app, dialogs, tmp_path, monkey
     monkeypatch.setattr(pytesseract, "image_to_string",
                         lambda img, lang=None, **k: "HELLO WORLD")
     monkeypatch.setattr(pytesseract, "image_to_data", lambda img, lang=None, **k: {
-        "text": ["", "HELLO", "WORLD"], "left": [0, 100, 300],
+        "text": ["", "HELLO", "WORLD"], "conf": [-1, 95, 95], "left": [0, 100, 300],
         "top": [0, 200, 200], "width": [0, 150, 150], "height": [0, 40, 40]})
     out_dir, rows = _batch(app, dialogs, tmp_path, "OCR", dpi="150")
     assert rows and rows[0].startswith("✓"), rows
