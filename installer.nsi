@@ -7,7 +7,8 @@
 ;   WIN-INS-10  ✓  Per-user install by default; no admin required
 ;   WIN-REG-01  ✓  Vendor hierarchy: HKCU\Software\potatameister\PaperKnifePlusPC
 ;   WIN-REG-03  ✓  No HKLM\Run entry; autostart uses HKCU\Run (optional, commented)
-;   WIN-UNI-01  ✓  Uninstaller removes all installed files
+;   WIN-UNI-01  ✓  Uninstaller removes the install folder, which is always a
+;                  dedicated PaperKnifePlusPC folder (see Section "Main")
 ;   WIN-UNI-02  ✓  Registered in Add/Remove Programs (CurrentUser scope)
 ;   WIN-SEC-07  ⚠  Code-sign PaperKnifePlusPC-Setup.exe after build (see build_windows.bat)
 ;   WIN-SVC-*   N/A No service installation
@@ -18,10 +19,11 @@ Unicode True
 !define APP_VERSION     "3.2.2"
 !define APP_PUBLISHER   "potatameister"
 !define APP_EXE         "PaperKnifePlusPC.exe"
+!define APP_DIRNAME     "PaperKnifePlusPC"
 !define APP_REGKEY      "Software\potatameister\PaperKnifePlusPC"
 !define APP_UNINSTKEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaperKnifePlusPC"
 ; Per-user install → LOCALAPPDATA; change to $PROGRAMFILES64 for per-machine
-!define INSTALL_DIR     "$LOCALAPPDATA\PaperKnifePlusPC"
+!define INSTALL_DIR     "$LOCALAPPDATA\${APP_DIRNAME}"
 
 Name        "${APP_NAME} ${APP_VERSION}"
 OutFile     "PaperKnifePlusPC-${APP_VERSION}-Setup.exe"
@@ -51,6 +53,11 @@ RequestExecutionLevel user
 
 ; ── Install ───────────────────────────────────────────────────────────────────
 Section "Main" SEC_MAIN
+  ; The uninstaller deletes $INSTDIR recursively, so never install straight
+  ; into a folder the user picked (e.g. Documents): use a subfolder of it.
+  ${GetFileName} "$INSTDIR" $0
+  StrCmp $0 "${APP_DIRNAME}" +2
+    StrCpy $INSTDIR "$INSTDIR\${APP_DIRNAME}"
   SetOutPath "$INSTDIR"
 
   ; Copy entire PyInstaller one-dir output
@@ -62,7 +69,8 @@ Section "Main" SEC_MAIN
   WriteRegStr   HKCU "${APP_UNINSTKEY}" "Publisher"            "${APP_PUBLISHER}"
   WriteRegStr   HKCU "${APP_UNINSTKEY}" "InstallLocation"      "$INSTDIR"
   WriteRegStr   HKCU "${APP_UNINSTKEY}" "DisplayIcon"          "$INSTDIR\${APP_EXE},0"
-  WriteRegStr   HKCU "${APP_UNINSTKEY}" "UninstallString"      '"$INSTDIR\Uninstall.exe" /S'
+  ; Settings → Apps runs UninstallString: no /S, so the confirm page shows.
+  WriteRegStr   HKCU "${APP_UNINSTKEY}" "UninstallString"      '"$INSTDIR\Uninstall.exe"'
   WriteRegStr   HKCU "${APP_UNINSTKEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${APP_UNINSTKEY}" "NoModify"             1
   WriteRegDWORD HKCU "${APP_UNINSTKEY}" "NoRepair"             1
@@ -102,8 +110,18 @@ FunctionEnd
 
 ; ── Uninstall ─────────────────────────────────────────────────────────────────
 Section "Uninstall"
-  ; WIN-UNI-01: remove all installed files
-  RMDir /r "$INSTDIR"
+  ; WIN-UNI-01: remove the dedicated install folder.  An install made by an
+  ; older installer may sit in a shared folder; remove only our files there.
+  ${GetFileName} "$INSTDIR" $0
+  StrCmp $0 "${APP_DIRNAME}" 0 shared_dir
+    RMDir /r "$INSTDIR"
+    Goto files_done
+  shared_dir:
+    Delete "$INSTDIR\${APP_EXE}"
+    Delete "$INSTDIR\Uninstall.exe"
+    RMDir /r "$INSTDIR\_internal"
+    RMDir "$INSTDIR"
+  files_done:
 
   ; Remove shortcuts
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
@@ -114,7 +132,6 @@ Section "Uninstall"
   ; WIN-REG-06: remove all registry keys this installer created
   DeleteRegKey HKCU "${APP_UNINSTKEY}"
   DeleteRegKey HKCU "${APP_REGKEY}"
-  ; Note: first-run data written by the app itself ($HOME\.paperknifepluspc)
+  ; Note: first-run data written by the app itself ($PROFILE\.paperknifepluspc)
   ; is NOT deleted here — it contains user's recent files and preferences.
-  ; If the user wants a full wipe, the Uninstall dialog can optionally prompt.
 SectionEnd

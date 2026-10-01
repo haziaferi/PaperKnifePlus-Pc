@@ -2,55 +2,60 @@
 #
 # PyInstaller spec for PaperKnife+ PC
 #
-# Build:  pyinstaller paperknife.spec
+# Build:  pyinstaller paperknife.spec   (from an activated clean venv; see
+#         build_windows.bat — a global or conda environment drags in every
+#         package PyInstaller's hooks can reach)
 #
 # Pre-audit checklist (windows-app-auditor):
 #   WIN-SEC-02  ✓  app.manifest embedded via manifest= below
 #   WIN-CMP-02  ✓  PerMonitorV2 dpiAwareness in manifest
 #   WIN-CMP-03  ✓  longPathAware in manifest
 #   WIN-WAC-03  ✓  supportedOS Win10/11 in manifest
-#   WIN-BLD-01  ✓  PyInstaller strips debug info in release mode (--log-level WARN)
+#   WIN-BLD-01  ✓  debug=False: no debug bootloader (symbols are not stripped: strip=False)
 #   WIN-DEP-06  ✓  Python runtime bundled → no "Python not found" failure on end-user machines
-#   WIN-PERF-03 ✓  one-file-dir bundle: all DLLs present at startup, no lazy-extract latency
+#   WIN-PERF-03 ✓  one-dir bundle: all DLLs present at startup, no lazy-extract latency
 #
 # Remaining action items (cannot be done by this spec):
 #   WIN-SEC-07  ⚠  Sign PaperKnifePlusPC.exe with EV/OV cert after build (see build_windows.bat)
 #   WIN-SEC-08  ⚠  RFC 3161 timestamp required in signtool invocation
-#   WIN-DEP-02  ⚠  Sign all shipped .dll files (signtool loop in build_windows.bat)
+#   WIN-DEP-02  ⚠  Sign all shipped .dll/.pyd files (signtool loop in build_windows.bat)
 
-import sys
+import tkinter
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
-# Collect tkinterdnd2 binaries (optional DnD support)
+# customtkinter reads its theme JSON and fonts from customtkinter/assets as
+# data files; hiddenimports alone does not ship them.
+ctk_datas = collect_data_files("customtkinter")
+
+# tkinterdnd2 (optional DnD).  TkinterDnD._require looks for the library in
+# <dir of tkinterdnd2>/tkdnd/<platform>[-tcl9], so it must land under
+# tkinterdnd2/tkdnd/ in the bundle.  Only the x64 Windows build is shipped.
 try:
     import tkinterdnd2 as _dnd
-    dnd_binaries = [
-        (str(Path(_dnd.__file__).parent / "tkdnd" / "*"), "tkdnd"),
-    ]
 except ImportError:
-    dnd_binaries = []
-
-# Collect tesseract language data if bundled (optional OCR)
-# End users still need the Tesseract binary on PATH; we do NOT bundle the
-# Tesseract executable itself (it is a separate open-source tool).
-tesseract_data = []
+    dnd_datas = []
+else:
+    _plat = "win-x64"
+    if int(tkinter.Tcl().eval("info tclversion").split(".")[0]) >= 9:
+        _plat += "-tcl9"
+    _src = Path(_dnd.__file__).parent / "tkdnd" / _plat
+    if not _src.is_dir():
+        raise SystemExit(f"tkinterdnd2 has no {_src}; upgrade tkinterdnd2 "
+                         "or uninstall it to build without drag and drop")
+    dnd_datas = [(str(_src), f"tkinterdnd2/tkdnd/{_plat}")]
 
 a = Analysis(
     ["paperknife/__main__.py"],
     pathex=["."],
-    binaries=dnd_binaries,
-    datas=[
-        # Include any extra resource files here
-        # ("assets/*", "assets"),
-    ],
+    binaries=[],
+    datas=ctk_datas + dnd_datas,
     hiddenimports=[
-        # customtkinter loads themes at runtime via importlib
         "customtkinter",
-        # PyMuPDF internal modules
-        "fitz",
-        # optional doc-conversion extras
+        "pymupdf",
+        # optional doc-conversion extras, imported inside functions
         "docx",
         "pptx",
         "openpyxl",
@@ -60,8 +65,8 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # test frameworks
-        "pytest", "unittest", "_pytest",
+        # test frameworks and dev tools
+        "pytest", "unittest", "_pytest", "pygments",
         # jupyter / IPython
         "IPython", "jupyter",
         # numpy / scipy / MKL — paperknife uses none of these;
@@ -71,6 +76,8 @@ a = Analysis(
         # "Library not found" warnings in the build log.
         "numpy", "scipy", "pandas", "matplotlib",
         "mkl", "intel_openmp",
+        # other GUI toolkits that hooks may pull in from a shared environment
+        "PyQt5", "PyQt6", "PySide2", "PySide6",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -94,7 +101,7 @@ exe = EXE(
     icon=str(Path("assets") / "icon.ico"),
     # WIN-SEC-02 / WIN-CMP-02 / WIN-CMP-03: embed the app.manifest
     manifest="app.manifest",
-    version="version_info.txt",     # see version_info.txt below
+    version="version_info.txt",
 )
 
 coll = COLLECT(

@@ -1,23 +1,31 @@
 @echo off
+cd /d "%~dp0"
 echo ============================================================
-echo  PaperKnife+ PC  v3.2.1  ^|  Setup
+echo  PaperKnife+ PC  v3.2.2  ^|  Setup
 echo ============================================================
 echo.
-python --version >nul 2>&1
+python -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found on PATH.
+    echo [ERROR] Python 3.10 or later not found on PATH.
     echo         Install Python 3.10+ from https://python.org
     pause & exit /b 1
 )
-echo [1/3] Upgrading pip...
-python -m pip install --upgrade pip --quiet
-echo [2/3] Installing core dependencies...
-python -m pip install "PyMuPDF>=1.23.0,<2.0.0" "customtkinter>=5.2.0" "Pillow>=10.0.0" --quiet
-echo [3/3] Installing optional dependencies...
-python -m pip install tkinterdnd2 pytesseract python-docx python-pptx openpyxl striprtf --quiet
+if not exist .venv\Scripts\python.exe (
+    echo [1/3] Creating virtual environment .venv ...
+    python -m venv .venv
+    if errorlevel 1 ( echo [ERROR] Could not create .venv. & pause & exit /b 1 )
+) else (
+    echo [1/3] Using existing .venv
+)
+echo [2/3] Upgrading pip...
+.venv\Scripts\python.exe -m pip install --upgrade pip --quiet
+if errorlevel 1 ( echo [ERROR] pip upgrade failed. & pause & exit /b 1 )
+echo [3/3] Installing dependencies from requirements.txt...
+.venv\Scripts\python.exe -m pip install -r requirements.txt --quiet
+if errorlevel 1 ( echo [ERROR] Dependency install failed. & pause & exit /b 1 )
 echo.
 echo [OK] Setup complete.
-echo      Run the app with:  python -m paperknife
-echo      Or double-click:   run.bat
+echo      Double-click run.bat to start the app,
+echo      or run:  .venv\Scripts\python.exe -m paperknife
 echo.
 pause

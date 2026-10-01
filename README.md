@@ -1,4 +1,4 @@
-# PaperKnife+ PC — v3.2.1
+# PaperKnife+ PC — v3.2.2
 
 Toolkit PDF locale al 100%. Nessun cloud, nessun account, nessun dato che lascia il tuo computer.
 
@@ -16,11 +16,11 @@ Toolkit PDF locale al 100%. Nessun cloud, nessun account, nessun dato che lascia
 
 ## Installazione rapida su Windows
 
-1. Scarica e decomprimi l'archivio `PaperKnifePlusPC_v3_2_1.zip`.
-2. Apri la cartella `PaperKnifePlus`.
+1. Scarica e decomprimi l'archivio del pacchetto sorgente.
+2. Apri la cartella `PaperKnifePlusPC`.
 3. Fai doppio clic su **`setup.bat`**.
-   Lo script installa automaticamente tutte le dipendenze core e opzionali.
-4. Al termine, fai doppio clic su **`run.bat`** per avviare l'applicazione.
+   Lo script crea un ambiente virtuale `.venv` nella cartella (o riusa quello esistente) e vi installa tutte le dipendenze core e opzionali di `requirements.txt`.
+4. Al termine, fai doppio clic su **`run.bat`** per avviare l'applicazione (usa `.venv` se presente).
 
 > Se Windows mostra un avviso "App sconosciuta", clicca **Ulteriori informazioni → Esegui comunque**.
 
@@ -39,7 +39,7 @@ Se non è installato: <https://python.org/downloads>
 ### 2. (Consigliato) Crea un ambiente virtuale
 
 ```bash
-# Nella cartella PaperKnifePlus
+# Nella cartella PaperKnifePlusPC
 python -m venv .venv
 
 # Attiva l'ambiente:
@@ -54,7 +54,7 @@ source .venv/bin/activate
 **Dipendenze core** (obbligatorie):
 
 ```bash
-pip install "PyMuPDF>=1.23.0,<2.0.0" "customtkinter>=5.2.0" "Pillow>=10.0.0"
+pip install "PyMuPDF>=1.27.2,<2.0.0" "customtkinter>=5.2.0" "Pillow>=10.0.0"
 ```
 
 **Dipendenze opzionali** (abilitano funzionalità aggiuntive):
@@ -63,7 +63,7 @@ pip install "PyMuPDF>=1.23.0,<2.0.0" "customtkinter>=5.2.0" "Pillow>=10.0.0"
 # Drag & drop di file sull'interfaccia
 pip install tkinterdnd2
 
-# Conversione DOCX / PPTX / XLSX / RTF ↔ PDF
+# Conversione DOCX / PPTX / XLSX ↔ PDF e RTF → PDF
 pip install python-docx python-pptx openpyxl striprtf
 
 # OCR (riconosce testo da PDF scansionati)
@@ -107,24 +107,33 @@ brew install tesseract
 sudo apt install tesseract-ocr
 ```
 
-Per il riconoscimento di lingue diverse dall'inglese, installa il pacchetto dati corrispondente (es. `tesseract-ocr-ita` per l'italiano) e imposta il codice lingua nelle Preferenze dell'app.
+Per il riconoscimento di lingue diverse dall'inglese, installa il pacchetto dati corrispondente (es. `tesseract-ocr-ita` per l'italiano) e imposta il codice lingua nelle Preferenze dell'app: lo strumento OCR e l'OCR in Batch partono da quel codice.
 
 ---
 
 ## Struttura dei file
 
 ```
-PaperKnifePlus/
+PaperKnifePlusPC/
 ├── paperknife/          # Codice sorgente
-│   ├── tools/           # Un file per ogni strumento PDF
+│   ├── tools/           # Gli strumenti PDF
 │   ├── app.py           # Finestra principale
 │   ├── prefs.py         # Preferenze utente (~/.paperknifepluspc/prefs.json)
 │   └── recent.py        # File recenti (~/.paperknifepluspc/recent.json)
+├── assets/              # Icona dell'app
+├── MANUAL.md            # Manuale completo (in inglese)
 ├── requirements.txt     # Dipendenze pip
 ├── setup.py             # Installazione come pacchetto
 ├── setup.bat            # Setup automatico (Windows)
-└── run.bat              # Avvio rapido (Windows)
+├── run.bat              # Avvio rapido (Windows)
+├── build_windows.bat    # Compilazione di eseguibile e installer (Windows)
+├── paperknife.spec      # Configurazione PyInstaller
+├── installer.nsi        # Script dell'installer NSIS
+├── version_info.txt     # Informazioni di versione dell'eseguibile
+└── app.manifest         # Manifest Windows (DPI, percorsi lunghi)
 ```
+
+La compilazione dell'eseguibile e dell'installer è descritta in `MANUAL.md`, sezione 9.
 
 I dati utente (preferenze e file recenti) vengono salvati in:
 
@@ -148,9 +157,21 @@ Controlla che Tesseract sia installato e raggiungibile: `tesseract --version`. S
 Installa le dipendenze opzionali per i documenti: `pip install python-docx python-pptx openpyxl striprtf`.
 
 **Su macOS: la finestra è vuota o molto piccola**
-Assicurati di usare Python installato da python.org o Homebrew, non il Python di sistema (2.x).
+Usa Python 3.10+ installato da python.org o Homebrew: il `python3` fornito da Apple (3.9) è sotto il minimo richiesto.
 
 ---
+
+## Changelog v3.2.2
+
+L'elenco completo, in inglese, è in `MANUAL.md`, sezione 11. In breve:
+
+- **Corretto:** il drag & drop non si attivava mai.
+- **Modificato:** Comprimi (Medio/Aggressivo) ricampiona le immagini a 150/96 DPI in JPEG qualità 80 invece di trasformare le pagine in immagini; il testo resta selezionabile.
+- **Modificato:** l'OCR in modalità sovrapposizione conserva la pagina originale e aggiunge un livello di testo invisibile; lingua e DPI partono dalle Preferenze.
+- **Rimosso:** le opzioni PDF/A e Linearizza di Strumenti PDF, che PyMuPDF 1.28 non supporta.
+- **Corretto:** la maggior parte degli strumenti chiede la password dei PDF protetti.
+- **Nuovo:** tema scuro, installer NSIS per utente e script di compilazione `build_windows.bat`.
+- La versione è letta da `paperknife/theme.py` anche da `setup.py`.
 
 ## Changelog v3.2.1
 
@@ -160,9 +181,9 @@ Assicurati di usare Python installato da python.org o Homebrew, non il Python di
 - **Corretto:** la modifica di paragrafi multiriga causava l'uscita del testo fuori dalla pagina; ora usa word-wrap preciso contro la larghezza del blocco originale.
 - **Corretto:** caratteri speciali (`<`, `&`, ecc.) nei testi OCR e convertiti corrompevano silenziosamente l'output.
 - **Corretto:** l'export XML di PDF multipagina produceva file non validi (prologhi XML duplicati).
-- **Corretto:** tre impostazioni nelle Preferenze (cartella di output, file recenti massimi, livello di compressione) venivano salvate ma ignorate dall'app.
+- **Corretto:** tre impostazioni nelle Preferenze (cartella di output, file recenti massimi, livello di compressione) venivano salvate ma ignorate dall'app. La cartella di output vale per il dialogo di salvataggio dei singoli file; Dividi, Dividi per segnalibri, Estrai immagini, Batch, PDF → Immagini e PDF → Documento usano ancora il proprio dialogo senza di essa.
 - **Corretto:** aprire un PDF corrotto o non valido in 8 strumenti causava un crash senza messaggio di errore.
 - **Corretto:** lo strumento Unisci riapreva inutilmente tutti i file sorgente una seconda volta dopo il merge.
 - **Corretto:** la conversione di PPTX, XLSX, PNG e JPEG in PDF non mostrava il dialogo di completamento.
 - **Corretto:** le voci in `recent.json` con schema non valido causavano un crash all'avvio.
-- **Corretto (stile):** numeri di versione allineati a 3.2.1 in `setup.py` e `setup.bat` (erano rimasti a 3.0.0).
+- **Corretto (stile):** numeri di versione allineati a 3.2.1 in `setup.py` e `setup.bat` (erano rimasti a 3.0.0). `paperknife/theme.py`, da cui viene la versione mostrata nella finestra, è rimasto a 3.0.0 fino alla 3.2.2.

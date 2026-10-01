@@ -1,16 +1,24 @@
 """
 Minimal setup.py so `pip install -e .` installs a `paperknife` console script.
 """
+import re
+from pathlib import Path
 from setuptools import setup, find_packages
+
+# Read as text: importing paperknife needs customtkinter, which pip may not
+# have installed yet when it runs this file.
+VERSION = re.search(r'^__version__\s*=\s*"([^"]+)"',
+                    (Path(__file__).parent / "paperknife" / "theme.py")
+                    .read_text(encoding="utf-8"), re.M).group(1)
 
 setup(
     name            = "paperknife-plus-pc",
-    version         = "3.2.1",
+    version         = VERSION,
     description     = "PaperKnife+ PC — 100% local PDF toolkit",
     packages        = find_packages(),
     python_requires = ">=3.10",
     install_requires = [
-        "PyMuPDF>=1.23.0,<2.0.0",
+        "PyMuPDF>=1.27.2,<2.0.0",
         "customtkinter>=5.2.0",
         "Pillow>=10.0.0",
     ],
