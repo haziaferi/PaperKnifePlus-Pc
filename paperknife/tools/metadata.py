@@ -1,12 +1,13 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from datetime import datetime
 from pathlib import Path
-import fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
 from ..recent import RECENT
+from ..job_queue import atomic_output
 
 _FIELDS = [
     ("title",    "Title"),
@@ -18,6 +19,20 @@ _FIELDS = [
     ("creationDate", "Creation date"),
     ("modDate",      "Modified date"),
 ]
+_DATE_KEYS = ("creationDate", "modDate")
+
+
+def _pdf_date(text: str) -> str:
+    """Return *text* as a PDF date string (D:YYYYMMDDHHmmSS); raise ValueError if unreadable."""
+    text = text.strip()
+    if not text or text.startswith("D:"):
+        return text
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).strftime("D:%Y%m%d%H%M%S")
+        except ValueError:
+            pass
+    raise ValueError(text)
 
 
 @register
@@ -64,6 +79,7 @@ class MetadataTool(ToolBase):
                       command=self._save).pack(side="right")
 
         self._doc = None
+        self._loaded: dict[str, str] = {}
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
 
@@ -79,8 +95,9 @@ class MetadataTool(ToolBase):
         self._path_var.set(f)
         RECENT.push(f, len(self._doc))
         meta = self._doc.metadata or {}
+        self._loaded = {key: meta.get(key, "") or "" for key, _ in _FIELDS}
         for key, _ in _FIELDS:
-            self._vars[key].set(meta.get(key, "") or "")
+            self._vars[key].set(self._loaded[key])
 
     def _clear(self):
         for var in self._vars.values():
@@ -89,13 +106,27 @@ class MetadataTool(ToolBase):
     def _save(self):
         if not self._doc:
             return messagebox.showwarning("Save", "Open a PDF first.")
+        meta = {key: self._vars[key].get() for key, _ in _FIELDS}
+        for key, label in _FIELDS:
+            if key in _DATE_KEYS:
+                try:
+                    meta[key] = _pdf_date(meta[key])
+                except ValueError:
+                    return messagebox.showerror(
+                        "Metadata", f"{label}: use YYYY-MM-DD, YYYY-MM-DD HH:MM[:SS] "
+                                    "or a PDF date (D:YYYYMMDDHHmmSS).")
         out = self.app._save_as("with_metadata.pdf")
         if not out:
             return
         try:
-            meta = {key: self._vars[key].get() for key, _ in _FIELDS}
             self._doc.set_metadata(meta)
-            self._doc.save(out, deflate=True)
+            if meta != self._loaded:
+                # Viewers read the XMP stream too; left alone it would keep the
+                # old (or cleared) values.
+                self._doc.del_xml_metadata()
+            # garbage=3 drops the replaced Info and XMP objects from the file.
+            with atomic_output(out) as tmp:
+                self._doc.save(tmp, garbage=3, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF with updated metadata saved:\n{out}")
         except Exception as e:

@@ -21,7 +21,7 @@ import tkinter as tk
 from tkinter import filedialog
 import customtkinter as ctk
 from PIL import Image, ImageTk
-import fitz
+import pymupdf as fitz
 
 from ..tool_base import ToolBase, register
 from ..theme import TEXT, MUTED, CARD2, CANVAS_BG, _tk_color
@@ -40,6 +40,7 @@ class ReaderTool(ToolBase):
     _doc  = None
     _path = ""
     _zoom = 1.25
+    _page_rects: list = []
 
     def show(self):
         app  = self.app
@@ -56,8 +57,10 @@ class ReaderTool(ToolBase):
                       command=self._open).pack(side="left", padx=4)
         ctk.CTkLabel(top, text="Zoom:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(16, 4))
-        ctk.CTkSlider(top, from_=0.5, to=3.0, number_of_steps=50, width=120,
-                      command=self._on_zoom).pack(side="left")
+        self._zoom_slider = ctk.CTkSlider(top, from_=0.5, to=3.0, number_of_steps=50,
+                                          width=120, command=self._on_zoom)
+        self._zoom_slider.set(self._zoom)
+        self._zoom_slider.pack(side="left")
         self._pg_lbl = ctk.CTkLabel(top, text="—", width=80, text_color=MUTED)
         self._pg_lbl.pack(side="left", padx=(12, 0))
 
@@ -80,6 +83,8 @@ class ReaderTool(ToolBase):
             self._req_q       = queue.Queue()
             self._cache       = OrderedDict()   # (page_idx, zoom) -> PhotoImage
             self._gen         = 0
+            self._inflight    = set()           # (gen, page_idx, zoom) queued, not yet drawn
+            self._window      = (0, -1)         # pages wanted now; the worker skips the rest
             self._doc_lock    = None
             self._scroll_frac = 0.0
             self._worker_stop = threading.Event()
@@ -117,6 +122,9 @@ class ReaderTool(ToolBase):
         if not doc:
             return
         old_doc, old_lock = self._doc, self._doc_lock
+        # Sizes are read once here, before the worker can see this document, so
+        # layout never walks the Document while a render holds it.
+        self._page_rects = [page.rect for page in doc]
         self._gen += 1
         self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
         self._path_var.set(path)
@@ -141,9 +149,9 @@ class ReaderTool(ToolBase):
     def _layout_pages(self):
         self._page_tops, self._page_px = [], []
         y, max_w = _GAP, 0
-        for page in self._doc:
-            w = int(page.rect.width  * self._zoom)
-            h = int(page.rect.height * self._zoom)
+        for rect in self._page_rects:
+            w = int(rect.width  * self._zoom)
+            h = int(rect.height * self._zoom)
             self._page_tops.append(y)
             self._page_px.append((w, h))
             y += h + _GAP
@@ -185,7 +193,7 @@ class ReaderTool(ToolBase):
         top    = self._canvas.canvasy(0)
         bottom = top + self._canvas.winfo_height()
         first = last = None
-        for i, (y0, (_, h)) in enumerate(zip(self._page_tops, self._page_px)):
+        for i, (y0, (_, h)) in enumerate(zip(self._page_tops, self._page_px, strict=True)):
             y1 = y0 + h
             if y1 < top or y0 > bottom:
                 continue
@@ -195,7 +203,8 @@ class ReaderTool(ToolBase):
             return
 
         lo = max(0, first - _PRELOAD)
-        hi = min(len(self._doc) - 1, last + _PRELOAD)
+        hi = min(len(self._page_rects) - 1, last + _PRELOAD)
+        self._window = (lo, hi)
         for i in range(lo, hi + 1):
             self._request_page(i)
         # Free canvas images that scrolled well outside the window; the
@@ -205,7 +214,7 @@ class ReaderTool(ToolBase):
                 self._canvas.delete(self._items.pop(idx))
 
         self._scroll_frac = self._canvas.yview()[0]
-        self._pg_lbl.configure(text=f"{first + 1}–{last + 1} / {len(self._doc)}")
+        self._pg_lbl.configure(text=f"{first + 1}–{last + 1} / {len(self._page_rects)}")
 
     def _request_page(self, idx: int):
         key = (idx, self._zoom)
@@ -215,6 +224,12 @@ class ReaderTool(ToolBase):
             if idx not in self._items:
                 self._draw_page(idx, cached)
             return
+        # The cache only fills when a render reaches the main thread, so without
+        # this every scroll event would queue the same pages again.
+        flight = (self._gen, idx, self._zoom)
+        if flight in self._inflight:
+            return
+        self._inflight.add(flight)
         self._req_q.put((self._gen, self._doc, self._doc_lock, idx, self._zoom))
 
     def _draw_page(self, idx: int, photo):
@@ -230,18 +245,24 @@ class ReaderTool(ToolBase):
                 gen, doc, lock, idx, zoom = self._req_q.get(timeout=0.25)
             except queue.Empty:
                 continue
-            if gen != self._gen or doc is None:
-                continue          # stale request — doc/zoom changed since it was queued
+            flight = (gen, idx, zoom)
+            lo, hi = self._window
+            if gen != self._gen or doc is None or not lo <= idx <= hi:
+                # stale (doc/zoom changed) or scrolled out of view since it was queued
+                self.app.after(0, lambda f=flight: self._inflight.discard(f))
+                continue
             try:
                 with lock:
                     page = doc[idx]
                     pix  = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
                     img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             except Exception:
+                self.app.after(0, lambda f=flight: self._inflight.discard(f))
                 continue
             self.app.after(0, lambda i=idx, z=zoom, g=gen, im=img: self._on_rendered(g, i, z, im))
 
     def _on_rendered(self, gen, idx, zoom, pil_img):
+        self._inflight.discard((gen, idx, zoom))
         if gen != self._gen or not self._canvas.winfo_exists():
             return                # stale — canvas/doc/zoom changed while this rendered
         photo = ImageTk.PhotoImage(pil_img)

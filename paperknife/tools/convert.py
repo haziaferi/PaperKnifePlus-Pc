@@ -3,13 +3,15 @@ import html
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-import io, os, zipfile
-import fitz
-from PIL import Image
+import io, os, re, zipfile
+import pymupdf as fitz
+from PIL import Image, ImageOps
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN, CANVAS_BG
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN
 from ..recent import RECENT
+from ..prefs import PREFS
+from ..job_queue import atomic_output
 import importlib.util as _ilu
 
 def _pkg(name): return _ilu.find_spec(name) is not None
@@ -17,6 +19,75 @@ def _pkg(name): return _ilu.find_spec(name) is not None
 _HAS_DOCX     = _pkg("docx")
 _HAS_PPTX     = _pkg("pptx")
 _HAS_OPENPYXL = _pkg("openpyxl")
+
+# Characters XML 1.0 forbids; python-docx and openpyxl refuse strings holding them.
+_XML_ILLEGAL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_STORY_CSS   = "pre { white-space: pre-wrap; font-size: 11pt; }"
+_MARGIN      = (36, 36, -36, -36)
+
+
+class _Cancelled(Exception):
+    """Raised inside atomic_output on Cancel so the partial file is discarded."""
+
+
+def _pref_dpi(lo: int, hi: int) -> int:
+    try:
+        return min(hi, max(lo, int(PREFS.default_dpi)))
+    except (TypeError, ValueError):
+        return 150
+
+
+def _image_page(doc, path) -> None:
+    """Append a page sized to the image at *path*, upright, transparency flattened onto white."""
+    with Image.open(path) as src:
+        im = ImageOps.exif_transpose(src)
+        if src.format == "JPEG" and src.getexif().get(0x0112, 1) == 1:
+            data = Path(path).read_bytes()        # already upright: embed without recompressing
+        else:
+            if im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info:
+                im = im.convert("RGBA")
+                flat = Image.new("RGB", im.size, "white")
+                flat.paste(im, mask=im.getchannel("A"))
+                im = flat
+            elif im.mode not in ("1", "L", "RGB"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, "PNG")
+            data = buf.getvalue()
+        w, h = im.size
+    page = doc.new_page(width=w, height=h)
+    page.insert_image(page.rect, stream=data)
+
+
+def _text_story(text: str):
+    return fitz.Story(html=f"<pre>{html.escape(text)}</pre>", user_css=_STORY_CSS)
+
+
+def _write_story(writer, story, page_rect, stop) -> None:
+    """Typeset *story* onto as many *page_rect* pages as it needs, inside the margins."""
+    where = page_rect + _MARGIN
+    while True:
+        dev = writer.begin_page(page_rect)
+        more, _ = story.place(where)          # place() returns (more, filled)
+        story.draw(dev)
+        writer.end_page()
+        if not more or stop.is_set():
+            return
+
+
+def _rtf_escape(text: str) -> str:
+    out = []
+    for ch in text:
+        if ch in "\\{}":
+            out.append("\\" + ch)
+        elif ord(ch) < 128:
+            out.append(ch)
+        else:
+            b = ch.encode("utf-16-le")
+            for i in range(0, len(b), 2):
+                unit = int.from_bytes(b[i:i + 2], "little", signed=True)
+                out.append(f"\\u{unit}?")
+    return "".join(out)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -84,16 +155,10 @@ class Img2PdfTool(ToolBase):
             for i, p in enumerate(paths):
                 if stop.is_set():
                     return
-                with Image.open(p) as im:
-                    im  = im.convert("RGB")
-                    w, h = im.size
-                    buf  = io.BytesIO()
-                    im.save(buf, "JPEG", quality=94)
-                    buf.seek(0)
-                page = doc.new_page(width=w, height=h)
-                page.insert_image(page.rect, stream=buf.read())
+                _image_page(doc, p)
                 app.after(0, lambda v=(i + 1) / len(paths): app._prog_update(v))
-            doc.save(out, deflate=True)
+            with atomic_output(out) as tmp:
+                doc.save(tmp, deflate=True)
             doc.close()
             app.after(0, lambda: [
                 app._set_status(
@@ -125,9 +190,10 @@ class Pdf2ImgTool(ToolBase):
         sr = ctk.CTkFrame(opt, fg_color="transparent")
         sr.pack(fill="x", padx=16, pady=4)
         self._dpi = ctk.CTkSlider(sr, from_=72, to=300, number_of_steps=228)
-        self._dpi.set(150)
+        dpi = _pref_dpi(72, 300)
+        self._dpi.set(dpi)
         self._dpi.pack(side="left", fill="x", expand=True)
-        self._dpi_lbl = ctk.CTkLabel(sr, text="150 DPI", width=80,
+        self._dpi_lbl = ctk.CTkLabel(sr, text=f"{dpi} DPI", width=80,
                                       text_color=TEXT, font=ctk.CTkFont(size=13))
         self._dpi_lbl.pack(side="left", padx=12)
         self._dpi.configure(
@@ -155,15 +221,18 @@ class Pdf2ImgTool(ToolBase):
         def work(stop):
             scale = dpi / 72
             mat   = fitz.Matrix(scale, scale)
-            with fitz.open(src) as doc:
-                total = len(doc)
-                with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-                    for i, page in enumerate(doc):
-                        if stop.is_set():
-                            return
-                        pix = page.get_pixmap(matrix=mat, alpha=False)
-                        zf.writestr(f"page_{i + 1:04d}.png", pix.tobytes("png"))
-                        app.after(0, lambda v=(i + 1) / total: app._prog_update(v))
+            try:
+                with atomic_output(out) as tmp, fitz.open(src) as doc:
+                    total = len(doc)
+                    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for i, page in enumerate(doc):
+                            if stop.is_set():
+                                raise _Cancelled
+                            pix = page.get_pixmap(matrix=mat, alpha=False)
+                            zf.writestr(f"page_{i + 1:04d}.png", pix.tobytes("png"))
+                            app.after(0, lambda v=(i + 1) / total: app._prog_update(v))
+            except _Cancelled:
+                return
             RECENT.push(src, total)
             app.after(0, lambda: [
                 app._set_status(
@@ -214,6 +283,8 @@ class ExtractTool(ToolBase):
                       height=44, fg_color=ACCENT, hover_color=ACCENT_H,
                       font=ctk.CTkFont(size=14, weight="bold")
                       ).pack(fill="x", padx=16, pady=12)
+        app._cur_open_fn = lambda: self._path.set(
+            filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")]) or self._path.get())
 
     def _run(self):
         src = self._path.get()
@@ -232,7 +303,7 @@ class ExtractTool(ToolBase):
 
         def work(stop):
             doc  = fitz.open(src)
-            seen, count = set(), 0
+            seen, count, failed = set(), 0, 0
             total = len(doc)
             for pg_i, page in enumerate(doc):
                 if stop.is_set():
@@ -252,6 +323,8 @@ class ExtractTool(ToolBase):
                         ext  = base["ext"]
                         if fmt == "PNG":
                             img = Image.open(io.BytesIO(data))
+                            if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
+                                img = img.convert("RGB")      # PNG cannot store CMYK
                             buf = io.BytesIO()
                             img.save(buf, "PNG")
                             data = buf.getvalue()
@@ -266,14 +339,16 @@ class ExtractTool(ToolBase):
                         Path(fname).write_bytes(data)
                         count += 1
                     except Exception:
-                        pass
+                        failed += 1
             doc.close()
             msg = (f"Found and extracted {count} image(s)  "
                    f"({len(seen)} unique xrefs scanned)")
+            fail_txt = f"\n{failed} image(s) could not be extracted." if failed else ""
             app.after(0, lambda m=msg, c=count: [
-                app._widget_set(log, text=m),
-                app._set_status(f"✓  Extracted {c} image(s) → {out_dir}", SUCCESS),
-                messagebox.showinfo("Done", f"Extracted {c} image(s) to:\n{out_dir}"),
+                app._widget_set(log, text=m + fail_txt.replace("\n", "  ·  ")),
+                app._set_status(f"✓  Extracted {c} image(s) → {out_dir}",
+                                WARN if failed else SUCCESS),
+                messagebox.showinfo("Done", f"Extracted {c} image(s) to:\n{out_dir}{fail_txt}"),
             ])
 
         app.run_job(work, "Extracting images…")
@@ -365,9 +440,10 @@ class Pdf2DocTool(ToolBase):
             ctk.CTkLabel(dr, text="Resolution:", width=140,
                          text_color=TEXT, anchor="w").pack(side="left")
             self._dpi = ctk.CTkSlider(dr, from_=72, to=300, number_of_steps=228)
-            self._dpi.set(150)
+            dpi = _pref_dpi(72, 300)
+            self._dpi.set(dpi)
             self._dpi.pack(side="left", fill="x", expand=True)
-            dpi_lbl = ctk.CTkLabel(dr, text="150 DPI", width=80, text_color=TEXT)
+            dpi_lbl = ctk.CTkLabel(dr, text=f"{dpi} DPI", width=80, text_color=TEXT)
             dpi_lbl.pack(side="left", padx=8)
             self._dpi.configure(
                 command=lambda v, l=dpi_lbl: l.configure(text=f"{int(v)} DPI"))
@@ -406,127 +482,129 @@ class Pdf2DocTool(ToolBase):
         app = self.app
 
         def work(stop):
-            with fitz.open(src) as doc:
-                total = len(doc)
+            try:
+                with atomic_output(out) as tmp, fitz.open(src) as doc:
+                    total = len(doc)
 
-                if fmt == "TXT":
-                    parts = []
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        parts.append(page.get_text())
-                        if i < total - 1: parts.append("\n\n── Page Break ──\n\n")
-                    Path(out).write_text("".join(parts), encoding="utf-8")
-
-                elif fmt == "HTML":
-                    html = ['<!DOCTYPE html>\n<html>\n<head>',
-                            '<meta charset="utf-8">',
-                            '<style>body{font-family:sans-serif;max-width:900px;margin:auto}',
-                            '.page{border-bottom:1px solid #ccc;padding-bottom:2em;'
-                            'margin-bottom:2em}</style>', '</head>\n<body>\n']
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        html.append(f'<div class="page" id="page-{i+1}">\n')
-                        html.append(page.get_text("html"))
-                        html.append("</div>\n")
-                    html.append("</body>\n</html>")
-                    Path(out).write_text("".join(html), encoding="utf-8")
-
-                elif fmt == "XML":
-                    parts = ['<?xml version="1.0" encoding="utf-8"?>\n<document>\n']
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        # Strip the per-page XML prolog (only legal at doc start)
-                        page_xml = page.get_text("xml")
-                        page_xml = page_xml.split("?>", 1)[-1].lstrip() if "?>" in page_xml else page_xml
-                        # Also strip any wrapping <page> root element PyMuPDF may emit
-                        parts.append(f'  <page number="{i+1}">\n')
-                        parts.append(page_xml)
-                        parts.append("  </page>\n")
-                    parts.append("</document>")
-                    Path(out).write_text("".join(parts), encoding="utf-8")
-
-                elif fmt == "RTF":
-                    rtf = [r'{\rtf1\ansi\ansicpg1252\deff0',
-                           r'{\fonttbl{\f0\froman\fcharset0 Times New Roman;}}',
-                           r'\f0\fs22 ']
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        txt = (page.get_text()
-                               .replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}"))
-                        for line in txt.splitlines():
-                            rtf.append(line + r"\par" + "\n")
-                        if i < total - 1: rtf.append(r"\page" + "\n")
-                    rtf.append("}")
-                    Path(out).write_bytes("".join(rtf).encode("latin-1", errors="replace"))
-
-                elif fmt == "DOCX":
-                    if not _HAS_DOCX:
-                        raise RuntimeError("python-docx not installed.\nRun: pip install python-docx")
-                    from docx import Document as _DocxDoc
-                    wdoc = _DocxDoc()
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        for block in page.get_text("dict")["blocks"]:
-                            if block.get("type") != 0: continue
-                            for line in block.get("lines", []):
-                                txt = "".join(s.get("text","") for s in line.get("spans",[]))
-                                if txt.strip(): wdoc.add_paragraph(txt)
-                        if i < total - 1: wdoc.add_page_break()
-                    wdoc.save(out)
-
-                elif fmt == "PPTX":
-                    if not _HAS_PPTX:
-                        raise RuntimeError("python-pptx not installed.\nRun: pip install python-pptx")
-                    from pptx import Presentation as _PptxPrs
-                    scale = dpi / 72.0
-                    prs   = _PptxPrs()
-                    p0    = doc[0]
-                    prs.slide_width  = int(p0.rect.width  * 12700)
-                    prs.slide_height = int(p0.rect.height * 12700)
-                    blank = prs.slide_layouts[6]
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        pix  = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-                        buf  = io.BytesIO(pix.tobytes("png"))
-                        slide = prs.slides.add_slide(blank)
-                        slide.shapes.add_picture(buf, 0, 0,
-                                                  prs.slide_width, prs.slide_height)
-                    prs.save(out)
-
-                elif fmt == "XLSX":
-                    if not _HAS_OPENPYXL:
-                        raise RuntimeError("openpyxl not installed.\nRun: pip install openpyxl")
-                    import openpyxl as _openpyxl
-                    wb = _openpyxl.Workbook()
-                    wb.remove(wb.active)
-                    for i, page in enumerate(doc):
-                        if stop.is_set(): return
-                        app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                        ws = wb.create_sheet(f"Page {i+1}")
-                        for row_i, line in enumerate(page.get_text().splitlines(), 1):
-                            ws.cell(row=row_i, column=1, value=line)
-                    wb.save(out)
-
-                elif fmt in ("PNG", "JPEG"):
-                    mat = fitz.Matrix(dpi / 72.0, dpi / 72.0)
-                    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+                    if fmt == "TXT":
+                        parts = []
                         for i, page in enumerate(doc):
-                            if stop.is_set(): return
+                            if stop.is_set(): raise _Cancelled
                             app.after(0, lambda v=(i+1)/total: app._prog_update(v))
-                            pix = page.get_pixmap(matrix=mat, alpha=False)
-                            if fmt == "JPEG":
-                                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                                buf = io.BytesIO()
-                                img.save(buf, "JPEG", quality=quality)
-                                zf.writestr(f"page_{i+1:04d}.jpg", buf.getvalue())
-                            else:
-                                zf.writestr(f"page_{i+1:04d}.png", pix.tobytes("png"))
+                            parts.append(page.get_text())
+                            if i < total - 1: parts.append("\n\n── Page Break ──\n\n")
+                        Path(tmp).write_text("".join(parts), encoding="utf-8")
+
+                    elif fmt == "HTML":
+                        html_parts = ['<!DOCTYPE html>\n<html>\n<head>',
+                                      '<meta charset="utf-8">',
+                                      '<style>body{font-family:sans-serif;max-width:900px;margin:auto}',
+                                      '.page{border-bottom:1px solid #ccc;padding-bottom:2em;'
+                                      'margin-bottom:2em}</style>', '</head>\n<body>\n']
+                        for i, page in enumerate(doc):
+                            if stop.is_set(): raise _Cancelled
+                            app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                            html_parts.append(f'<div class="page" id="page-{i+1}">\n')
+                            html_parts.append(page.get_text("html"))
+                            html_parts.append("</div>\n")
+                        html_parts.append("</body>\n</html>")
+                        Path(tmp).write_text("".join(html_parts), encoding="utf-8")
+
+                    elif fmt == "XML":
+                        parts = ['<?xml version="1.0" encoding="utf-8"?>\n<document>\n']
+                        for i, page in enumerate(doc):
+                            if stop.is_set(): raise _Cancelled
+                            app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                            # get_text("xml") is already one <page id="pageN"> element, no prolog
+                            parts.append(page.get_text("xml"))
+                        parts.append("</document>")
+                        Path(tmp).write_text("".join(parts), encoding="utf-8")
+
+                    elif fmt == "RTF":
+                        rtf = [r'{\rtf1\ansi\ansicpg1252\deff0',
+                               r'{\fonttbl{\f0\froman\fcharset0 Times New Roman;}}',
+                               r'\f0\fs22 ']
+                        for i, page in enumerate(doc):
+                            if stop.is_set(): raise _Cancelled
+                            app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                            for line in page.get_text().splitlines():
+                                rtf.append(_rtf_escape(line) + r"\par" + "\n")
+                            if i < total - 1: rtf.append(r"\page" + "\n")
+                        rtf.append("}")
+                        Path(tmp).write_bytes("".join(rtf).encode("ascii"))
+
+                    elif fmt == "DOCX":
+                        if not _HAS_DOCX:
+                            raise RuntimeError("python-docx not installed.\nRun: pip install python-docx")
+                        from docx import Document as _DocxDoc
+                        wdoc = _DocxDoc()
+                        for i, page in enumerate(doc):
+                            if stop.is_set(): raise _Cancelled
+                            app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                            for block in page.get_text("dict")["blocks"]:
+                                if block.get("type") != 0: continue
+                                txt = " ".join(
+                                    "".join(s.get("text", "") for s in line.get("spans", []))
+                                    for line in block.get("lines", []))
+                                txt = _XML_ILLEGAL.sub("", txt)
+                                if txt.strip(): wdoc.add_paragraph(txt)
+                            if i < total - 1: wdoc.add_page_break()
+                        wdoc.save(tmp)
+
+                    elif fmt == "PPTX":
+                        if not _HAS_PPTX:
+                            raise RuntimeError("python-pptx not installed.\nRun: pip install python-pptx")
+                        from pptx import Presentation as _PptxPrs
+                        scale = dpi / 72.0
+                        prs   = _PptxPrs()
+                        p0    = doc[0]
+                        prs.slide_width  = int(p0.rect.width  * 12700)
+                        prs.slide_height = int(p0.rect.height * 12700)
+                        blank = prs.slide_layouts[6]
+                        sw, sh = prs.slide_width, prs.slide_height
+                        for i, page in enumerate(doc):
+                            if stop.is_set(): raise _Cancelled
+                            app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                            pix  = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                            buf  = io.BytesIO(pix.tobytes("png"))
+                            slide = prs.slides.add_slide(blank)
+                            # Pages of another size or orientation than page 1 are fitted, not stretched.
+                            fit  = min(sw / page.rect.width, sh / page.rect.height)
+                            w, h = int(page.rect.width * fit), int(page.rect.height * fit)
+                            slide.shapes.add_picture(buf, (sw - w) // 2, (sh - h) // 2, w, h)
+                        prs.save(tmp)
+
+                    elif fmt == "XLSX":
+                        if not _HAS_OPENPYXL:
+                            raise RuntimeError("openpyxl not installed.\nRun: pip install openpyxl")
+                        import openpyxl as _openpyxl
+                        wb = _openpyxl.Workbook()
+                        wb.remove(wb.active)
+                        for i, page in enumerate(doc):
+                            if stop.is_set(): raise _Cancelled
+                            app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                            ws = wb.create_sheet(f"Page {i+1}")
+                            for row_i, line in enumerate(page.get_text().splitlines(), 1):
+                                cell = ws.cell(row=row_i, column=1, value=_XML_ILLEGAL.sub("", line))
+                                cell.data_type = "s"      # text such as "=..." must not become a formula
+                        wb.save(tmp)
+
+                    elif fmt in ("PNG", "JPEG"):
+                        mat = fitz.Matrix(dpi / 72.0, dpi / 72.0)
+                        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+                            for i, page in enumerate(doc):
+                                if stop.is_set(): raise _Cancelled
+                                app.after(0, lambda v=(i+1)/total: app._prog_update(v))
+                                pix = page.get_pixmap(matrix=mat, alpha=False)
+                                if fmt == "JPEG":
+                                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                                    buf = io.BytesIO()
+                                    img.save(buf, "JPEG", quality=quality)
+                                    zf.writestr(f"page_{i+1:04d}.jpg", buf.getvalue())
+                                else:
+                                    zf.writestr(f"page_{i+1:04d}.png", pix.tobytes("png"))
+            except _Cancelled:
+                return
 
             app.after(0, lambda: [
                 app._set_status(f"✓  PDF → {fmt}: {Path(out).name}", SUCCESS),
@@ -601,6 +679,14 @@ class Doc2PdfTool(ToolBase):
         self._entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         ctk.CTkButton(r2, text="Open File", width=136, height=44,
                       command=self._pick).pack(side="left")
+        if app._dnd_ok:
+            try:
+                from tkinterdnd2 import DND_FILES
+                for w in (r2, self._entry, *self._entry.winfo_children()):
+                    w.drop_target_register(DND_FILES)
+                    w.dnd_bind("<<Drop>>", self._on_drop)
+            except Exception:
+                pass
         self._info_lbl = ctk.CTkLabel(card, text="",
                                        font=ctk.CTkFont(size=12), text_color=MUTED,
                                        justify="left", wraplength=640)
@@ -612,6 +698,7 @@ class Doc2PdfTool(ToolBase):
                       font=ctk.CTkFont(size=14, weight="bold")
                       ).pack(fill="x", padx=16, pady=(4, 12))
         self._fmt_changed("TXT")
+        app._cur_open_fn = self._pick
 
     def _fmt_changed(self, fmt):
         for w in self._warn_frame.winfo_children():
@@ -628,11 +715,19 @@ class Doc2PdfTool(ToolBase):
         fmt = self._fmt.get()
         f   = filedialog.askopenfilename(filetypes=self._EXTS.get(fmt, [("All","*.*")]))
         if f:
-            self._path.set(f)
-            detected = self._EXT2FMT.get(Path(f).suffix.lower())
-            if detected and detected != fmt:
-                self._fmt.set(detected)
-                self._fmt_changed(detected)
+            self._set_file(f)
+
+    def _on_drop(self, event):
+        paths = self.app._parse_drop(event.data)
+        if paths:
+            self._set_file(paths[0])
+
+    def _set_file(self, f):
+        self._path.set(f)
+        detected = self._EXT2FMT.get(Path(f).suffix.lower())
+        if detected and detected != self._fmt.get():
+            self._fmt.set(detected)
+            self._fmt_changed(detected)
 
     def _run(self):
         src = self._path.get()
@@ -645,93 +740,18 @@ class Doc2PdfTool(ToolBase):
         app = self.app
 
         def work(stop):
-            nd = fitz.open()
             A4 = fitz.paper_rect("A4")
 
-            if fmt == "TXT":
-                text = Path(src).read_text(encoding="utf-8", errors="replace")
-                story = fitz.Story(html=f"<pre>{html.escape(text)}</pre>")
-                writer = fitz.DocumentWriter(out)
-                while True:
-                    dev, more = writer.begin_page(A4), False
-                    _, more = story.place(A4)
-                    story.draw(dev, None)
-                    writer.end_page()
-                    if not more: break
-                writer.close()
-
-            elif fmt == "HTML":
-                html_src = Path(src).read_text(encoding="utf-8", errors="replace")
-                story = fitz.Story(html=html_src)
-                writer = fitz.DocumentWriter(out)
-                while True:
-                    dev, more = writer.begin_page(A4), False
-                    _, more = story.place(A4)
-                    story.draw(dev, None)
-                    writer.end_page()
-                    if not more: break
-                writer.close()
-
-            elif fmt == "XML":
-                import xml.etree.ElementTree as ET
-                try:
-                    root = ET.parse(src).getroot()
-                    text = " ".join(root.itertext())
-                except Exception:
-                    text = Path(src).read_text(encoding="utf-8", errors="replace")
-                story = fitz.Story(html=f"<pre>{html.escape(text)}</pre>")
-                writer = fitz.DocumentWriter(out)
-                while True:
-                    dev, more = writer.begin_page(A4), False
-                    _, more = story.place(A4)
-                    story.draw(dev, None)
-                    writer.end_page()
-                    if not more: break
-                writer.close()
-
-            elif fmt == "RTF":
-                try:
-                    from striprtf.striprtf import rtf_to_text
-                    text = rtf_to_text(Path(src).read_text(encoding="latin-1", errors="replace"))
-                except Exception:
-                    text = Path(src).read_text(encoding="latin-1", errors="replace")
-                story = fitz.Story(html=f"<pre>{html.escape(text)}</pre>")
-                writer = fitz.DocumentWriter(out)
-                while True:
-                    dev, more = writer.begin_page(A4), False
-                    _, more = story.place(A4)
-                    story.draw(dev, None)
-                    writer.end_page()
-                    if not more: break
-                writer.close()
-
-            elif fmt == "DOCX":
-                if not _HAS_DOCX:
-                    raise RuntimeError("python-docx not installed.\nRun: pip install python-docx")
-                from docx import Document as _DocxDoc
-                wdoc = _DocxDoc(src)
-                lines = []
-                for para in wdoc.paragraphs:
-                    lines.append(para.text)
-                for tbl in wdoc.tables:
-                    for row in tbl.rows:
-                        lines.append("\t".join(c.text for c in row.cells))
-                story = fitz.Story(html="<br>".join(html.escape(l) for l in lines))
-                writer = fitz.DocumentWriter(out)
-                while True:
-                    dev, more = writer.begin_page(A4), False
-                    _, more = story.place(A4)
-                    story.draw(dev, None)
-                    writer.end_page()
-                    if not more: break
-                writer.close()
-
-            elif fmt == "PPTX":
+            if fmt == "PPTX":
                 if not _HAS_PPTX:
                     raise RuntimeError("python-pptx not installed.\nRun: pip install python-pptx")
                 from pptx import Presentation as _PptxPrs
                 prs = _PptxPrs(src)
+                nd  = fitz.open()
                 for slide in prs.slides:
+                    if stop.is_set():
+                        nd.close()
+                        return
                     lines = []
                     for shape in slide.shapes:
                         if shape.has_text_frame:
@@ -739,55 +759,110 @@ class Doc2PdfTool(ToolBase):
                                 lines.append(para.text)
                     page = nd.new_page(width=A4.width, height=A4.height)
                     page.insert_htmlbox(A4, "<br>".join(html.escape(l) for l in lines))
-                nd.save(out, deflate=True)
+                with atomic_output(out) as tmp:
+                    nd.save(tmp, deflate=True)
                 nd.close()
-                app.after(0, lambda: [
-                    app._set_status(f"✓  PPTX → PDF: {Path(out).name}", SUCCESS),
-                    messagebox.showinfo("Done", f"Converted PDF saved:\n{out}"),
-                ])
-                return
-
-            elif fmt == "XLSX":
-                if not _HAS_OPENPYXL:
-                    raise RuntimeError("openpyxl not installed.\nRun: pip install openpyxl")
-                import openpyxl as _openpyxl
-                wb   = _openpyxl.load_workbook(src, data_only=True)
-                LAND = fitz.paper_rect("A4-L")
-                writer = fitz.DocumentWriter(out)
-                for ws in wb.worksheets:
-                    rows = list(ws.iter_rows(values_only=True))
-                    text = "\n".join("\t".join(str(c or "") for c in row) for row in rows)
-                    story = fitz.Story(html=f"<pre>{html.escape(text)}</pre>")
-                    while True:
-                        dev  = writer.begin_page(LAND)
-                        _, more = story.place(LAND)
-                        story.draw(dev, None)
-                        writer.end_page()
-                        if not more: break
-                writer.close()
-                app.after(0, lambda: [
-                    app._set_status(f"✓  XLSX → PDF: {Path(out).name}", SUCCESS),
-                    messagebox.showinfo("Done", f"Converted PDF saved:\n{out}"),
-                ])
-                return
 
             elif fmt in ("PNG", "JPEG"):
-                with Image.open(src) as im:
-                    im = im.convert("RGB")
-                    w, h = im.size
-                    buf  = io.BytesIO()
-                    im.save(buf, "JPEG", quality=95)
-                    buf.seek(0)
-                page = nd.new_page(width=w, height=h)
-                page.insert_image(page.rect, stream=buf.read())
-                nd.save(out, deflate=True)
+                nd = fitz.open()
+                _image_page(nd, src)
+                with atomic_output(out) as tmp:
+                    nd.save(tmp, deflate=True)
                 nd.close()
-                app.after(0, lambda: [
-                    app._set_status(f"✓  {fmt} → PDF: {Path(out).name}", SUCCESS),
-                    messagebox.showinfo("Done", f"Converted PDF saved:\n{out}"),
-                ])
-                return
 
+            else:
+                stories = []          # (Story, page rect)
+                if fmt == "TXT":
+                    text = Path(src).read_text(encoding="utf-8", errors="replace")
+                    stories.append((_text_story(text), A4))
+
+                elif fmt == "HTML":
+                    html_src = Path(src).read_text(encoding="utf-8", errors="replace")
+                    # The archive lets relative <img>/<link> paths resolve next to the file.
+                    stories.append((fitz.Story(html=html_src,
+                                               archive=fitz.Archive(str(Path(src).parent))), A4))
+
+                elif fmt == "XML":
+                    import xml.etree.ElementTree as ET
+                    try:
+                        root = ET.parse(src).getroot()
+                        text = " ".join(root.itertext())
+                    except Exception:
+                        text = Path(src).read_text(encoding="utf-8", errors="replace")
+                    stories.append((_text_story(text), A4))
+
+                elif fmt == "RTF":
+                    try:
+                        from striprtf.striprtf import rtf_to_text
+                        text = rtf_to_text(Path(src).read_text(encoding="latin-1", errors="replace"))
+                    except Exception:
+                        text = Path(src).read_text(encoding="latin-1", errors="replace")
+                    stories.append((_text_story(text), A4))
+
+                elif fmt == "DOCX":
+                    if not _HAS_DOCX:
+                        raise RuntimeError("python-docx not installed.\nRun: pip install python-docx")
+                    from docx import Document as _DocxDoc
+                    from docx.table import Table as _DocxTable
+                    from docx.text.paragraph import Paragraph as _DocxPara
+                    wdoc  = _DocxDoc(src)
+                    parts = []
+                    # Walk the body in document order so tables stay where they are.
+                    for el in wdoc.element.body.iterchildren():
+                        tag = el.tag.rsplit("}", 1)[-1]
+                        if tag == "p":
+                            para  = _DocxPara(el, wdoc)
+                            style = para.style.name if para.style is not None else ""
+                            text  = html.escape(para.text) or "&#160;"
+                            if style == "Title" or style == "Heading 1":
+                                parts.append(f"<h1>{text}</h1>")
+                            elif style == "Heading 2":
+                                parts.append(f"<h2>{text}</h2>")
+                            elif style.startswith("Heading"):
+                                parts.append(f"<h3>{text}</h3>")
+                            else:
+                                parts.append(f"<p>{text}</p>")
+                        elif tag == "tbl":
+                            rows = "".join(
+                                "<tr>" + "".join(f"<td>{html.escape(c.text)}</td>"
+                                                 for c in row.cells) + "</tr>"
+                                for row in _DocxTable(el, wdoc).rows)
+                            parts.append(f"<table>{rows}</table>")
+                    stories.append((fitz.Story(
+                        html="".join(parts),
+                        user_css="table { border-collapse: collapse; } "
+                                 "td { border: 1px solid #888; padding: 2px 4px; }"), A4))
+
+                elif fmt == "XLSX":
+                    if not _HAS_OPENPYXL:
+                        raise RuntimeError("openpyxl not installed.\nRun: pip install openpyxl")
+                    import openpyxl as _openpyxl
+                    wb   = _openpyxl.load_workbook(src, data_only=True)
+                    LAND = fitz.paper_rect("A4-L")
+                    for ws in wb.worksheets:
+                        rows = ws.iter_rows(values_only=True)
+                        text = "\n".join("\t".join("" if c is None else str(c) for c in row)
+                                         for row in rows)
+                        stories.append((_text_story(text), LAND))
+
+                try:
+                    with atomic_output(out) as tmp:
+                        writer = fitz.DocumentWriter(tmp)
+                        try:
+                            for story, rect in stories:
+                                _write_story(writer, story, rect, stop)
+                                if stop.is_set():
+                                    raise _Cancelled
+                        finally:
+                            writer.close()
+                            # The file stays open until the writer object is freed,
+                            # and os.replace in atomic_output fails while it is.
+                            del writer
+                except _Cancelled:
+                    return
+
+            if stop.is_set():
+                return
             app.after(0, lambda: [
                 app._set_status(f"✓  {fmt} → PDF: {Path(out).name}", SUCCESS),
                 messagebox.showinfo("Done", f"Converted PDF saved:\n{out}"),

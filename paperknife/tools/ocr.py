@@ -5,12 +5,57 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 import importlib.util as _ilu
 import customtkinter as ctk
-import fitz
+import pymupdf as fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN, DANGER
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
 from ..recent import RECENT
+from ..prefs import PREFS
+from ..job_queue import atomic_output
 
 _HAS_OCR = _ilu.find_spec("pytesseract") is not None
+_MIN_CONF = 30
+
+
+def ocr_words(img, lang: str, scale: float) -> list[tuple[fitz.Rect, str]]:
+    """Tesseract words in *img* (a page rendered at *scale*) as (rect, text) in page.rect space."""
+    import pytesseract
+    data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
+    to_page = fitz.Matrix(1 / scale, 1 / scale)
+    words = []
+    for text, conf, x, y, w, h in zip(data["text"], data["conf"], data["left"],
+                                      data["top"], data["width"], data["height"],
+                                      strict=True):
+        text = text.strip()
+        if text and float(conf) >= _MIN_CONF:
+            words.append((fitz.Rect(x, y, x + w, y + h) * to_page, text))
+    return words
+
+
+def add_text_layer(page: fitz.Page, words) -> None:
+    """Add *words* ((rect, text) in page.rect space) to *page* as invisible, searchable text."""
+    if not words:
+        return
+    if page.rotation:
+        # Text placed on a rotated page lands in unrotated space, and
+        # remove_rotation() shifts the content of a cropped page; derotating
+        # the uncropped page and re-applying the crop keeps both right.
+        crop = page.cropbox
+        page.set_cropbox(page.mediabox)
+        mat = page.rotation_matrix
+        page.remove_rotation()
+        page.set_cropbox((crop * mat) & page.mediabox)
+    layer = fitz.open()
+    lp = layer.new_page(width=page.rect.width, height=page.rect.height)
+    tw = fitz.TextWriter(lp.rect)
+    font = fitz.Font("helv")      # TextWriter falls back to MuPDF's Noto fonts for other scripts
+    for rect, text in words:
+        tw.append(fitz.Point(rect.x0, rect.y1), text, font=font,
+                  fontsize=max(1, rect.height * 0.85))
+    tw.write_text(lp, render_mode=3)
+    layer.subset_fonts()
+    # TextWriter ignores a cropbox offset on the target page; show_pdf_page honours it.
+    page.show_pdf_page(page.rect, layer, 0)
+    layer.close()
 
 
 @register
@@ -54,7 +99,7 @@ class OCRTool(ToolBase):
                      text_color=TEXT, anchor="w").pack(side="left")
         self._lang = ctk.CTkEntry(r1, width=120, height=40,
                                    placeholder_text="eng")
-        self._lang.insert(0, "eng")
+        self._lang.insert(0, PREFS.ocr_lang or "eng")
         self._lang.pack(side="left")
         ctk.CTkLabel(r1,
                      text="e.g.  eng  ·  ita  ·  deu  ·  fra  ·  eng+ita",
@@ -67,9 +112,13 @@ class OCRTool(ToolBase):
         ctk.CTkLabel(r2, text="Render DPI:", width=160,
                      text_color=TEXT, anchor="w").pack(side="left")
         self._dpi = ctk.CTkSlider(r2, from_=72, to=400, number_of_steps=328)
-        self._dpi.set(300)
+        try:
+            dpi = min(400, max(72, int(PREFS.default_dpi)))
+        except (TypeError, ValueError):
+            dpi = 300
+        self._dpi.set(dpi)
         self._dpi.pack(side="left", fill="x", expand=True)
-        self._dpi_lbl = ctk.CTkLabel(r2, text="300 DPI", width=80,
+        self._dpi_lbl = ctk.CTkLabel(r2, text=f"{dpi} DPI", width=80,
                                       text_color=TEXT, font=ctk.CTkFont(size=13))
         self._dpi_lbl.pack(side="left", padx=12)
         self._dpi.configure(
@@ -122,13 +171,14 @@ class OCRTool(ToolBase):
             except Exception:
                 raise RuntimeError(
                     "Tesseract binary not found on PATH.\n"
-                    "Install it from: https://github.com/UB-Mannheim/tesseract/wiki")
+                    "Install it from: https://github.com/UB-Mannheim/tesseract/wiki") from None
 
+            text_only = "Text-only" in mode
             with fitz.open(src) as doc:
                 total  = len(doc)
                 scale  = dpi / 72.0
                 mat    = fitz.Matrix(scale, scale)
-                nd     = fitz.open()
+                nd     = fitz.open() if text_only else None
 
                 for pg_i, page in enumerate(doc):
                     if stop.is_set():
@@ -142,7 +192,7 @@ class OCRTool(ToolBase):
                     img = _PIL_Image.frombytes(
                         "RGB", [pix.width, pix.height], pix.samples)
 
-                    if "Text-only" in mode:
+                    if text_only:
                         text = pytesseract.image_to_string(img, lang=lang)
                         A4   = fitz.paper_rect("A4")
                         np   = nd.new_page(width=A4.width, height=A4.height)
@@ -150,39 +200,16 @@ class OCRTool(ToolBase):
                                           f"<pre>{html.escape(text)}</pre>",
                                           css="pre { font-size: 10pt; }")
                     else:
-                        # Invisible text overlay on the rendered image page
-                        np = nd.new_page(
-                            width=page.rect.width, height=page.rect.height)
-                        import io
-                        buf = io.BytesIO()
-                        img.save(buf, "JPEG", quality=90)
-                        buf.seek(0)
-                        np.insert_image(np.rect, stream=buf.read())
-                        # OCR with hOCR output → parse bboxes → insert invisible spans
-                        hocr = pytesseract.image_to_pdf_or_hocr(
-                            img, lang=lang, extension="hocr").decode("utf-8", errors="ignore")
-                        # Parse hOCR word boxes
-                        import re
-                        for m in re.finditer(
-                                r"bbox (\d+) (\d+) (\d+) (\d+)[^>]*>([^<]+)<",
-                                hocr):
-                            bx0, by0, bx1, by1 = [int(m.group(i)) / scale
-                                                   for i in range(1, 5)]
-                            word = m.group(5).strip()
-                            if not word:
-                                continue
-                            try:
-                                np.insert_text(
-                                    fitz.Point(bx0, by1),
-                                    word,
-                                    fontsize=max(1, (by1 - by0) * 0.85),
-                                    render_mode=3,  # invisible
-                                )
-                            except Exception:
-                                pass
+                        add_text_layer(page, ocr_words(img, lang, scale))
 
-            nd.save(out, deflate=True)
-            nd.close()
+                if text_only:
+                    data = nd.tobytes(deflate=True)
+                    nd.close()
+                else:
+                    data = doc.tobytes(garbage=3, deflate=True)
+            # Written after the source is closed, so the output may replace it.
+            with atomic_output(out) as tmp:
+                Path(tmp).write_bytes(data)
             RECENT.push(src, total)
             done_msg = f"✓  OCR complete — {total} page(s) → {Path(out).name}"
             app.after(0, lambda: [
