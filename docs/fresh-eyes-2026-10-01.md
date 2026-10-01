@@ -5,7 +5,7 @@ The quarantined single-file v2.1 copy that the session started in, and the six o
 lineage copies, were used only to find lost features.
 
 **322 findings · 278 fixed · 42 need your decision ·
-0 withdrawn · 2 deferred · 0 handed off** — register built at `2c07365`.
+0 withdrawn · 2 deferred · 0 handed off** — register built at `21f5826`.
 Fixed by severity: 34 high, 101 medium, 134 low.
 
 ## How it was done
@@ -405,9 +405,10 @@ baseline failure. Test names in it refer to the files as first written
 - `convert.py` parses user XML with `xml.etree.ElementTree`. The bundled expat is
   2.8.1; expat has limited entity expansion ("billion laughs") since 2.4.1, so no
   change was made. `defusedxml` would add a dependency for no current gain.
-- No reviewer finding was withdrawn: every one of the 322 was confirmed at its
-  line before it was fixed or sent for decision. Two reviewer *notes* (not
-  findings) were wrong and dropped: lane FB's "merge/split keep their own range
-  parsers" (grep shows both call `pages.parse_ranges`) and L3's `ImageTk` F821
+- No finding was withdrawn. Each fixing lane was told to confirm a finding at its
+  line before acting and to withdraw it otherwise; none did. The coordinator
+  reproduced the headline defects independently, not all 322. Two hints were
+  wrong and dropped: lane FB's note that merge/split kept their own range parsers
+  (both call `pages.parse_ranges`) and ruff's F821 on `ImageTk` in edit_text.py
   (an annotation under `from __future__ import annotations`, never evaluated).
 
