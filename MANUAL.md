@@ -291,7 +291,7 @@ Choose the input format (it is set automatically from the file extension when yo
 
 | Setting | Used by |
 |---|---|
-| Default output folder | The starting folder of the save dialog for single-file outputs (not for tools that ask for a folder, nor for PDF → Images and PDF → Doc / Text) |
+| Default output folder | The starting folder of every save and output-folder dialog |
 | Max recent files shown | Number of cards on the Home screen (1–50) |
 | Colour mode | light, dark, or system (Section 4.2) |
 | Default DPI (OCR / export) | Starting DPI of OCR, Batch → OCR, PDF → Images, and the PNG/JPEG/PPTX exports (72–600; each slider clamps it to its own range) |
@@ -337,7 +337,7 @@ To fully remove all application data after uninstalling, delete `%USERPROFILE%\.
 | Dragging a file onto the window does nothing | When running from source, install `tkinterdnd2` (`pip install tkinterdnd2`); without it the file rows say "No file selected…" instead of "Drop a file here or click to browse…". If it is installed but cannot load, the app prints `drag and drop disabled` to the console. Use the **Open** buttons meanwhile. |
 | OCR produces no output | Verify Tesseract is on PATH: open Command Prompt and run `tesseract --version`. See Section 4.3. |
 | Dark mode not applying on restart | Save preferences via the Preferences panel after changing the colour mode. |
-| A password-protected PDF will not open | Most tools ask for the open password. OCR, PDF → Images, Extract Images, PDF → Doc / Text, and Batch do not: remove the password first with the Password tool (Section 5.11). |
+| A password-protected PDF will not open | Every single-file tool asks for the open password. Batch cannot stop to ask, so it skips protected files with an error: remove the password first with the Password tool (Section 5.11). |
 | Windows SmartScreen warning on first run | Click **More info → Run anyway**. The warning disappears once the certificate gains reputation. |
 | Application does not start | Check Windows Event Viewer (`eventvwr.msc`) under **Windows Logs → Application** for an error from `PaperKnifePlusPC.exe`. |
 | Blurry UI on HiDPI display | The app is Per-Monitor v2 DPI-aware by manifest. If blurring persists, right-click the shortcut → **Properties → Compatibility** → change high DPI settings to **Application**. |
@@ -424,7 +424,7 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **Changed:** Compress Medium/Aggressive resample images instead of turning whole pages into pictures; text stays selectable.
 - **Changed:** OCR overlay keeps the original page and adds an invisible text layer; OCR and the exports start from the Preferences language and DPI.
 - **Removed:** the PDF/A and Linearise options of PDF Tools, which PyMuPDF 1.28 cannot produce.
-- **Fixed:** Watermark opacity and angle (also on rotated pages); Password permissions; Annotate selection and **Remove sel.**; Edit Text and Find & Replace undo; most tools now ask for the password of a protected PDF.
+- **Fixed:** Watermark opacity and angle (also on rotated pages); Password permissions; Annotate selection and **Remove sel.**; Edit Text and Find & Replace undo; every single-file tool now asks for the password of a protected PDF.
 - **New:** full dark theme with WCAG-compliant warm-brown palette; white text on accent passes AA.
 - **New:** `app.manifest` embedded in `PaperKnifePlusPC.exe` (Per-Monitor v2 DPI, `longPathAware`, `supportedOS` Win10/11).
 - **New:** NSIS installer with per-user install, Add/Remove Programs registration, and silent `/S` mode.

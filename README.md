@@ -169,7 +169,7 @@ L'elenco completo, in inglese, è in `MANUAL.md`, sezione 11. In breve:
 - **Modificato:** Comprimi (Medio/Aggressivo) ricampiona le immagini a 150/96 DPI in JPEG qualità 80 invece di trasformare le pagine in immagini; il testo resta selezionabile.
 - **Modificato:** l'OCR in modalità sovrapposizione conserva la pagina originale e aggiunge un livello di testo invisibile; lingua e DPI partono dalle Preferenze.
 - **Rimosso:** le opzioni PDF/A e Linearizza di Strumenti PDF, che PyMuPDF 1.28 non supporta.
-- **Corretto:** la maggior parte degli strumenti chiede la password dei PDF protetti.
+- **Corretto:** ogni strumento a file singolo chiede la password dei PDF protetti.
 - **Nuovo:** tema scuro, installer NSIS per utente e script di compilazione `build_windows.bat`.
 - La versione è letta da `paperknife/theme.py` anche da `setup.py`.
 
@@ -181,7 +181,7 @@ L'elenco completo, in inglese, è in `MANUAL.md`, sezione 11. In breve:
 - **Corretto:** la modifica di paragrafi multiriga causava l'uscita del testo fuori dalla pagina; ora usa word-wrap preciso contro la larghezza del blocco originale.
 - **Corretto:** caratteri speciali (`<`, `&`, ecc.) nei testi OCR e convertiti corrompevano silenziosamente l'output.
 - **Corretto:** l'export XML di PDF multipagina produceva file non validi (prologhi XML duplicati).
-- **Corretto:** tre impostazioni nelle Preferenze (cartella di output, file recenti massimi, livello di compressione) venivano salvate ma ignorate dall'app. La cartella di output vale per il dialogo di salvataggio dei singoli file; Dividi, Dividi per segnalibri, Estrai immagini, Batch, PDF → Immagini e PDF → Documento usano ancora il proprio dialogo senza di essa.
+- **Corretto:** tre impostazioni nelle Preferenze (cartella di output, file recenti massimi, livello di compressione) venivano salvate ma ignorate dall'app. La cartella di output è ora la cartella iniziale di ogni dialogo di salvataggio e di scelta cartella.
 - **Corretto:** aprire un PDF corrotto o non valido in 8 strumenti causava un crash senza messaggio di errore.
 - **Corretto:** lo strumento Unisci riapreva inutilmente tutti i file sorgente una seconda volta dopo il merge.
 - **Corretto:** la conversione di PPTX, XLSX, PNG e JPEG in PDF non mostrava il dialogo di completamento.
