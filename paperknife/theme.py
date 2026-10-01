@@ -13,7 +13,7 @@ the first window is created.
 """
 import customtkinter as ctk
 
-__version__ = "3.0.0"
+__version__ = "3.2.2"
 
 ctk.set_default_color_theme("blue")
 
@@ -44,11 +44,11 @@ DANGER   = "#9B1B1B"
 DANGER_H = "#7A1414"
 SUCCESS  = "#2D6A4F"
 WARN     = "#9A5A00"
-GREEN    = "#2D6A4F"
 
 # ── Native-tk widget colours (resolved strings, not tuples) ──────────────────
 # These are used by tk.Canvas and tk.Listbox which cannot accept tuples.
-# Always call through _tk_color() so they respond to mode changes.
+# _tk_color() resolves the colour for the mode current at call time; a native
+# widget keeps that colour, so it must be rebuilt after a mode change.
 CANVAS_BG = ("#F0EBE3", "#242019")
 LB_BG     = ("#EAE4D8", "#373027")
 

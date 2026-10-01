@@ -1,6 +1,8 @@
 """
 paperknife.tools  —  import order determines sidebar display order.
 """
+# Every import registers its tools via @register; the names are not used.
+# ruff: noqa: F401
 # READ
 from . import reader       # 📖  Read / Preview  ★ NEW
 

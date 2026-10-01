@@ -41,7 +41,8 @@ class ToolBase(ABC):
 
     Attributes
     ----------
-    section : str   Sidebar section heading (ORGANISE / ENHANCE / CONVERT / CONTENT)
+    section : str   Sidebar section heading (READ / ORGANISE / ENHANCE / CONVERT /
+                    CONTENT / SETTINGS); first-seen order sets sidebar order
     label   : str   Sidebar button label, including emoji prefix
     """
     section: str = "MISC"
@@ -80,10 +81,3 @@ class ToolBase(ABC):
 
     def _open_safe(self, path: str):
         return self.app._open_pdf_safe(path)
-
-    def _status(self, msg: str, color=None):
-        from .theme import MUTED
-        self.app._set_status(msg, color or MUTED)
-
-    def run_job(self, worker_fn, label: str = "Working…"):
-        self.app.run_job(worker_fn, label)

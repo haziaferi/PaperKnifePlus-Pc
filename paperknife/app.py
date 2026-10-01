@@ -1,6 +1,6 @@
 """
 paperknife.app
-App shell — window, sidebar (collapsible + searchable), progress bar with
+App shell — window, sidebar (collapsible sections + search), progress bar with
 Cancel button, keyboard shortcuts, home screen, and shared UI helpers.
 
 Tool views live in paperknife/tools/*.py and are imported by
@@ -8,20 +8,21 @@ paperknife/tools/__init__.py which populates tool_base.TOOLS.
 """
 from __future__ import annotations
 
+import inspect
+import sys
+import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, colorchooser
-import threading
+from tkinter import filedialog, messagebox
 from pathlib import Path
 
 import customtkinter as ctk
-from PIL import Image, ImageTk
-import fitz  # PyMuPDF
+import pymupdf as fitz
 
 # ── Optional: drag & drop ─────────────────────────────────────────────────────
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES as _DND_FILES
     _HAS_DND = True
-except Exception:
+except ImportError:
     _HAS_DND = False
 
 # ── DPI awareness (Windows only) ──────────────────────────────────────────────
@@ -33,7 +34,7 @@ except Exception:
 
 from .theme import (ACCENT, ACCENT_H, BG, SIDEBAR, CARD, CARD2,
                     TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN,
-                    CANVAS_BG, LB_BG, _tk_color, __version__)
+                    LB_BG, _tk_color, __version__)
 from .recent import RECENT, get_thumb, time_ago
 from .prefs  import PREFS
 from .job_queue import CancellableJob
@@ -45,20 +46,18 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        # Inject TkinterDnD into the already-constructed Tk window.
-        # ctk 5.x restructured CTk.__init__ so TkinterDnD._require(self) is
-        # brittle (it calls self.tk.call which may not yet be initialised at
-        # the right moment).  Calling the Tcl package loader directly is more
-        # reliable; the Python-side method patches were already applied by the
-        # `from tkinterdnd2 import …` import at the top of this module.
+        # _require adds the bundled tkdnd folder to Tcl's auto_path before
+        # `package require`; a bare `package require tkdnd` cannot find it.
+        # The widget methods (drop_target_register, dnd_bind) were patched
+        # onto tkinter.BaseWidget by the import above.
+        self._dnd_ok = False
         if _HAS_DND:
             try:
-                self.TkdndVersion = self.tk.call("package", "require", "tkdnd")
+                self.TkdndVersion = TkinterDnD._require(self)
                 self._dnd_ok = True
-            except Exception:
-                self._dnd_ok = False
-        else:
-            self._dnd_ok = False
+            except RuntimeError as exc:
+                print(f"PaperKnife+: drag and drop disabled: {exc}",
+                      file=sys.stderr)
 
         self.title(f"PaperKnife+ PC  v{__version__}")
         self.geometry("1380x900")
@@ -69,18 +68,6 @@ class App(ctk.CTk):
         # the ctypes shcore call is kept as a runtime fallback for environments
         # where the manifest is not embedded (e.g., running from source without
         # the PyInstaller build).
-
-        # Light title bar on Windows 10/11
-        try:
-            import ctypes
-            hwnd  = ctypes.windll.user32.GetParent(self.winfo_id())
-            _lite = ctypes.c_int(0)
-            _sz   = ctypes.sizeof(_lite)
-            for _attr in (20, 19):
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, _attr, ctypes.byref(_lite), _sz)
-        except Exception:
-            pass
 
         # Tooltip state
         self._tooltip_win:  tk.Toplevel | None = None
@@ -94,6 +81,9 @@ class App(ctk.CTk):
 
         # Job state
         self._current_job: CancellableJob | None = None
+        # Bumped by every _set_status; run_job compares it to tell whether
+        # the tool reported its own outcome while the job ran.
+        self._status_seq = 0
 
         # Path queued for the Reader tool when opened via a Recent-file click
         self._reader_pending_path: str | None = None
@@ -120,10 +110,31 @@ class App(ctk.CTk):
 
     # ── Close ─────────────────────────────────────────────────────────────────
     def _on_close(self):
+        job = self._current_job
+        if job and job.is_running:
+            if not messagebox.askyesno(
+                    "Job running",
+                    "A job is still running. Cancel it and quit?"):
+                return
+            job.cancel()
+            self._set_status("Cancelling before exit…", WARN)
+            self._close_when_idle(job, time.monotonic() + 15)
+            return
+        self._finish_close()
+
+    def _close_when_idle(self, job, deadline: float):
+        # Poll instead of join(): the worker's after() calls need the main
+        # loop running, and a save in progress must be allowed to finish.
+        if job.is_running and time.monotonic() < deadline:
+            self.after(100, lambda: self._close_when_idle(job, deadline))
+        else:
+            self._finish_close()
+
+    def _finish_close(self):
+        PREFS.window_geometry = self.geometry()
         try:
-            PREFS.window_geometry = self.geometry()
             PREFS.save()
-        except Exception:
+        except OSError:
             pass
         self.destroy()
 
@@ -278,51 +289,38 @@ class App(ctk.CTk):
         else:
             self._search_clear.place_forget()
 
+        self._layout_nav(query)
+
+    def _layout_nav(self, query: str):
+        # Re-pack every section in registry order.  pack(after=w) fails when
+        # w is itself unpacked, so a section hidden by one query could not be
+        # anchored back in place by the next.
+        widgets = []
         for section, buttons in self._section_buttons.items():
-            sec_lbl   = self._section_labels[section]
-            is_open   = self._section_open[section]
-            any_match = False
-            # Track insertion anchor so each button re-appears directly
-            # after the previous visible sibling (not at the list tail).
-            prev = sec_lbl
-
-            for btn in buttons:
-                label_text = btn.cget("text").lower()
-                if not query or query in label_text:
-                    btn.pack(fill="x", padx=8, pady=1, after=prev)
-                    prev = btn
-                    any_match = True
-                else:
-                    btn.pack_forget()
-
-            # When searching: always show matching section headers; hide empty ones
             if query:
-                if any_match:
-                    sec_lbl.pack(fill="x", padx=16, pady=(12, 2))
-                else:
-                    sec_lbl.pack_forget()
+                shown = [b for b in buttons if query in b.cget("text").lower()]
+                if shown:
+                    widgets.append((self._section_labels[section], True))
+                widgets += [(b, False) for b in shown]
             else:
-                # Restore normal visibility based on section open/close state
-                sec_lbl.pack(fill="x", padx=16, pady=(12, 2))
-                if not is_open:
-                    for btn in buttons:
-                        btn.pack_forget()
+                widgets.append((self._section_labels[section], True))
+                if self._section_open[section]:
+                    widgets += [(b, False) for b in buttons]
+        for section, buttons in self._section_buttons.items():
+            self._section_labels[section].pack_forget()
+            for btn in buttons:
+                btn.pack_forget()
+        for w, is_header in widgets:
+            if is_header:
+                w.pack(fill="x", padx=16, pady=(12, 2))
+            else:
+                w.pack(fill="x", padx=8, pady=1)
 
     def _toggle_section(self, section: str):
         self._section_open[section] = not self._section_open[section]
-        is_open = self._section_open[section]
-        arrow   = "▾" if is_open else "▸"
-        self._section_labels[section].configure(
-            text=f"{arrow}  {section}")
-        # Use after= so buttons re-appear immediately below their section
-        # label, not appended to the tail of the nav_scroll container.
-        prev = self._section_labels[section]
-        for btn in self._section_buttons.get(section, []):
-            if is_open:
-                btn.pack(fill="x", padx=8, pady=1, after=prev)
-                prev = btn
-            else:
-                btn.pack_forget()
+        arrow = "▾" if self._section_open[section] else "▸"
+        self._section_labels[section].configure(text=f"{arrow}  {section}")
+        self._layout_nav(self._search_var.get().strip().lower())
 
     def _clear_search(self):
         self._search_var.set("")
@@ -336,18 +334,27 @@ class App(ctk.CTk):
     # KEYBOARD SHORTCUTS
     # ══════════════════════════════════════════════════════════════════════════
     def _bind_keys(self):
-        self.bind("<Control-o>",
-                  lambda e: self._cur_open_fn() if self._cur_open_fn else None)
-        self.bind("<Control-s>",
-                  lambda e: self._cur_save_fn() if self._cur_save_fn else None)
-        self.bind("<Delete>",
-                  lambda e: self._cur_del_fn()  if self._cur_del_fn  else None)
-        self.bind("<Control-z>",
-                  lambda e: self._cur_undo_fn() if self._cur_undo_fn else None)
-        # Ctrl+K / Ctrl+F focus the sidebar search
-        self.bind("<Control-k>", lambda e: self._focus_search())
-        self.bind("<Control-f>", lambda e: self._focus_search())
-        self.bind("<Escape>",    lambda e: self._clear_search())
+        # Caps Lock or Shift turns the keysym upper-case; bind both.
+        for key, fn in (
+            ("o", lambda e: self._cur_open_fn() if self._cur_open_fn else None),
+            ("s", lambda e: self._cur_save_fn() if self._cur_save_fn else None),
+            ("z", lambda e: self._cur_undo_fn() if self._cur_undo_fn else None),
+            # Ctrl+K / Ctrl+F focus the sidebar search
+            ("k", lambda e: self._focus_search()),
+            ("f", lambda e: self._focus_search()),
+        ):
+            self.bind(f"<Control-{key}>", fn)
+            self.bind(f"<Control-{key.upper()}>", fn)
+        self.bind("<Delete>", self._on_delete_key)
+        self.bind("<Escape>", lambda e: self._clear_search())
+
+    def _on_delete_key(self, event):
+        # The toplevel binding also sees keys typed into entries; Delete
+        # there edits text and must not remove the selected list item.
+        if event.widget.winfo_class() in ("Entry", "Text", "TEntry", "Spinbox"):
+            return
+        if self._cur_del_fn:
+            self._cur_del_fn()
 
     # ══════════════════════════════════════════════════════════════════════════
     # NAVIGATION
@@ -364,20 +371,13 @@ class App(ctk.CTk):
         self._cur_del_fn  = None
         self._cur_undo_fn = None
         # cmd is either a plain callable (show_home) or tool.activate(app)
-        if hasattr(cmd, "__call__"):
-            # Tool.activate expects (app,); plain callables take no args
-            import inspect
-            try:
-                sig = inspect.signature(cmd)
-                has_args = len(sig.parameters) > 0
-            except (ValueError, TypeError):
-                has_args = False
-            if has_args:
-                cmd(self)
-            else:
-                cmd()
+        if inspect.signature(cmd).parameters:
+            cmd(self)
+        else:
+            cmd()
 
     def _clear_main(self):
+        self._hide_tooltip()
         for w in self.main.winfo_children():
             w.destroy()
 
@@ -391,22 +391,44 @@ class App(ctk.CTk):
         worker_fn may be:
           • def work()           — legacy; no cancel support
           • def work(stop)       — receives threading.Event; check stop.is_set()
+
+        Only one job runs at a time; while one is running this shows a
+        warning and returns None.
         """
+        if self._current_job and self._current_job.is_running:
+            messagebox.showwarning(
+                "Busy", "Another job is still running. Wait for it to finish "
+                        "or cancel it first.")
+            return None
+
         self._prog_show(0)
         self._job_label.configure(text=f"  {label}")
+        seq_at_start = self._status_seq
 
-        def on_done(_result):
-            self._prog_hide()
-            self._set_status("  Done", SUCCESS)
+        def hide_progress():
+            if self._current_job is job:
+                self._prog_hide()
+
+        def on_done(result):
+            hide_progress()
+            if isinstance(result, str) and result:
+                self._set_status(result, SUCCESS)
+            # The worker posts its own outcome through after() before it
+            # returns, so it is already showing; do not cover it.
+            elif self._status_seq == seq_at_start:
+                self._set_status("Done", SUCCESS)
 
         def on_error(exc):
-            self._prog_hide()
-            self._set_status(f"  Error: {exc}", DANGER)
+            hide_progress()
+            self._set_status(f"Error: {exc}", DANGER)
             messagebox.showerror("Error", str(exc))
 
         def on_cancel():
-            self._prog_hide()
-            self._set_status("  Cancelled", WARN)
+            hide_progress()
+            # A worker that reported an outcome got past its last stop check
+            # and finished; "Cancelled" would contradict its saved message.
+            if self._status_seq == seq_at_start:
+                self._set_status("Cancelled", WARN)
 
         job = CancellableJob(
             fn        = worker_fn,
@@ -414,9 +436,9 @@ class App(ctk.CTk):
             on_done   = on_done,
             on_error  = on_error,
             on_cancel = on_cancel,
-        ).start()
+        )
         self._current_job = job
-        return job
+        return job.start()
 
     def _cancel_job(self):
         if self._current_job and self._current_job.is_running:
@@ -441,6 +463,7 @@ class App(ctk.CTk):
     # STATUS BAR
     # ══════════════════════════════════════════════════════════════════════════
     def _set_status(self, msg: str, color=MUTED):
+        self._status_seq += 1
         self.statusbar.configure(text_color=color)
         self.status_var.set(f"  {msg}")
 
@@ -479,15 +502,6 @@ class App(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════════
     # DnD HELPERS
     # ══════════════════════════════════════════════════════════════════════════
-    def _register_drop(self, widget, callback):
-        if not self._dnd_ok:
-            return
-        try:
-            widget.drop_target_register(_DND_FILES)
-            widget.dnd_bind("<<Drop>>", callback)
-        except Exception:
-            pass
-
     @staticmethod
     def _parse_drop(event_data: str) -> list[str]:
         paths, raw = [], event_data.strip()
@@ -529,8 +543,24 @@ class App(ctk.CTk):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=24, pady=8)
         entry = ctk.CTkEntry(row, textvariable=var, state="readonly",
-                             placeholder_text=hint, height=44)
+                             height=44)
         entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        # CTkEntry never draws placeholder_text when a textvariable is set,
+        # so the hint is a label laid over the empty entry.
+        hint_lbl = ctk.CTkLabel(entry, text=hint, text_color=MUTED,
+                                fg_color="transparent", height=24)
+
+        def _sync_hint(*_):
+            # The tool's variable can outlive this view.
+            if not hint_lbl.winfo_exists():
+                var.trace_remove("write", trace_id)
+            elif var.get():
+                hint_lbl.place_forget()
+            else:
+                hint_lbl.place(x=10, rely=0.5, anchor="w")
+
+        trace_id = var.trace_add("write", _sync_hint)
+        _sync_hint()
 
         def pick():
             ft = [(e.lstrip(".").upper(), f"*{e}") for e in exts] + [("All", "*.*")]
@@ -559,23 +589,19 @@ class App(ctk.CTk):
             def _on_leave(_event):
                 entry.configure(border_color=_DEFAULT_BORDER)
 
-            try:
-                row.drop_target_register(_DND_FILES)
-                row.dnd_bind("<<Drop>>",      _on_drop)
-                row.dnd_bind("<<DragEnter>>", _on_enter)
-                row.dnd_bind("<<DragLeave>>", _on_leave)
-            except Exception:
-                pass
+            def _register(w):
+                w.drop_target_register(_DND_FILES)
+                w.dnd_bind("<<Drop>>",      _on_drop)
+                w.dnd_bind("<<DragEnter>>", _on_enter)
+                w.dnd_bind("<<DragLeave>>", _on_leave)
+
+            _register(row)
 
             def _register_inner():
-                try:
-                    for child in entry.winfo_children():
-                        child.drop_target_register(_DND_FILES)
-                        child.dnd_bind("<<Drop>>",      _on_drop)
-                        child.dnd_bind("<<DragEnter>>", _on_enter)
-                        child.dnd_bind("<<DragLeave>>", _on_leave)
-                except Exception:
-                    pass
+                if not entry.winfo_exists():
+                    return
+                for child in entry.winfo_children():
+                    _register(child)
 
             self.after(50, _register_inner)
 
@@ -614,8 +640,7 @@ class App(ctk.CTk):
             fg_color=color, hover_color=hover, **kw)
 
     def _save_as(self, default="output.pdf", ext=".pdf"):
-        ft = [("PDF", "*.pdf")] if ext == ".pdf" else [("ZIP", "*.zip")]
-        from .prefs import PREFS
+        ft = [(ext.lstrip(".").upper(), f"*{ext}")]
         init_dir = PREFS.output_dir if PREFS.output_dir else None
         return filedialog.asksaveasfilename(
             defaultextension=ext, filetypes=ft, initialfile=default,
@@ -631,7 +656,10 @@ class App(ctk.CTk):
             pw = ctk.CTkInputDialog(
                 text="This PDF is password-protected. Enter the password:",
                 title="Password Required").get_input()
-            if not pw or not doc.authenticate(pw):
+            if not pw:
+                doc.close()
+                return None
+            if not doc.authenticate(pw):
                 messagebox.showerror("Error", "Incorrect password.")
                 doc.close()
                 return None
@@ -728,7 +756,7 @@ class App(ctk.CTk):
                 ctk.CTkLabel(card, image=thumb, text=""
                              ).pack(padx=8, pady=(8, 2))
 
-            name = entry["name"]
+            name = entry.get("name") or Path(path).name
             if len(name) > 22:
                 name = name[:19] + "…"
             ctk.CTkLabel(card, text=name, font=ctk.CTkFont(size=11),

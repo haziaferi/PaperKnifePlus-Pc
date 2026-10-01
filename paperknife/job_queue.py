@@ -12,18 +12,52 @@ Usage
                 return          # honour cancel
             process(item)
             app.after(0, lambda v=(i+1)/len(items): app._prog_update(v))
-        return result           # passed to on_done
+        return f"✓  Processed {len(items)} item(s)"   # shown in the status bar
 
     app.run_job(do_work)
+
+A str returned by the worker becomes the status-bar message.  A worker that
+posts its own status with app.after(0, app._set_status(...)) keeps it: the
+generic "Done" / "Cancelled" is shown only when the worker reported nothing.
 
 Legacy workers (no stop parameter) are still supported — cancel becomes
 "soft" (the on_done callback is suppressed, but the thread runs to
 completion).
 """
 from __future__ import annotations
+import contextlib
 import inspect
+import os
+import tempfile
 import threading
-from typing import Callable, Any
+import tkinter as tk
+from pathlib import Path
+from typing import Callable, Iterator
+
+
+@contextlib.contextmanager
+def atomic_output(path: str) -> Iterator[str]:
+    """Yield a temporary path beside *path*; on a clean exit move it onto
+    *path* with os.replace, on an exception delete it.
+
+    A worker that saves to the yielded path can be killed mid-write (window
+    closed, process ended) without leaving a truncated file at *path*, and an
+    existing file there is replaced only once the new one is complete.
+    """
+    target = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.stem}-",
+                               suffix=target.suffix + ".part")
+    os.close(fd)
+    os.unlink(tmp)
+    try:
+        yield tmp
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+    # A worker that returned early on cancel never wrote the file.
+    if os.path.exists(tmp):
+        os.replace(tmp, target)
 
 
 class CancellableJob:
@@ -73,19 +107,27 @@ class CancellableJob:
         return self._stop
 
     # ── Internal ───────────────────────────────────────────────────────────────
+    def _post(self, callback):
+        # after() from this thread raises once the window has been destroyed
+        # (RuntimeError "main thread is not in main loop", or TclError).
+        try:
+            self._after(0, callback)
+        except (RuntimeError, tk.TclError):
+            pass
+
     def _run(self):
         try:
             result = self._fn(self._stop) if self._pass_stop else self._fn()
         except Exception as exc:
             self._running = False
             if self._on_error:
-                self._after(0, lambda e=exc: self._on_error(e))
+                self._post(lambda e=exc: self._on_error(e))
             return
 
         self._running = False
         if self._stop.is_set():
             if self._on_cancel:
-                self._after(0, self._on_cancel)
+                self._post(self._on_cancel)
         else:
             if self._on_done:
-                self._after(0, lambda r=result: self._on_done(r))
+                self._post(lambda r=result: self._on_done(r))

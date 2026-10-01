@@ -4,8 +4,8 @@ Persistent user preferences stored alongside recent.json.
 """
 from __future__ import annotations
 import json
-from pathlib import Path
-from .recent import APPDIR
+import os
+from .recent import APPDIR, write_json_atomic
 
 PREFS_PATH = APPDIR / "prefs.json"
 
@@ -15,10 +15,22 @@ _DEFAULTS: dict = {
     "compress_level":  "medium",  # light / medium / aggressive
     "ocr_lang":        "eng",     # Tesseract language code
     "max_recent":      12,        # max recent-file cards on home screen
-    "sidebar_open":    True,      # sidebar visible on launch
     "window_geometry": "",        # last window geometry string (WxH+X+Y)
     "appearance":      "light",   # light / dark / system
 }
+
+_CHOICES: dict = {
+    "compress_level": ("light", "medium", "aggressive"),
+    "appearance":     ("light", "dark", "system"),
+}
+
+
+def _valid(key: str, value) -> bool:
+    default = _DEFAULTS[key]
+    # bool is a subclass of int; a stored true must not pass as a DPI.
+    if isinstance(value, bool) or type(value) is not type(default):
+        return False
+    return key not in _CHOICES or value in _CHOICES[key]
 
 
 class Prefs:
@@ -31,18 +43,28 @@ class Prefs:
     # ── Internal ──────────────────────────────────────────────────────────────
     def _load(self):
         try:
-            if PREFS_PATH.exists():
-                stored = json.loads(PREFS_PATH.read_text())
-                self._data.update(stored)
-        except Exception:
-            pass
+            raw = PREFS_PATH.read_text(encoding="utf-8")
+        except OSError:
+            return
+        try:
+            stored = json.loads(raw)
+            if not isinstance(stored, dict):
+                raise ValueError("prefs.json is not an object")
+        except ValueError:
+            # Keep the unreadable file for the user instead of letting the
+            # next save overwrite it with defaults.
+            try:
+                os.replace(PREFS_PATH, PREFS_PATH.with_name(PREFS_PATH.name + ".bad"))
+            except OSError:
+                pass
+            return
+        for key, value in stored.items():
+            if key in _DEFAULTS and _valid(key, value):
+                self._data[key] = value
 
     def save(self):
-        try:
-            APPDIR.mkdir(exist_ok=True)
-            PREFS_PATH.write_text(json.dumps(self._data, indent=2))
-        except Exception:
-            pass
+        """Persist atomically.  Raises OSError if the file cannot be written."""
+        write_json_atomic(PREFS_PATH, self._data)
 
     # ── Attribute access ──────────────────────────────────────────────────────
     def __getattr__(self, key: str):
