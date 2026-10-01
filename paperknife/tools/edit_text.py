@@ -6,7 +6,7 @@ from PIL import Image
 import customtkinter as ctk
 import fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN, CANVAS_BG
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, CANVAS_BG, _tk_color
 from ..recent import RECENT
 
 
@@ -21,15 +21,10 @@ class EditTextTool(ToolBase):
     _zoom:     float = 1.5
     _blocks:   list = []
     _sel_bi:   int | None = None
-    _sel_span: int | None = None
-    _tk_img:   ImageTk.PhotoImage | None = None
     _canvas:   tk.Canvas | None = None
-    _edit_box: ctk.CTkEntry | None = None
-    _edit_var: tk.StringVar | None = None
+    _edit_box: ctk.CTkTextbox | None = None
 
     def show(self):
-        import tkinter.font as tkfont
-        from tkinter import PhotoImage
         app  = self.app
         body = self._card("✏️  Edit Text",
                           "Click any text block to select it · edit the span · Ctrl+S to save")
@@ -65,11 +60,13 @@ class EditTextTool(ToolBase):
         vbar.pack(side="right", fill="y")
         hbar = tk.Scrollbar(cf, orient="horizontal")
         hbar.pack(side="bottom", fill="x")
-        self._canvas = tk.Canvas(cf, bg=CANVAS_BG, highlightthickness=0,
+        self._canvas = tk.Canvas(cf, bg=_tk_color(CANVAS_BG), highlightthickness=0,
                                   yscrollcommand=vbar.set, xscrollcommand=hbar.set)
         self._canvas.pack(fill="both", expand=True)
         vbar.configure(command=self._canvas.yview)
         hbar.configure(command=self._canvas.xview)
+        # Leaving the tool destroys the view; close the document so the file is not left locked.
+        self._canvas.bind("<Destroy>", lambda e: self._close_doc())
         self._canvas.bind("<Button-1>", self._on_click)
         self._canvas.bind("<MouseWheel>",
                           lambda e: self._canvas.yview_scroll(-1 * (e.delta // 120), "units"))
@@ -77,11 +74,10 @@ class EditTextTool(ToolBase):
         # ── edit row ──────────────────────────────────────────────────────────
         er = ctk.CTkFrame(body, fg_color="transparent")
         er.pack(fill="x", padx=24, pady=4)
-        self._edit_var = tk.StringVar()
-        self._edit_box = ctk.CTkEntry(er, textvariable=self._edit_var,
-                                       state="disabled", height=40,
-                                       placeholder_text="Select a text block to edit…",
-                                       font=ctk.CTkFont(size=14))
+        # Multi-line: a block keeps its line breaks while it is edited.
+        self._edit_box = ctk.CTkTextbox(er, height=90, wrap="word",
+                                         font=ctk.CTkFont(size=14))
+        self._edit_box.configure(state="disabled")
         self._edit_box.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self._apply_btn = ctk.CTkButton(
             er, text="Apply Edit", width=120, height=40,
@@ -103,15 +99,23 @@ class EditTextTool(ToolBase):
         self._pg = 0
 
     # ── file / page navigation ────────────────────────────────────────────────
+    def _close_doc(self):
+        if self._doc:
+            self._doc.close()
+            self._doc = None
+
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
             return
-        if self._doc:
-            self._doc.close()
+        self._close_doc()
         self._doc = self.app._open_pdf_safe(f)
         if not self._doc:
             return
+        # apply_redactions rewrites the page resources as well as the content
+        # stream, so undo needs MuPDF's object journal, not a content snapshot.
+        self._doc.journal_enable()
+        self._undo_stack = []
         self._path_var.set(f)
         self._pg = 0
         RECENT.push(f, len(self._doc))
@@ -123,8 +127,7 @@ class EditTextTool(ToolBase):
         new = self._pg + d
         if 0 <= new < len(self._doc):
             self._pg = new
-            self._sel_bi   = None
-            self._sel_span = None
+            self._sel_bi = None
             self._render()
 
     def _on_zoom(self, v):
@@ -141,8 +144,6 @@ class EditTextTool(ToolBase):
         mat  = fitz.Matrix(self._zoom, self._zoom)
         pix  = page.get_pixmap(matrix=mat, alpha=False)
         img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        self._tk_img = ctk.CTkImage(img, size=(pix.width, pix.height))
-        # Use raw PhotoImage for canvas (CTkImage doesn't work directly on canvas)
         from PIL import ImageTk as _ITK
         self._raw_img = _ITK.PhotoImage(img)
         c.create_image(0, 0, anchor="nw", image=self._raw_img)
@@ -150,16 +151,17 @@ class EditTextTool(ToolBase):
 
         # Collect & draw block overlays
         self._blocks = []
-        raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-        z = self._zoom
+        # "dict" spans carry their 'text'; "rawdict" spans only have per-char entries.
+        raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        # Text bboxes are unrotated; the pixmap shows the page rotated.
+        to_screen = page.rotation_matrix * fitz.Matrix(self._zoom, self._zoom)
         for bi, block in enumerate(raw.get("blocks", [])):
             if block.get("type") != 0:
                 continue
-            bx0, by0, bx1, by1 = [v * z for v in block["bbox"]]
-            outline = ACCENT if bi == self._sel_bi else ""
+            bx0, by0, bx1, by1 = fitz.Rect(block["bbox"]) * to_screen
             rid = c.create_rectangle(
                 bx0, by0, bx1, by1,
-                outline=outline if outline else "transparent",
+                outline=_tk_color(ACCENT) if bi == self._sel_bi else "",
                 fill="", width=2)
             self._blocks.append({
                 "bi": bi, "block": block, "rid": rid,
@@ -182,7 +184,7 @@ class EditTextTool(ToolBase):
         for item in self._blocks:
             self._canvas.itemconfigure(
                 item["rid"],
-                outline=ACCENT if item["bi"] == bi else "")
+                outline=_tk_color(ACCENT) if item["bi"] == bi else "")
         # Build the full text of the block — preserve original line breaks
         # so the user can see and edit multi-line content explicitly.
         block = next((it["block"] for it in self._blocks if it["bi"] == bi), None)
@@ -190,10 +192,11 @@ class EditTextTool(ToolBase):
             return
         lines_text = []
         for line in block.get("lines", []):
-            line_str = " ".join(s.get("text", "") for s in line.get("spans", []))
-            lines_text.append(line_str)
-        self._edit_var.set("\n".join(lines_text))
+            # Spans are consecutive runs of one line; their text already holds the spaces.
+            lines_text.append("".join(s["text"] for s in line.get("spans", [])))
         self._edit_box.configure(state="normal")
+        self._edit_box.delete("1.0", "end")
+        self._edit_box.insert("1.0", "\n".join(lines_text))
         self._apply_btn.configure(state="normal")
         self._edit_box.focus_set()
 
@@ -255,11 +258,23 @@ class EditTextTool(ToolBase):
             return
 
         page   = self._doc[self._pg]
-        new_tx = self._edit_var.get()
+        new_tx = self._edit_box.get("1.0", "end-1c")
 
-        # Snapshot for undo
-        self._undo_stack.append((self._pg, page.read_contents()))
+        self._doc.journal_start_op("Edit text")
+        try:
+            self._write_block(page, block, new_tx)
+        finally:
+            self._doc.journal_stop_op()
+        self._undo_stack.append(self._pg)
 
+        self._sel_bi = None
+        self._edit_box.delete("1.0", "end")
+        self._edit_box.configure(state="disabled")
+        self._apply_btn.configure(state="disabled")
+        self.app._set_status("Edit applied — use Save to write to disk", SUCCESS)
+        self._render()
+
+    def _write_block(self, page, block: dict, new_tx: str):
         # ── Block geometry (all in PDF points, no zoom) ───────────────────────
         bx0, by0, bx1, by1 = block["bbox"]
         block_width = bx1 - bx0
@@ -279,7 +294,9 @@ class EditTextTool(ToolBase):
         for line in lines_raw:
             for span in line.get("spans", []):
                 page.add_redact_annot(fitz.Rect(span["bbox"]))
-        page.apply_redactions()
+        # Defaults would also blank image pixels and line art under each span box.
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
+                              graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
         # ── Word-wrap the new text to fit the block width ─────────────────────
         wrapped = self._word_wrap(new_tx, font_name, font_size, block_width)
@@ -300,25 +317,12 @@ class EditTextTool(ToolBase):
 
         tw.write_text(page, color=rgb)
 
-        self._sel_bi = None
-        self._edit_box.configure(state="disabled")
-        self._apply_btn.configure(state="disabled")
-        self.app._set_status("Edit applied — use Save to write to disk", SUCCESS)
-        self._render()
-
     def _undo(self):
         if not self._undo_stack or not self._doc:
             return
-        pg_num, contents = self._undo_stack.pop()
-        page = self._doc[pg_num]
-        # Restore the saved content stream via the low-level xref API
-        xref = page.get_contents()
-        if xref:
-            self._doc.update_stream(xref[0], contents)
-        else:
-            xref = self._doc.get_new_xref()
-            self._doc.update_stream(xref, contents)
-            page.set_contents(xref)
+        self._pg = self._undo_stack.pop()
+        self._doc.journal_undo()
+        self._sel_bi = None
         self._render()
         self.app._set_status("Undo applied", SUCCESS)
 

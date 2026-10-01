@@ -6,7 +6,7 @@ from PIL import Image
 import customtkinter as ctk
 import fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, CANVAS_BG, DANGER
+from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, SUCCESS, WARN, CANVAS_BG, DANGER, _tk_color
 from ..recent import RECENT
 
 
@@ -125,11 +125,13 @@ class AnnotateTool(ToolBase):
         vbar.pack(side="right", fill="y")
         hbar = tk.Scrollbar(cf, orient="horizontal")
         hbar.pack(side="bottom", fill="x")
-        self._canvas = tk.Canvas(cf, bg=CANVAS_BG, highlightthickness=0, cursor="crosshair",
+        self._canvas = tk.Canvas(cf, bg=_tk_color(CANVAS_BG), highlightthickness=0, cursor="crosshair",
                                   yscrollcommand=vbar.set, xscrollcommand=hbar.set)
         self._canvas.pack(fill="both", expand=True)
         vbar.configure(command=self._canvas.yview)
         hbar.configure(command=self._canvas.xview)
+        # Leaving the tool destroys the view; close the document so the file is not left locked.
+        self._canvas.bind("<Destroy>", lambda e: self._close_doc())
         self._canvas.bind("<ButtonPress-1>",   self._press)
         self._canvas.bind("<ButtonRelease-1>",  self._release)
         self._canvas.bind("<B1-Motion>",        self._drag)
@@ -146,23 +148,29 @@ class AnnotateTool(ToolBase):
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
         app._cur_undo_fn = self._undo
-        self._undo_stack: list = []
-        self._sel_annot = None
+        self._undo_stack: list = []   # (page_num, xref of an annotation this tool added)
+        self._sel_annot = None        # xref of the clicked annotation on the current page
         self._doc = None
         self._pg  = 0
 
     # ── file ──────────────────────────────────────────────────────────────────
+    def _close_doc(self):
+        if self._doc:
+            self._doc.close()
+            self._doc = None
+
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
             return
-        if self._doc:
-            self._doc.close()
+        self._close_doc()
         self._doc = self.app._open_pdf_safe(f)
         if not self._doc:
             return
         self._path_var.set(f)
         self._pg = 0
+        self._undo_stack = []
+        self._sel_annot = None
         RECENT.push(f, len(self._doc))
         self._render()
 
@@ -172,6 +180,7 @@ class AnnotateTool(ToolBase):
         new = self._pg + d
         if 0 <= new < len(self._doc):
             self._pg = new
+            self._sel_annot = None
             self._render()
 
     def _on_zoom(self, v):
@@ -206,7 +215,9 @@ class AnnotateTool(ToolBase):
 
     # ── canvas interaction ────────────────────────────────────────────────────
     def _canvas_to_pdf(self, cx, cy):
-        return cx / self._zoom, cy / self._zoom
+        # The preview shows the page rotated; annotations live in unrotated space.
+        p = fitz.Point(cx / self._zoom, cy / self._zoom) * self._doc[self._pg].derotation_matrix
+        return p.x, p.y
 
     def _press(self, event):
         cx = self._canvas.canvasx(event.x)
@@ -226,10 +237,10 @@ class AnnotateTool(ToolBase):
         x0, y0 = self._start
         if self._tool == "line":
             self._drag_id = self._canvas.create_line(
-                x0, y0, cx, cy, fill=ACCENT, width=2, dash=(4, 2))
+                x0, y0, cx, cy, fill=_tk_color(ACCENT), width=2, dash=(4, 2))
         else:
             self._drag_id = self._canvas.create_rectangle(
-                x0, y0, cx, cy, outline=ACCENT, width=2, dash=(4, 2))
+                x0, y0, cx, cy, outline=_tk_color(ACCENT), width=2, dash=(4, 2))
 
     def _release(self, event):
         if not self._start or not self._doc:
@@ -240,17 +251,24 @@ class AnnotateTool(ToolBase):
         if self._drag_id:
             self._canvas.delete(self._drag_id)
             self._drag_id = None
-        if abs(cx - x0) < 4 and abs(cy - y0) < 4:
-            cx, cy = x0 + 60, y0 + 16
         self._start = None
-        px0, py0 = self._canvas_to_pdf(min(x0, cx), min(y0, cy))
-        px1, py1 = self._canvas_to_pdf(max(x0, cx), max(y0, cy))
-        rect     = fitz.Rect(px0, py0, px1, py1)
+        page = self._doc[self._pg]
+        if abs(cx - x0) < 4 and abs(cy - y0) < 4:
+            # A click on an existing annotation selects it for "Remove sel.".
+            pt = fitz.Point(*self._canvas_to_pdf(x0, y0))
+            hit = next((a for a in page.annots() if pt in a.rect), None)
+            if hit is not None:
+                self._sel_annot = hit.xref
+                self._render()
+                return
+            cx, cy = x0 + 60, y0 + 16
+        px0, py0 = self._canvas_to_pdf(x0, y0)
+        px1, py1 = self._canvas_to_pdf(cx, cy)
+        rect     = fitz.Rect(px0, py0, px1, py1).normalize()
         opacity  = self._opacity.get() / 100.0
         color    = self._color
-        page     = self._doc[self._pg]
         tool     = self._tool
-        self._undo_stack.append((self._pg,))
+        ann      = None
 
         try:
             if tool == "highlight":
@@ -270,7 +288,8 @@ class AnnotateTool(ToolBase):
                 ann.update()
             elif tool == "rect":
                 ann = page.add_rect_annot(rect)
-                ann.set_colors(stroke=color, fill=(*color, opacity))
+                # A 4-number colour is CMYK; transparency comes from set_opacity.
+                ann.set_colors(stroke=color, fill=color)
                 ann.set_opacity(opacity)
                 ann.update()
             elif tool == "line":
@@ -292,26 +311,35 @@ class AnnotateTool(ToolBase):
                 ann.update()
         except Exception as ex:
             self.app._set_status(f"Annotation error: {ex}", WARN)
+        if ann is not None:
+            self._undo_stack.append((self._pg, ann.xref))
         self._render()
 
     # ── undo / remove ─────────────────────────────────────────────────────────
+    @staticmethod
+    def _annot_by_xref(page, xref):
+        return next((a for a in page.annots() if a.xref == xref), None)
+
     def _undo(self):
-        if not self._undo_stack or not self._doc:
+        if not self._doc:
             return
-        pg_num, = self._undo_stack.pop()
-        page = self._doc[pg_num]
-        annots = list(page.annots())
-        if annots:
-            page.delete_annot(annots[-1])
+        # Entries whose annotation was already removed with "Remove sel." are skipped.
+        while self._undo_stack:
+            pg_num, xref = self._undo_stack.pop()
+            page = self._doc[pg_num]
+            annot = self._annot_by_xref(page, xref)
+            if annot is not None:
+                page.delete_annot(annot)
+                break
         self._render()
 
     def _remove_selected(self):
         if not self._sel_annot or not self._doc:
             return
-        try:
-            self._doc[self._pg].delete_annot(self._sel_annot)
-        except Exception:
-            pass
+        page = self._doc[self._pg]
+        annot = self._annot_by_xref(page, self._sel_annot)
+        if annot is not None:
+            page.delete_annot(annot)
         self._sel_annot = None
         self._render()
 
@@ -329,6 +357,11 @@ class AnnotateTool(ToolBase):
         self._raw_img = _ITK.PhotoImage(img)
         c.create_image(0, 0, anchor="nw", image=self._raw_img)
         c.configure(scrollregion=(0, 0, pix.width, pix.height))
+        sel = self._annot_by_xref(page, self._sel_annot) if self._sel_annot else None
+        if sel is not None:
+            x0, y0, x1, y1 = sel.rect * page.rotation_matrix * mat
+            c.create_rectangle(x0 - 3, y0 - 3, x1 + 3, y1 + 3,
+                               outline=DANGER, width=2, dash=(4, 2))
         self._pg_lbl.configure(text=f"{self._pg + 1} / {len(self._doc)}")
 
     # ── save ──────────────────────────────────────────────────────────────────
