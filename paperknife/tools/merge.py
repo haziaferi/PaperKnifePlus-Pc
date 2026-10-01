@@ -5,23 +5,9 @@ from pathlib import Path
 import fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
+from ..theme import ACCENT, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
 from ..recent import RECENT
-
-
-def _parse_range(range_str: str, total: int) -> list[int]:
-    """Parse '1-3, 5, 8-end' into a 0-based page list. Returns all pages if blank."""
-    if not range_str.strip():
-        return list(range(total))
-    pages: list[int] = []
-    for part in range_str.split(","):
-        part = part.strip().lower().replace("end", str(total))
-        if "-" in part:
-            a, b = part.split("-", 1)
-            pages += list(range(int(a) - 1, int(b)))
-        else:
-            pages.append(int(part) - 1)
-    return [p for p in pages if 0 <= p < total]
+from ..pages import PageRangeError, parse_ranges
 
 
 @register
@@ -90,11 +76,25 @@ class MergeTool(ToolBase):
         name = Path(path).name
         if len(name) > 46:
             name = name[:43] + "…"
+        entry = {"path": path, "range_var": rv, "row": row, "idx_lbl": idx_lbl}
+        # Rows move and disappear, so the click looks up the entry's index now.
         name_btn = ctk.CTkButton(
             row, text=name, anchor="w", fg_color="transparent",
             text_color=TEXT, hover_color=CARD2, height=32,
-            command=lambda i=idx: self._select(i))
+            command=lambda: self._select(self._entries.index(entry)))
         name_btn.pack(side="left", fill="x", expand=True)
+
+        app = self.app
+
+        def _enter(e, p=path):
+            if app._last_hover_path != p:
+                app._last_hover_path = p
+                app.after(400, lambda x=e.x_root, y=e.y_root:
+                          app._show_tooltip(x, y, p)
+                          if app._last_hover_path == p else None)
+
+        name_btn.bind("<Enter>", _enter)
+        name_btn.bind("<Leave>", app._hide_tooltip)
 
         # Page range field
         ctk.CTkLabel(row, text="Pages:", text_color=MUTED,
@@ -104,8 +104,7 @@ class MergeTool(ToolBase):
                                   font=ctk.CTkFont(size=11))
         range_ent.pack(side="left", padx=(0, 4))
 
-        self._entries.append({"path": path, "range_var": rv,
-                               "row": row, "idx_lbl": idx_lbl})
+        self._entries.append(entry)
 
     def _renumber(self):
         for i, e in enumerate(self._entries):
@@ -155,30 +154,49 @@ class MergeTool(ToolBase):
     def _run(self):
         if not self._entries:
             return messagebox.showwarning("Merge", "Add at least one PDF file.")
-        out = self.app._save_as("merged.pdf")
-        if not out:
-            return
         app = self.app
-        # Snapshot entries (path + range string) before threading
-        jobs = [(e["path"], e["range_var"].get()) for e in self._entries]
+        # Open (and unlock) every input and check its range on the Tk thread,
+        # so a password prompt or a bad range stops the merge before it starts.
+        jobs: list[tuple[str, fitz.Document, list[tuple[int, int]]]] = []
+
+        def close_all():
+            for _, d, _ in jobs:
+                d.close()
+
+        for e in self._entries:
+            path, rng = e["path"], e["range_var"].get().strip()
+            src = app._open_pdf_safe(path)
+            if not src:
+                return close_all()
+            try:
+                groups = (parse_ranges(rng, len(src)) if rng
+                          else [(0, len(src) - 1)])
+            except PageRangeError as err:
+                src.close()
+                close_all()
+                return messagebox.showerror("Merge", f"{Path(path).name}:\n{err}")
+            jobs.append((path, src, groups))
+        out = app._save_as("merged.pdf")
+        if not out:
+            return close_all()
+        n = len(jobs)
 
         def work(stop):
             merged = fitz.open()
             pg_total = 0
-            for i, (path, rng) in enumerate(jobs):
-                if stop.is_set():
-                    return
-                src   = fitz.open(path)
-                total = len(src)
-                pages = _parse_range(rng, total)
-                pg_total += len(pages)
-                for pg in pages:
-                    merged.insert_pdf(src, from_page=pg, to_page=pg)
-                src.close()
-                RECENT.push(path, total)
-                app.after(0, lambda v=(i+1)/len(jobs): app._prog_update(v))
-            merged.save(out, deflate=True)
-            merged.close()
+            try:
+                for i, (path, src, groups) in enumerate(jobs):
+                    if stop.is_set():
+                        return
+                    for fr, to in groups:
+                        merged.insert_pdf(src, from_page=fr, to_page=to)
+                        pg_total += to - fr + 1
+                    RECENT.push(path, len(src))
+                    app.after(0, lambda v=(i+1)/n: app._prog_update(v))
+                merged.save(out, deflate=True)
+            finally:
+                merged.close()
+                close_all()
             app.after(0, lambda: [
                 app._set_status(
                     f"✓  Merged {len(jobs)} file(s) · {pg_total} pages → "

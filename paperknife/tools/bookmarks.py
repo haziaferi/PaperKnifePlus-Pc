@@ -2,11 +2,10 @@ from __future__ import annotations
 import re, os
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from pathlib import Path
 import fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN
+from ..theme import CARD2, TEXT, MUTED, SUCCESS, WARN
 from ..recent import RECENT
 
 
@@ -45,21 +44,24 @@ class BookmarksTool(ToolBase):
 
         app._big_btn(body, "  Split by Bookmarks  →",
                      self._run).pack(fill="x", padx=24, pady=16)
+        if getattr(self, "_doc", None) is not None:
+            self._doc.close()
+        self._doc = None
         self._toc = []
 
     def _open(self):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
             return
-        self._path.set(f)
-        try:
-            doc = fitz.open(f)
-        except Exception as e:
-            from tkinter import messagebox
-            messagebox.showerror("Error", f"Could not open PDF:\n{e}")
+        # Kept open so a password entered here also covers the split.
+        doc = self.app._open_pdf_safe(f)
+        if not doc:
             return
+        if self._doc is not None:
+            self._doc.close()
+        self._doc = doc
+        self._path.set(f)
         toc = doc.get_toc()
-        doc.close()
         self._toc = toc
         for w in self._tree_frame.winfo_children():
             w.destroy()
@@ -83,23 +85,27 @@ class BookmarksTool(ToolBase):
 
     def _run(self):
         src = self._path.get()
-        if not src:
+        if not src or self._doc is None:
             return messagebox.showwarning("Bookmarks", "Select a PDF first.")
         if not self._toc:
             return messagebox.showwarning("Bookmarks", "PDF has no bookmarks.")
+        all_levels = "All" in self._level_var.get()
+        doc   = self._doc
+        total = len(doc)
+        chosen = [(title, page) for level, title, page, *_ in self._toc
+                  if all_levels or level == 1]
+        # get_toc reports -1 for a bookmark with no page target; levels can
+        # also point backwards, so chapters are cut in page order.
+        entries = sorted(((t, p - 1) for t, p in chosen if 1 <= p <= total),
+                         key=lambda e: e[1])
+        skipped = len(chosen) - len(entries)
+        if not entries:
+            return messagebox.showwarning("Bookmarks",
+                                          "No matching bookmarks point to a page.")
         out_dir = filedialog.askdirectory(title="Choose output folder")
         if not out_dir:
             return
-        all_levels = "All" in self._level_var.get()
         try:
-            doc   = fitz.open(src)
-            total = len(doc)
-            entries = [(title, page - 1) for level, title, page, *_ in self._toc
-                       if all_levels or level == 1]
-            if not entries:
-                messagebox.showwarning("Bookmarks",
-                                       "No matching bookmark levels found.")
-                return
             entries.append(("_END_", total))
             count = 0
             for i, (title, start) in enumerate(entries[:-1]):
@@ -113,11 +119,12 @@ class BookmarksTool(ToolBase):
                         deflate=True)
                 nd.close()
                 count += 1
-            doc.close()
             RECENT.push(src, total)
             self.app._set_status(
                 f"✓  Split into {count} chapter(s) → {out_dir}", SUCCESS)
+            note = (f"\n\n{skipped} bookmark(s) with no page target were skipped."
+                    if skipped else "")
             messagebox.showinfo("Done",
-                                f"Split into {count} file(s):\n{out_dir}")
+                                f"Split into {count} file(s):\n{out_dir}{note}")
         except Exception as e:
             messagebox.showerror("Error", str(e))

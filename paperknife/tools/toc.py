@@ -1,11 +1,11 @@
 from __future__ import annotations
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-import fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
+from ..theme import CARD, TEXT, DANGER, DANGER_H, SUCCESS
 from ..recent import RECENT
 
 
@@ -74,6 +74,8 @@ class TocTool(ToolBase):
         app._big_btn(body, "  Save PDF  →", self._save).pack(fill="x", padx=24, pady=12)
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
+        if getattr(self, "_doc", None) is not None:
+            self._doc.close()
         self._doc = None
         self._toc: list = []   # list of [level, title, page]
 
@@ -124,12 +126,27 @@ class TocTool(ToolBase):
             self._refresh()
             self._lb.selection_set(j)
 
-    def _add(self):
+    def _read_fields(self, title: str):
+        if self._doc is None:
+            messagebox.showwarning(title, "Open a PDF first.")
+            return None
         try:
             lvl = int(self._level.get())
             pg  = int(self._page_var.get())
         except ValueError:
-            return messagebox.showwarning("Add", "Enter valid level and page number.")
+            messagebox.showwarning(title, "Enter valid level and page number.")
+            return None
+        if not 1 <= pg <= len(self._doc):
+            messagebox.showwarning(
+                title, f"Page must be between 1 and {len(self._doc)}.")
+            return None
+        return lvl, pg
+
+    def _add(self):
+        fields = self._read_fields("Add")
+        if not fields:
+            return
+        lvl, pg = fields
         title = self._title_var.get().strip() or "New bookmark"
         i     = self._current_idx()
         ins   = (i + 1) if i is not None else len(self._toc)
@@ -141,11 +158,10 @@ class TocTool(ToolBase):
         i = self._current_idx()
         if i is None:
             return
-        try:
-            lvl = int(self._level.get())
-            pg  = int(self._page_var.get())
-        except ValueError:
-            return messagebox.showwarning("Update", "Enter valid level and page number.")
+        fields = self._read_fields("Update")
+        if not fields:
+            return
+        lvl, pg = fields
         self._toc[i] = [lvl, self._title_var.get().strip(), pg]
         self._refresh()
         self._lb.selection_set(i)
@@ -154,19 +170,37 @@ class TocTool(ToolBase):
         i = self._current_idx()
         if i is None:
             return
-        self._toc.pop(i)
+        level = self._toc.pop(i)[0]
+        # Promote the deleted entry's children so the levels stay contiguous.
+        for e in self._toc[i:]:
+            if e[0] <= level:
+                break
+            e[0] -= 1
         self._refresh()
 
     # ── save ──────────────────────────────────────────────────────────────────
     def _save(self):
         if not self._doc:
             return messagebox.showwarning("Save", "Open a PDF first.")
+        prev = 0
+        for n, (level, title, *_) in enumerate(self._toc, 1):
+            if level > prev + 1:
+                return messagebox.showwarning(
+                    "Save", f"Bookmark {n} ('{title}') is level {level} but "
+                            f"follows level {prev}; a bookmark can be at most "
+                            "one level deeper than the one above it.")
+            prev = level
         out = self.app._save_as("with_bookmarks.pdf")
         if not out:
             return
+        src = self._path_var.get()
         try:
             self._doc.set_toc(self._toc)
-            self._doc.save(out, deflate=True)
+            # MuPDF refuses a full save over the file it has open.
+            if os.path.exists(out) and os.path.samefile(out, src):
+                self._doc.saveIncr()
+            else:
+                self._doc.save(out, deflate=True)
             self.app._set_status(
                 f"✓  Saved {len(self._toc)} bookmark(s) → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF with updated bookmarks:\n{out}")

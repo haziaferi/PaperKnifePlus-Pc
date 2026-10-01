@@ -6,7 +6,7 @@ from PIL import Image
 import customtkinter as ctk
 import fitz
 from ..tool_base import ToolBase, register
-from ..theme import ACCENT, CARD, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
+from ..theme import ACCENT, CARD, CARD2, TEXT, MUTED, SUCCESS
 from ..recent import RECENT
 
 
@@ -47,11 +47,14 @@ class RotateTool(ToolBase):
 
         app._big_btn(body, "  Save PDF  →", self._save).pack(fill="x", padx=24, pady=12)
 
+        if getattr(self, "_doc", None) is not None:
+            self._doc.close()
         self._doc   = None
         self._order  = []
         self._extra  = {}
         self._sel    = None
         self._cells  = []
+        self._thumbs = {}
 
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
@@ -60,19 +63,18 @@ class RotateTool(ToolBase):
         f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
         if not f:
             return
-        if self._doc:
-            self._doc.close()
-        try:
-            self._doc   = fitz.open(f)
-        except Exception as e:
-            from tkinter import messagebox
-            messagebox.showerror("Error", f"Could not open PDF:\n{e}")
+        doc = self.app._open_pdf_safe(f)
+        if not doc:
             return
+        if self._doc is not None:
+            self._doc.close()
+        self._doc = doc
         self._path.set(f)
         self._order  = list(range(len(self._doc)))
         self._extra  = {i: 0 for i in self._order}
         self._sel    = None
         self._cells  = []
+        self._thumbs = {}
         RECENT.push(f, len(self._doc))
         self._render()
 
@@ -86,12 +88,7 @@ class RotateTool(ToolBase):
         for di, pi in enumerate(self._order):
             col = di % COLS
             row = di // COLS
-            page  = self._doc[pi]
-            extra = self._extra[pi]
-            mat   = fitz.Matrix(0.28, 0.28).prerotate(extra)
-            pix   = page.get_pixmap(matrix=mat, alpha=False)
-            img   = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            cimg  = ctk.CTkImage(img, size=(100, 130))
+            cimg  = self._thumb(pi, self._extra[pi])
             cell  = ctk.CTkFrame(self._scroll, fg_color=CARD2,
                                   border_color=ACCENT if di == self._sel else CARD,
                                   border_width=2, corner_radius=6)
@@ -103,6 +100,18 @@ class RotateTool(ToolBase):
             for w in (cell, lbl):
                 w.bind("<Button-1>", lambda e, d=di: self._select(d))
             self._cells.append(cell)
+
+    def _thumb(self, pi, extra):
+        # Cached so a rotate or move re-rasterises only the page that changed.
+        key = (pi, extra)
+        if key not in self._thumbs:
+            mat = fitz.Matrix(0.28, 0.28).prerotate(extra)
+            pix = self._doc[pi].get_pixmap(matrix=mat, alpha=False)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            scale = min(100 / pix.width, 130 / pix.height)
+            self._thumbs[key] = ctk.CTkImage(
+                img, size=(round(pix.width * scale), round(pix.height * scale)))
+        return self._thumbs[key]
 
     def _select(self, di):
         self._sel = di

@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox
 import os
 from pathlib import Path
 import fitz
+from ..pages import PageRangeError, parse_ranges
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, MUTED, SUCCESS
 from ..recent import RECENT
@@ -45,25 +46,19 @@ class SplitTool(ToolBase):
         if not src:
             return messagebox.showwarning("Split", "Select a PDF first.")
         ranges_str = self._ranges.get().strip()
-        out_dir = filedialog.askdirectory(title="Choose output folder")
-        if not out_dir:
+        doc = self.app._open_pdf_safe(src)
+        if not doc:
             return
         try:
-            doc   = fitz.open(src)
             total = len(doc)
-            groups: list[tuple[int, int]] = []
-            if ranges_str:
-                for part in ranges_str.split(","):
-                    part = part.strip()
-                    if "-" in part:
-                        a, b = [int(x) for x in part.split("-")]
-                        groups.append((max(a - 1, 0), min(b - 1, total - 1)))
-                    else:
-                        p = int(part) - 1
-                        groups.append((p, p))
-            else:
-                groups = [(i, i) for i in range(total)]
-
+            try:
+                groups = (parse_ranges(ranges_str, total) if ranges_str
+                          else [(i, i) for i in range(total)])
+            except PageRangeError as e:
+                return messagebox.showerror("Split", str(e))
+            out_dir = filedialog.askdirectory(title="Choose output folder")
+            if not out_dir:
+                return
             base = Path(src).stem
             for i, (fr, to) in enumerate(groups):
                 nd = fitz.open()
@@ -72,10 +67,11 @@ class SplitTool(ToolBase):
                                      f"{base}_part{i + 1:02d}_p{fr + 1}-{to + 1}.pdf"),
                         deflate=True)
                 nd.close()
-            doc.close()
             RECENT.push(src, total)
             self.app._set_status(f"✓  Split into {len(groups)} file(s) → {out_dir}", SUCCESS)
             messagebox.showinfo("Done",
                                 f"Created {len(groups)} file(s) in:\n{out_dir}")
         except Exception as e:
             messagebox.showerror("Split Error", str(e))
+        finally:
+            doc.close()
