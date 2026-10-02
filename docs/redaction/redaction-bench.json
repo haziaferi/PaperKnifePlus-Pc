@@ -1,0 +1,322 @@
+[
+ {
+  "case": "table",
+  "strategy": "none (0)",
+  "leak": 0.6733,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.22
+ },
+ {
+  "case": "table",
+  "strategy": "covered (1, now)",
+  "leak": 0.6733,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.22
+ },
+ {
+  "case": "table",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.1372,
+  "search": 1.0,
+  "size_ratio": 0.22
+ },
+ {
+  "case": "table",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.23
+ },
+ {
+  "case": "table",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0258,
+  "search": 0.0,
+  "size_ratio": 11.03
+ },
+ {
+  "case": "table_rot90",
+  "strategy": "none (0)",
+  "leak": 0.6733,
+  "collateral": 0.0,
+  "search": 0.982,
+  "size_ratio": 0.22
+ },
+ {
+  "case": "table_rot90",
+  "strategy": "covered (1, now)",
+  "leak": 0.6733,
+  "collateral": 0.0,
+  "search": 0.982,
+  "size_ratio": 0.22
+ },
+ {
+  "case": "table_rot90",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.1372,
+  "search": 0.982,
+  "size_ratio": 0.22
+ },
+ {
+  "case": "table_rot90",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 0.982,
+  "size_ratio": 0.23
+ },
+ {
+  "case": "table_rot90",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0257,
+  "search": 0.0,
+  "size_ratio": 12.38
+ },
+ {
+  "case": "signature",
+  "strategy": "none (0)",
+  "leak": 1.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.85
+ },
+ {
+  "case": "signature",
+  "strategy": "covered (1, now)",
+  "leak": 1.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.85
+ },
+ {
+  "case": "signature",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.5504,
+  "search": 1.0,
+  "size_ratio": 0.79
+ },
+ {
+  "case": "signature",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0015,
+  "search": 1.0,
+  "size_ratio": 1.19
+ },
+ {
+  "case": "signature",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0645,
+  "search": 0.0,
+  "size_ratio": 30.37
+ },
+ {
+  "case": "chart",
+  "strategy": "none (0)",
+  "leak": 1.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.85
+ },
+ {
+  "case": "chart",
+  "strategy": "covered (1, now)",
+  "leak": 1.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.85
+ },
+ {
+  "case": "chart",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.825,
+  "search": 1.0,
+  "size_ratio": 0.77
+ },
+ {
+  "case": "chart",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0013,
+  "search": 1.0,
+  "size_ratio": 0.88
+ },
+ {
+  "case": "chart",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0212,
+  "search": 0.0,
+  "size_ratio": 50.16
+ },
+ {
+  "case": "underline",
+  "strategy": "none (0)",
+  "leak": 0.2479,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.86
+ },
+ {
+  "case": "underline",
+  "strategy": "covered (1, now)",
+  "leak": 0.2479,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.86
+ },
+ {
+  "case": "underline",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.3563,
+  "search": 1.0,
+  "size_ratio": 0.84
+ },
+ {
+  "case": "underline",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.87
+ },
+ {
+  "case": "underline",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.1002,
+  "search": 0.0,
+  "size_ratio": 20.82
+ },
+ {
+  "case": "logo",
+  "strategy": "none (0)",
+  "leak": 1.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.85
+ },
+ {
+  "case": "logo",
+  "strategy": "covered (1, now)",
+  "leak": 1.0412,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.83
+ },
+ {
+  "case": "logo",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.76
+ },
+ {
+  "case": "logo",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.76
+ },
+ {
+  "case": "logo",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0074,
+  "search": 0.0,
+  "size_ratio": 20.24
+ },
+ {
+  "case": "shapes",
+  "strategy": "none (0)",
+  "leak": 1.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.78
+ },
+ {
+  "case": "shapes",
+  "strategy": "covered (1, now)",
+  "leak": 0.1021,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.77
+ },
+ {
+  "case": "shapes",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.7
+ },
+ {
+  "case": "shapes",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.7
+ },
+ {
+  "case": "shapes",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0146,
+  "search": 0.0,
+  "size_ratio": 19.78
+ },
+ {
+  "case": "band",
+  "strategy": "none (0)",
+  "leak": 0.2104,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.69
+ },
+ {
+  "case": "band",
+  "strategy": "covered (1, now)",
+  "leak": 0.2104,
+  "collateral": 0.0,
+  "search": 1.0,
+  "size_ratio": 0.69
+ },
+ {
+  "case": "band",
+  "strategy": "touched (2)",
+  "leak": 0.0,
+  "collateral": 0.7321,
+  "search": 1.0,
+  "size_ratio": 0.66
+ },
+ {
+  "case": "band",
+  "strategy": "clip at edge",
+  "leak": 0.0,
+  "collateral": 0.0002,
+  "search": 1.0,
+  "size_ratio": 0.71
+ },
+ {
+  "case": "band",
+  "strategy": "rasterise page",
+  "leak": 0.0,
+  "collateral": 0.0051,
+  "search": 0.0,
+  "size_ratio": 19.85
+ }
+]
