@@ -72,8 +72,18 @@ Section "Main" SEC_MAIN
   ; The uninstaller deletes $INSTDIR recursively, so never install straight
   ; into a folder the user picked (e.g. Documents): use a subfolder of it.
   ${GetFileName} "$INSTDIR" $0
-  StrCmp $0 "${APP_DIRNAME}" +2
+  StrCmp $0 "${APP_DIRNAME}" own_dir
+    ; An older installer could put the app straight into such a folder, with an
+    ; uninstaller that deletes the whole folder.  Remove the app's own files
+    ; there (that uninstaller included) and nothing else.
+    IfFileExists "$INSTDIR\${APP_EXE}" 0 no_old_copy
+      !insertmacro StopIfRunning
+      Delete "$INSTDIR\${APP_EXE}"
+      Delete "$INSTDIR\Uninstall.exe"
+      RMDir /r "$INSTDIR\_internal"
+    no_old_copy:
     StrCpy $INSTDIR "$INSTDIR\${APP_DIRNAME}"
+  own_dir:
   !insertmacro StopIfRunning
   SetOutPath "$INSTDIR"
 
@@ -137,8 +147,9 @@ FunctionEnd
 ; ── Uninstall ─────────────────────────────────────────────────────────────────
 Section "Uninstall"
   !insertmacro StopIfRunning
-  ; WIN-UNI-01: remove the dedicated install folder.  An install made by an
-  ; older installer may sit in a shared folder; remove only our files there.
+  ; WIN-UNI-01: remove the dedicated install folder.  This installer always
+  ; installs into one; should this uninstaller ever sit in a shared folder,
+  ; remove only the app's own files there.
   ${GetFileName} "$INSTDIR" $0
   StrCmp $0 "${APP_DIRNAME}" 0 shared_dir
     RMDir /r "$INSTDIR"
