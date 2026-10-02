@@ -403,6 +403,76 @@ def test_ocr_uses_preferences_language_and_dpi(app, dialogs, tmp_path, tess, pre
     assert tess["lang"] == "ita"
 
 
+@pytest.fixture
+def tess_off_path(tess, monkeypatch, tmp_path):
+    """Tesseract in its default install folder but not on PATH, as the
+    UB-Mannheim installer leaves it; the stubs answer only when pointed there."""
+    import pytesseract
+    exe = tmp_path / "pf" / "Tesseract-OCR" / "tesseract.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "pf"))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "none"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract")
+
+    def only_at_exe(fn):
+        def wrapped(*a, **k):
+            if pytesseract.pytesseract.tesseract_cmd != str(exe):
+                raise pytesseract.TesseractNotFoundError()
+            return fn(*a, **k)
+        return wrapped
+
+    for name in ("get_tesseract_version", "image_to_data", "image_to_string"):
+        monkeypatch.setattr(pytesseract, name, only_at_exe(getattr(pytesseract, name)))
+    return exe
+
+
+def test_ocr_finds_tesseract_in_its_default_folder_off_path(app, dialogs, tmp_path,
+                                                            tess_off_path):
+    out = tmp_path / "off_path.pdf"
+    _run_ocr(app, dialogs, _source_pdf(tmp_path / "s.pdf"), out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as doc:
+        assert "Smith" in doc[0].get_text()
+
+
+def test_batch_ocr_finds_tesseract_in_its_default_folder_off_path(app, dialogs, tmp_path,
+                                                                  tess_off_path):
+    from test_enhance import _batch
+    out_dir, rows = _batch(app, dialogs, tmp_path, "OCR", dpi="150")
+    assert rows and rows[0].startswith("✓"), rows
+    with fitz.open(out_dir / "a_ocr.pdf") as doc:
+        assert "Smith" in doc[0].get_text()
+
+
+def _real_tesseract():
+    import os
+    import shutil
+    if shutil.which("tesseract"):
+        return True
+    return any(os.path.isfile(os.path.join(os.environ.get(v, ""), sub, "tesseract.exe"))
+               for v, sub in (("ProgramFiles", "Tesseract-OCR"),
+                              ("LOCALAPPDATA", r"Programs\Tesseract-OCR")))
+
+
+@pytest.mark.skipif(not _real_tesseract(), reason="no Tesseract binary on this machine")
+def test_ocr_with_real_tesseract_makes_an_image_only_page_searchable(app, dialogs, tmp_path):
+    with fitz.open() as text_doc, fitz.open() as img:
+        p = text_doc.new_page()
+        p.insert_text((72, 120), "Invoice quarterly statement", fontsize=22)
+        img.new_page(width=p.rect.width, height=p.rect.height).insert_image(
+            p.rect, pixmap=p.get_pixmap(dpi=200))
+        img.save(tmp_path / "image_only.pdf")
+    out = tmp_path / "real_ocr.pdf"
+    _run_ocr(app, dialogs, str(tmp_path / "image_only.pdf"), out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as doc:
+        for word in ("Invoice", "quarterly", "statement"):
+            assert doc[0].search_for(word), (word, doc[0].get_text())
+
+
 # ── Metadata ─────────────────────────────────────────────────────────────────
 def test_metadata_clear_all_also_removes_xmp(app, dialogs, tmp_path):
     src = tmp_path / "m.pdf"

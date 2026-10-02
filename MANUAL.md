@@ -105,14 +105,14 @@ PaperKnife+ PC supports light, dark, and system-matched appearance modes. To cha
 
 ### 4.3 OCR Setup (optional)
 
-The OCR tool requires the Tesseract OCR engine to be installed separately and available on the system PATH. PaperKnife+ PC does not bundle Tesseract because of its size and because it is an independent open-source project.
+The OCR tool requires the Tesseract OCR engine to be installed separately. PaperKnife+ PC does not bundle Tesseract because of its size and because it is an independent open-source project.
 
 1. Download the Windows installer from:
    ```
    https://github.com/UB-Mannheim/tesseract/wiki
    ```
-2. Run the installer. When prompted, note the installation path (default: `C:\Program Files\Tesseract-OCR`).
-3. Add the Tesseract directory to your user PATH:
+2. Run the installer. Tick the language packs you need (for Italian, `ita`).
+3. PaperKnife+ PC looks for `tesseract.exe` on PATH first, then in `C:\Program Files\Tesseract-OCR`, `C:\Program Files (x86)\Tesseract-OCR` and `%LOCALAPPDATA%\Programs\Tesseract-OCR`. The installer's default folder needs no PATH change. If you installed somewhere else, add that folder to your user PATH:
    - Open **Settings → System → About → Advanced system settings**.
    - Click **Environment Variables** → select **Path** under User variables → **Edit**.
    - Click **New** and paste the Tesseract installation path.
@@ -240,7 +240,7 @@ Choose one of six positions (top or bottom; left, centre, or right), enter the t
 
 ### 5.15 OCR
 
-Runs Tesseract on each page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract on PATH (see Section 4.3).
+Runs Tesseract on each page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract (see Section 4.3).
 
 - **Language code:** must match the document language. It starts with the code from Preferences; change it per run.
 - **Render DPI:** higher values give better accuracy at the cost of time; it starts at the Preferences DPI (limited to 72–400). 300 DPI is recommended for standard documents.
@@ -335,7 +335,7 @@ To fully remove all application data after uninstalling, delete `%USERPROFILE%\.
 | Symptom | Resolution |
 |---|---|
 | Dragging a file onto the window does nothing | When running from source, install `tkinterdnd2` (`pip install tkinterdnd2`); without it the file rows say "No file selected…" instead of "Drop a file here or click to browse…". If it is installed but cannot load, the app prints `drag and drop disabled` to the console. Use the **Open** buttons meanwhile. |
-| OCR produces no output | Verify Tesseract is on PATH: open Command Prompt and run `tesseract --version`. See Section 4.3. |
+| OCR says Tesseract was not found | Install it in its default folder, or add its folder to PATH and check with `tesseract --version` in Command Prompt. See Section 4.3. |
 | Dark mode not applying on restart | Save preferences via the Preferences panel after changing the colour mode. |
 | A password-protected PDF will not open | Every single-file tool asks for the open password. Batch cannot stop to ask, so it skips protected files with an error: remove the password first with the Password tool (Section 5.11). |
 | Windows SmartScreen warning on first run | Click **More info → Run anyway**. The warning disappears once the certificate gains reputation. |

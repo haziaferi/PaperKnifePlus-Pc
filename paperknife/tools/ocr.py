@@ -1,5 +1,7 @@
 from __future__ import annotations
 import html
+import os
+import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -15,11 +17,27 @@ from ..pages import render
 
 _HAS_OCR = _ilu.find_spec("pytesseract") is not None
 _MIN_CONF = 30
+# Where the UB-Mannheim installer puts Tesseract; it does not add itself to PATH.
+_TESS_DIRS = (("ProgramFiles", "Tesseract-OCR"), ("ProgramFiles(x86)", "Tesseract-OCR"),
+              ("LOCALAPPDATA", r"Programs\Tesseract-OCR"))
+
+
+def tesseract():
+    """pytesseract, pointed at the Tesseract binary: PATH first, then its install folders."""
+    import pytesseract
+    pt = pytesseract.pytesseract
+    if pt.tesseract_cmd == "tesseract" and not shutil.which("tesseract"):
+        for var, sub in _TESS_DIRS:
+            base = os.environ.get(var)
+            if base and os.path.isfile(exe := os.path.join(base, sub, "tesseract.exe")):
+                pt.tesseract_cmd = exe
+                break
+    return pytesseract
 
 
 def ocr_words(img, lang: str, scale: float) -> list[tuple[fitz.Rect, str]]:
     """Tesseract words in *img* (a page rendered at *scale*) as (rect, text) in page.rect space."""
-    import pytesseract
+    pytesseract = tesseract()
     data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
     to_page = fitz.Matrix(1 / scale, 1 / scale)
     words = []
@@ -160,14 +178,14 @@ class OCRTool(ToolBase):
         log  = self._log
 
         def work(stop):
-            import pytesseract
+            pytesseract = tesseract()
 
             try:
                 pytesseract.get_tesseract_version()
             except pytesseract.TesseractNotFoundError:
                 doc.close()
                 raise RuntimeError(
-                    "Tesseract binary not found on PATH.\n"
+                    "Tesseract not found on PATH or in Program Files\\Tesseract-OCR.\n"
                     "Install it from: https://github.com/UB-Mannheim/tesseract/wiki") from None
 
             text_only = "Text-only" in mode

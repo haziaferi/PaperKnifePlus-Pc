@@ -27,7 +27,7 @@ Installazione manuale e installer NSIS: MANUAL.md, sezioni 3 e 9.
 
 ## OCR
 
-L'OCR richiede il programma Tesseract, da installare a parte: <https://github.com/UB-Mannheim/tesseract/wiki>. Aggiungi la cartella di installazione al `PATH` e, per l'italiano, il pacchetto lingua `ita`; il codice lingua si imposta nelle Preferenze (MANUAL.md, sezione 4.3).
+L'OCR richiede il programma Tesseract, da installare a parte: <https://github.com/UB-Mannheim/tesseract/wiki>. Nella cartella predefinita (`C:\Program Files\Tesseract-OCR`) l'app lo trova da sola; se lo installi altrove, aggiungi quella cartella al `PATH`. Per l'italiano serve il pacchetto lingua `ita`; il codice lingua si imposta nelle Preferenze (MANUAL.md, sezione 4.3).
 
 ## Dati e privacy
 
