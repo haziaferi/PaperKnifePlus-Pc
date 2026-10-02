@@ -56,7 +56,7 @@ def case_signature():
     sh = p.new_shape()
     pts = [(100, 300), (140, 250), (180, 330), (220, 260), (260, 320), (300, 255),
            (340, 315), (380, 270), (420, 300)]
-    for a, b, c in zip(pts[::2], pts[1::2], pts[2::2]):
+    for a, b, c in zip(pts[::2], pts[1::2], pts[2::2], strict=False):
         sh.draw_bezier(a, b, b, c)
     sh.finish(color=(0, 0, 0.5), width=1.6)
     sh.commit()
@@ -185,15 +185,15 @@ def _segments(item):
         return [(item[1], item[2])]
     if kind == "c":
         pts = _bezier_points(*item[1:5])
-        return list(zip(pts, pts[1:]))
+        return list(zip(pts, pts[1:], strict=False))
     if kind == "re":
         r = item[1]
         c = [r.tl, r.tr, r.br, r.bl, r.tl]
-        return list(zip(c, c[1:]))
+        return list(zip(c, c[1:], strict=False))
     if kind == "qu":
         q = item[1]
         c = [q.ul, q.ur, q.lr, q.ll, q.ul]
-        return list(zip(c, c[1:]))
+        return list(zip(c, c[1:], strict=False))
     return []
 
 
@@ -325,14 +325,9 @@ def _box_pixels_margin(page, boxes, w, h, margin):
 
 
 def _words_outside(page, boxes):
-    m = page.rotation_matrix
-    shown = [fitz.Rect(b) * m for b in boxes]
-    out = []
-    for w in page.get_text("words"):
-        r = fitz.Rect(w[:4]) * m if False else fitz.Rect(w[:4])
-        if not any(r.intersects(b) for b in shown):
-            out.append(w[4])
-    return out
+    # get_text("words") and the boxes are both in unrotated page coordinates.
+    return [w[4] for w in page.get_text("words")
+            if not any(fitz.Rect(w[:4]).intersects(b) for b in boxes)]
 
 
 def measure(case_name, strat_name):

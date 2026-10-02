@@ -55,7 +55,7 @@ for w in itertools.product(levels, repeat=len(crit)):
     if sum(w) == 0:
         continue
     total += 1
-    score = {s: sum(wi * goodness(s)[c] for wi, c in zip(w, crit)) / sum(w) for s in strategies}
+    score = {s: sum(wi * goodness(s)[c] for wi, c in zip(w, crit, strict=True)) / sum(w) for s in strategies}
     best = max(score.values())
     for s in strategies:
         if abs(score[s] - best) < 1e-9:

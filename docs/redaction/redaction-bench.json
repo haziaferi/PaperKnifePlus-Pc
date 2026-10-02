@@ -44,7 +44,7 @@
   "strategy": "none (0)",
   "leak": 0.6733,
   "collateral": 0.0,
-  "search": 0.982,
+  "search": 1.0,
   "size_ratio": 0.22
  },
  {
@@ -52,7 +52,7 @@
   "strategy": "covered (1, now)",
   "leak": 0.6733,
   "collateral": 0.0,
-  "search": 0.982,
+  "search": 1.0,
   "size_ratio": 0.22
  },
  {
@@ -60,7 +60,7 @@
   "strategy": "touched (2)",
   "leak": 0.0,
   "collateral": 0.1372,
-  "search": 0.982,
+  "search": 1.0,
   "size_ratio": 0.22
  },
  {
@@ -68,7 +68,7 @@
   "strategy": "clip at edge",
   "leak": 0.0,
   "collateral": 0.0,
-  "search": 0.982,
+  "search": 1.0,
   "size_ratio": 0.23
  },
  {
