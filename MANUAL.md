@@ -45,7 +45,7 @@ PaperKnife+ PC is a fully offline PDF toolkit for Windows 10 and 11. Every opera
 The NSIS installer packages the full Python runtime alongside the application. No existing Python installation is needed on the target machine, but you must build the installer once from the source package before distributing or installing it.
 
 1. Unzip the source package and follow the build steps in **Section 9** to produce `PaperKnifePlusPC-3.2.2-Setup.exe`. The installer appears in the project root only if both **PyInstaller** and **NSIS** are installed. If NSIS is absent, the build skips Steps 4–5 and produces only a folder bundle (`dist\PaperKnifePlusPC\`) — no Setup `.exe`.
-2. Double-click the installer. No UAC elevation prompt appears — the app installs per-user into `%LOCALAPPDATA%\PaperKnifePlusPC`. If you choose another folder, the installer creates a `PaperKnifePlusPC` subfolder inside it.
+2. Double-click the installer. No UAC elevation prompt appears — the app installs per-user into `%LOCALAPPDATA%\PaperKnifePlusPC`. If you choose another folder, the installer creates a `PaperKnifePlusPC` subfolder inside it. A later version installs into the same folder as the one it replaces. Close PaperKnife+ PC first: while it is running, Setup and the uninstaller stop and change nothing.
 3. A desktop shortcut and Start Menu entry are created automatically.
 4. Launch via the desktop shortcut, the Start Menu, or run `%LOCALAPPDATA%\PaperKnifePlusPC\PaperKnifePlusPC.exe` directly.
 
@@ -65,7 +65,7 @@ Silent uninstall:
 "%LOCALAPPDATA%\PaperKnifePlusPC\Uninstall.exe" /S _?=%LOCALAPPDATA%\PaperKnifePlusPC
 ```
 
-> ℹ️ **Note:** The installer command returns when installation is complete. An NSIS uninstaller normally copies itself to `%TEMP%` and returns at once; the `_?=` argument makes it run in place and return only when the files are removed. It then cannot delete itself: remove `Uninstall.exe` and the empty folder afterwards. Exit code 0 indicates success.
+> ℹ️ **Note:** The installer command returns when installation is complete. An NSIS uninstaller normally copies itself to `%TEMP%` and returns at once; the `_?=` argument makes it run in place and return only when the files are removed. It then cannot delete itself: remove `Uninstall.exe` and the empty folder afterwards. Exit code 0 indicates success; exit code 2 means nothing was changed, for example because PaperKnife+ PC was running.
 
 ### 3.3 Running from Source (developers)
 
@@ -334,7 +334,7 @@ To fully remove all application data after uninstalling, delete `%USERPROFILE%\.
 
 | Symptom | Resolution |
 |---|---|
-| Dragging a file onto the window does nothing | When running from source, install `tkinterdnd2` (`pip install tkinterdnd2`); without it the file rows say "No file selected…" instead of "Drop a file here or click to browse…". If it is installed but cannot load, the app prints `drag and drop disabled` to the console. Use the **Open** buttons meanwhile. |
+| Dragging a file onto the window does nothing | When running from source, install `tkinterdnd2` (`pip install tkinterdnd2`); without it the file rows say "No file selected…" instead of "Drop a file here or click to browse…". If it is installed but cannot load, the app prints `drag and drop disabled` to the console (a source run only; the installed app has no console, so check the hint text). Use the **Open** buttons meanwhile. |
 | OCR says Tesseract was not found | Install it in its default folder, or add its folder to PATH and check with `tesseract --version` in Command Prompt. See Section 4.3. |
 | Dark mode not applying on restart | Save preferences via the Preferences panel after changing the colour mode. |
 | A password-protected PDF will not open | Every single-file tool asks for the open password. Batch cannot stop to ask, so it skips protected files with an error: remove the password first with the Password tool (Section 5.11). |

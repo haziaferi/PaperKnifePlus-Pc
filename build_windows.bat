@@ -27,13 +27,15 @@
 :: build continues so you can still test-install the unsigned package.
 
 setlocal enabledelayedexpansion
+:: A relative certificate path is the caller's: resolve it before the cd.
+set "CERT_PFX="
+if not "%~1"=="" set "CERT_PFX=%~f1"
 :: Run from the script's folder: the clean step below deletes build\ here.
 cd /d "%~dp0"
 
 set APP_NAME=PaperKnifePlusPC
 set APP_VERSION=3.2.2
 set TIMESTAMP_URL=http://timestamp.digicert.com
-set "CERT_PFX=%~1"
 
 echo.
 echo ============================================================

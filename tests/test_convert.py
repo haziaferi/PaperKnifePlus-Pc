@@ -450,11 +450,12 @@ def test_batch_ocr_finds_tesseract_in_its_default_folder_off_path(app, dialogs, 
 def _real_tesseract():
     import os
     import shutil
+    from paperknife.tools import ocr
     if shutil.which("tesseract"):
         return True
+    dirs = getattr(ocr, "_TESS_DIRS", (("ProgramFiles", "Tesseract-OCR"),))  # baseline has none
     return any(os.path.isfile(os.path.join(os.environ.get(v, ""), sub, "tesseract.exe"))
-               for v, sub in (("ProgramFiles", "Tesseract-OCR"),
-                              ("LOCALAPPDATA", r"Programs\Tesseract-OCR")))
+               for v, sub in dirs)
 
 
 @pytest.mark.skipif(not _real_tesseract(), reason="no Tesseract binary on this machine")
