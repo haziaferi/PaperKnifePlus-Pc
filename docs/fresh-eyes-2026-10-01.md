@@ -4,9 +4,9 @@ Source audited: `paperknife_clean.zip` (v3.2.2), committed verbatim as tag `base
 The quarantined single-file v2.1 copy that the session started in, and the six other
 lineage copies, were used only to find lost features.
 
-**322 findings · 278 fixed · 42 need your decision ·
-0 withdrawn · 2 deferred · 0 handed off** — register built at `21f5826`.
-Fixed by severity: 34 high, 101 medium, 134 low.
+**322 findings · 281 fixed · 39 need your decision ·
+0 withdrawn · 2 deferred · 0 handed off** — register built at `96fbc88`.
+Fixed by severity: 34 high, 103 medium, 135 low.
 
 ## How it was done
 
@@ -127,6 +127,7 @@ baseline failure. Test names in it refer to the files as first written
 | L4-02 | medium | `setup.py:8` | setup.py reads __version__ from paperknife/theme.py by regex (no customtkinter import) | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-04 | medium | `README.md:1` | README title v3.2.2, archive named generically (real zip name unknown), v3.2.2 changelog added in Italian | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-05 | medium | `README.md:168` | 3.2.1 changelog line now says theme.py stayed at 3.0.0 until 3.2.2 | none: docs lane; claim checked against code, evidence in no… | e500b75 |
+| L4-07 | medium | `README.md:11` | owner chose Windows 10/11 only: README no longer claims macOS/Linux | none: docs | 5e5f356 |
 | L4-12 | medium | `MANUAL.md:127` | Tools table regenerated: 26 rows, real labels, grouped by sidebar section, each pointing at its own 5.x subse… | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-14 | medium | `MANUAL.md:144` | TOC row merged into 'Bookmarks / TOC' outline editor | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-15 | medium | `MANUAL.md:139` | Separate rows and subsections for Split by Bookmarks (5.5) and Bookmarks / TOC (5.6) | none: docs lane; claim checked against code, evidence in no… | e500b75 |
@@ -167,6 +168,7 @@ baseline failure. Test names in it refer to the files as first written
 | L5-42 | medium | `MANUAL.md:144` | Same as L4-14 | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L5-43 | medium | `MANUAL.md:145` | Same as L4-13 | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L5-45 | medium | `MANUAL.md:127` | Same as L4-12 (the registry has 26 tools including Preferences) | none: docs lane; claim checked against code, evidence in no… | e500b75 |
+| L5-49 | medium | `MANUAL.md:349` | owner chose AGPL-3.0: LICENSE added (gnu.org text, sha256 0d96a4ff...), MANUAL 12 and setup.py say AGPL-3.0 | none: licence text hash checked | 5e5f356 |
 | RC-02 | medium | `paperknife/tools/merge.py:168-200` | Each source is closed right after its pages are inserted; the merged file is saved through atomic_output; inp… | tests/test_review.py::test_merge_can_write_over_one_of_its_… | bc48149 |
 | RC-03 | medium | `paperknife/tools/metadata.py:127-129` | New ToolBase._save_doc(out, **opts): saves through atomic_output; when out is the file self._doc was read fro… | tests/test_review.py::test_metadata_saves_over_the_open_inp… | bc48149 |
 | RC-04 | medium | `paperknife/tools/rotate.py; bookmarks.py; toc.py; metadata.py (+ job_queue.py atomic_output):rotate.py:50-52; bookmarks.py:47-49; toc.py:77-79; metadata.py:90-91` | App._nav_click calls deactivate() on the previously active tool; ToolBase.deactivate closes self._doc; the fo… | tests/test_review.py::test_file_opened_in_another_tool_can_… | bc48149 |
@@ -278,6 +280,7 @@ baseline failure. Test names in it refer to the files as first written
 | L4-66 | low | `MANUAL.md:323` | recent.json described as path, file name, size, page count, access time | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-67 | low | `MANUAL.md:325` | Privacy section mentions first-page thumbnails on Home and in hover previews | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-68 | low | `paperknife/app.py:73` | same as L1-17 | none: visual | 9055593 |
+| L4-69 | low | `README.md:116` | owner chose MANUAL.md (English) as the canonical manual; README is a short Italian summary linking to it; v3.… | none: docs | 5e5f356 |
 | L5-15 | low | `paperknife/tools/merge.py:45` | each merge row's name button binds <Enter>/<Leave> to app._show_tooltip/_hide_tooltip with the same 400 ms de… | none: hover needs real pointer events on a mapped window; C… | 90e27b2 |
 | L5-18 | low | `paperknife/app.py:482` | same as L1-12 | none: dead code | 9055593 |
 | L5-19 | low | `paperknife/tools/convert.py:599` | Doc→PDF file row (frame, entry and its inner widget) registered as tkdnd drop targets; a drop goes through th… | none: tkdnd drop events cannot be driven headless | d73e486 |
@@ -334,13 +337,11 @@ baseline failure. Test names in it refer to the files as first written
 | L2-36 | Owner question: Normalise redraws pages as XObjects and loses links, annotations, form fields and bookmarks - copy the TOC and warn, or rework it to resize in place (set_mediabox + content transform)? |
 | L3-09 | Edited text is redrawn in a base-14 font (Helvetica when the PDF uses an embedded/subset font, so bold/italic is lost): reuse the embedded font via doc.extract_font where it is a full font, or keep Helvetica and tell th… |
 | L3-17 | search_for misses a phrase hyphenated across a line break; probe: search_for('SECRET-ALPHA-42', flags=TEXT_DEHYPHENATE) on 'SECRET-AL-' / 'PHA-42' still returns []. Add a character-level hyphen-aware search (like Find &… |
-| L3-18 | Vector paths only partly under a box survive whole. graphics=PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED makes the 'completely destroyed' banner true but deletes every whole path that touches a box (table rules, underlines, b… |
+| L3-18 | DECIDED 2026-10-02: clip line art at the box edge (Acrobat / PDF-XChange / Apryse behaviour); build next session from the prototype in docs/redaction/. Evidence: docs/redaction/README.md. Original question: Vector paths… |
 | L3-50 | Move worker->UI calls (job_queue and every tool's app.after(0, ...)) to a queue.Queue drained by a main-thread after() poll, for non-threaded Tcl builds? Today python.org Tcl is threaded, and job_queue now survives a de… |
 | L3-51 | Extract a shared PdfCanvasView (open/close/nav/zoom/render/screen<->page mapping) for the four canvas tools, now that each carries the same rotation and close-on-leave code? |
-| L4-07 | README.md:11 claims macOS 12+ / Linux. Code: the only Windows API call is SetProcessDpiAwareness inside try/except Exception (app.py:29-33); 'Segoe UI' at app.py:611 and redact.py:345 falls back silently; Reader binds B… |
 | L4-45 | Question: set upx=False for release builds (antivirus false positives, conflicts with signing, depends on UPX happening to be on PATH)? |
 | L4-46 | Unmeasured: PyInstaller is not in the venv and the build is out of scope. README.md:13 says ~150 MB for the source install. Question: measure dist\PaperKnifePlusPC after a clean venv build and quote that number in both … |
-| L4-69 | Question: keep one canonical document (translate README to English, or MANUAL to Italian) and point the other at it? |
 | L5-04 | Owner question: restore v2's All / Odd / Even page selector (or a page-range entry like Crop) on the Watermark tool? Its subtitle says 'every page', so today's behaviour matches the label. |
 | L5-08 | Owner question: re-add v2's input-size preview label ('Input: N KB · P pages') under the compression levels? |
 | L5-11 | Bring back v2's per-span 'Revert span', 'Reset Page' and the blue/green edited-span legend alongside the (now working) Ctrl+Z undo? |
@@ -353,7 +354,6 @@ baseline failure. Test names in it refer to the files as first written
 | L5-26 | Replace the free-text OCR language entry with an editable combo box filled from pytesseract.get_languages()? |
 | L5-30 | Owner question: add a real PDF/A conversion through an external tool (Ghostscript -dPDFA=2 with an ICC OutputIntent, or ocrmypdf --output-type pdfa)? |
 | L5-31 | Owner question: add linearisation through an external qpdf --linearize? |
-| L5-49 | MANUAL §12 says MIT; upstream PaperKnifePlus is GPL-3.0-or-later per the finding; the bundled PyMuPDF is AGPL-3.0 (MANUAL §12 says so itself). No LICENSE file in the repo. Question: does the code derive from upstream, a… |
 | L5-50 | No page deletion anywhere (grep delete_page: 0 hits). Question: add Delete to Rotate & Reorder? |
 | L5-51 | No signature tool. Question: add a signature-image stamp? |
 | L5-52 | No grayscale operation. Question: add Grayscale (Document.recolor) to ENHANCE? |
