@@ -19,12 +19,16 @@
 ::   build_windows.bat  C:\path\to\cert.pfx
 :: The password is read from PFX_PASSWORD so it stays out of this script's
 :: command line and the shell history; clear it afterwards (set PFX_PASSWORD=).
+:: signtool still receives it as /p, so it is visible in the command line of
+:: each signtool process while signing runs.
 ::
 :: signtool.exe is located automatically from the Windows 10/11 SDK.
 :: If it cannot be found, signing is skipped with a warning and the
 :: build continues so you can still test-install the unsigned package.
 
 setlocal enabledelayedexpansion
+:: Run from the script's folder: the clean step below deletes build\ here.
+cd /d "%~dp0"
 
 set APP_NAME=PaperKnifePlusPC
 set APP_VERSION=3.2.2

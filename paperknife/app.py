@@ -61,6 +61,11 @@ class App(ctk.CTk):
                       file=sys.stderr)
 
         self.title(f"PaperKnife+ PC  v{__version__}")
+        # Without an icon of its own, CTk puts its logo on the window and the
+        # taskbar.  assets/ sits beside the package in the repo and the bundle.
+        icon = Path(__file__).resolve().parents[1] / "assets" / "icon.ico"
+        if icon.is_file():
+            self.iconbitmap(str(icon))
         self.geometry("1380x900")
         self.minsize(1060, 720)
         self.configure(fg_color=BG)

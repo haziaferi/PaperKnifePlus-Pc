@@ -80,9 +80,20 @@ _install_stubs()
 
 @pytest.fixture(scope="session")
 def app():
+    import customtkinter as ctk
     import paperknife.tools  # noqa: F401  (fills TOOLS)
     from paperknife.app import App
+    # Tk on Windows cannot report a window's .ico back: record what was set.
+    icons = []
+    real_iconbitmap = ctk.CTk.iconbitmap
+
+    def iconbitmap(self, bitmap=None, default=None):
+        icons.append(str(bitmap or default))
+        return real_iconbitmap(self, bitmap, default)
+
+    ctk.CTk.iconbitmap = iconbitmap
     a = App()
+    a._harness_icons = icons
     a.withdraw()
     # Without mainloop(), Tcl refuses after() calls from worker threads
     # ("main thread is not in main loop") and the callback is lost.  In the

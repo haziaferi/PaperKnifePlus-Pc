@@ -20,7 +20,7 @@ setup(
     python_requires = ">=3.10",
     install_requires = [
         "PyMuPDF>=1.27.2,<2.0.0",
-        "customtkinter>=5.2.0",
+        "customtkinter>=5.2.1",
         "Pillow>=10.0.0",
     ],
     extras_require = {

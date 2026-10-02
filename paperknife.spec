@@ -51,7 +51,7 @@ a = Analysis(
     ["paperknife/__main__.py"],
     pathex=["."],
     binaries=[],
-    datas=ctk_datas + dnd_datas,
+    datas=ctk_datas + dnd_datas + [("assets/icon.ico", "assets")],
     hiddenimports=[
         "customtkinter",
         "pymupdf",
