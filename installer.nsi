@@ -6,7 +6,7 @@
 ;   WIN-INS-09  ✓  $TEMP files cleaned in .onInstSuccess and .onInstFailed
 ;   WIN-INS-10  ✓  Per-user install by default; no admin required
 ;   WIN-REG-01  ✓  Vendor hierarchy: HKCU\Software\potatameister\PaperKnifePlusPC
-;   WIN-REG-03  ✓  No HKLM\Run entry; autostart uses HKCU\Run (optional, commented)
+;   WIN-REG-03  ✓  No Run entry: the app does not start with Windows
 ;   WIN-UNI-01  ✓  Uninstaller removes the install folder, which is always a
 ;                  dedicated PaperKnifePlusPC folder (see Section "Main")
 ;   WIN-UNI-02  ✓  Registered in Add/Remove Programs (CurrentUser scope)
@@ -28,13 +28,29 @@ Unicode True
 Name        "${APP_NAME} ${APP_VERSION}"
 OutFile     "PaperKnifePlusPC-${APP_VERSION}-Setup.exe"
 InstallDir  "${INSTALL_DIR}"
+; An upgrade goes where the previous version was installed.
+InstallDirRegKey HKCU "${APP_REGKEY}" "InstallDir"
 
 ; WIN-INS-08: per-user install needs no elevation
 RequestExecutionLevel user
+ManifestDPIAware true
 
 ; Modern UI 2
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
+!include "x64.nsh"
+
+; A running copy keeps its exe and DLLs locked, so files cannot be replaced
+; or removed; the exe opens for writing only when no copy is running.
+!macro StopIfRunning
+  IfFileExists "$INSTDIR\${APP_EXE}" 0 +7
+  ClearErrors
+  FileOpen $1 "$INSTDIR\${APP_EXE}" a
+  IfErrors 0 +3
+    MessageBox MB_OK|MB_ICONSTOP "${APP_NAME} is running. Close it and try again." /SD IDOK
+    Abort
+  FileClose $1
+!macroend
 
 !define MUI_ABORTWARNING
 !define MUI_ICON       "assets\icon.ico"
@@ -58,9 +74,11 @@ Section "Main" SEC_MAIN
   ${GetFileName} "$INSTDIR" $0
   StrCmp $0 "${APP_DIRNAME}" +2
     StrCpy $INSTDIR "$INSTDIR\${APP_DIRNAME}"
+  !insertmacro StopIfRunning
   SetOutPath "$INSTDIR"
 
-  ; Copy entire PyInstaller one-dir output
+  ; Copy entire PyInstaller one-dir output, without files an older build left
+  RMDir /r "$INSTDIR\_internal"
   File /r "dist\PaperKnifePlusPC\*"
 
   ; WIN-UNI-02: Add/Remove Programs entry (CurrentUser scope — no admin needed)
@@ -98,6 +116,14 @@ Section "Main" SEC_MAIN
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
 
+; The bundle is 64-bit only.
+Function .onInit
+  ${IfNot} ${RunningX64}
+    MessageBox MB_OK|MB_ICONSTOP "${APP_NAME} needs 64-bit Windows 10 or 11." /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
 ; ── WIN-INS-09: clean up temp files on success ────────────────────────────────
 Function .onInstSuccess
   ; Nothing extracted to $TEMP by this installer, but keep as a guard
@@ -110,6 +136,7 @@ FunctionEnd
 
 ; ── Uninstall ─────────────────────────────────────────────────────────────────
 Section "Uninstall"
+  !insertmacro StopIfRunning
   ; WIN-UNI-01: remove the dedicated install folder.  An install made by an
   ; older installer may sit in a shared folder; remove only our files there.
   ${GetFileName} "$INSTDIR" $0
@@ -132,6 +159,7 @@ Section "Uninstall"
   ; WIN-REG-06: remove all registry keys this installer created
   DeleteRegKey HKCU "${APP_UNINSTKEY}"
   DeleteRegKey HKCU "${APP_REGKEY}"
+  DeleteRegKey /ifempty HKCU "Software\${APP_PUBLISHER}"
   ; Note: first-run data written by the app itself ($PROFILE\.paperknifepluspc)
   ; is NOT deleted here — it contains user's recent files and preferences.
 SectionEnd
