@@ -4,9 +4,9 @@ Source audited: `paperknife_clean.zip` (v3.2.2), committed verbatim as tag `base
 The quarantined single-file v2.1 copy that the session started in, and the six other
 lineage copies, were used only to find lost features.
 
-**322 findings · 281 fixed · 39 need your decision ·
-0 withdrawn · 2 deferred · 0 handed off** — register built at `96fbc88`.
-Fixed by severity: 34 high, 103 medium, 135 low.
+**347 findings · 297 fixed · 44 need your decision ·
+1 withdrawn · 5 deferred · 0 handed off** — register built at `37847a3`.
+Fixed by severity: 35 high, 108 medium, 145 low.
 
 ## How it was done
 
@@ -27,6 +27,9 @@ Fixed by severity: 34 high, 103 medium, 135 low.
 `fresh-eyes-2026-10-01.jsonl` holds every row with quote, evidence, test and
 baseline failure. Test names in it refer to the files as first written
 (`test_fa.py`…`test_fe.py`); they were later renamed by subject.
+
+Rows `V-*` come from the verifying pass of 2026-10-02 (real build, installer, Tesseract
+and dependency floors); method and logs in `verification-2026-10-02.md`.
 
 ## Headline defects found in 3.2.2
 
@@ -79,6 +82,7 @@ baseline failure. Test names in it refer to the files as first written
 | L5-09 | high | `paperknife/tools/edit_text.py:162` | duplicate of L3-05: outline="" for no outline | tests/test_fd.py::test_edit_apply_unchanged_keeps_text | 0d9d9d7 |
 | L5-23 | high | `paperknife/tools/ocr.py:160` | Overlay mode edits a copy of the source: new add_text_layer() writes the words with TextWriter onto a one-pag… | tests/test_fe.py::test_ocr_overlay_keeps_original_page_and_… | d73e486 |
 | RC-01 | high | `paperknife/tools/edit_text.py; paperknife/tools/find_replace.py:edit_text.py:117,155; find_replace.py:22,162` | Dropped MuPDF journalling; undo is a bounded (10) stack of whole-document snapshots (ToolBase._push_undo/_pop… | tests/test_review.py::test_edit_text_on_rotated_page_applie… | bc48149 |
+| V-01 | high | `paperknife/tools/ocr.py:166` | ocr.tesseract(): PATH, then Program Files, Program Files (x86), %LOCALAPPDATA%\Programs. | tests/test_convert.py::test_ocr_finds_tesseract_in_its_defa… | 0a58896 |
 | L1-03 | medium | `paperknife/app.py:343` | Delete binding goes through _on_delete_key, which ignores Entry/Text/TEntry/Spinbox widgets | tests/test_fa.py::test_delete_key_in_text_entry_does_not_re… | 9055593 |
 | L1-06 | medium | `paperknife/app.py:418` | run_job refuses (showwarning 'Busy', returns None) while a job is running; stale on_done/on_cancel only hide … | tests/test_fa.py::test_second_job_is_refused_while_one_runs | 9055593 |
 | L1-08 | medium | `paperknife/app.py:122` | _on_close asks to confirm when a job runs, cancels it and polls (not join) until the worker returns, max 15 s… | tests/test_fa.py::test_close_during_job_cancels_and_waits_f… | 9055593 |
@@ -182,6 +186,11 @@ baseline failure. Test names in it refer to the files as first written
 | RS-09 | medium | `paperknife/tools/batch.py:21` | One spelling: app._open_pdf_safe everywhere; the ToolBase._open_safe forwarder is removed; converters and OCR… | see RC-13 | bc48149 |
 | RS-10 | medium | `paperknife/tools/convert.py:648` | One module-level _FMTS and _NEEDS (lib, installed) dict, one _require() for the 'not installed' error, one _p… | tests/test_convert.py (unchanged, green) | bc48149 |
 | RS-11 | medium | `paperknife/tools/convert.py:798` | XML fallback catches ET.ParseError and RTF fallback only ImportError, and the Done dialog/status say what fel… | tests/test_review.py::test_unparsable_xml_conversion_says_i… | bc48149 |
+| V-02 | medium | `requirements.txt; setup.py:5; 23` | Floor 5.2.1; PyMuPDF 1.27.2 floor confirmed (176/176, then 183/183). Auditor F7. | venv on the floor versions: _verify-2026-10-02/ctk521-suite… | 93cca89 |
+| V-04 | medium | `build_windows.bat:104-105` | Auditor F1; build2.log was started from another folder and succeeded. | tests/test_packaging.py::test_build_script_runs_from_its_ow… | 93cca89 |
+| V-06 | medium | `installer.nsi:61-64` | Now exit 2 and nothing changed, both directions. Auditor F5. | live: Setup.exe /S and Uninstall.exe /S with the app open | ae36e9e |
+| V-07 | medium | `installer.nsi:30` | Auditor F4. | live: install /D=<custom>, then /S | ae36e9e |
+| V-16 | medium | `installer.nsi:74-85` | Owner's rule (2026-10-02): the app's own files may be deleted, nothing else. Found by the independent review … | live: shared folder with user files + old copy, setup then … | 37847a3 |
 | L1-05 | low | `paperknife/app.py:339` | Ctrl+O/S/Z/K/F bound for both lower- and upper-case keysyms | none: keysym binding, verified by reading _bind_keys | 9055593 |
 | L1-07 | low | `paperknife/app.py:399` | on_done shows a str result, else keeps a status the tool posted during the job (status sequence counter), els… | tests/test_fa.py::test_run_job_keeps_the_tools_status_messa… | 9055593 |
 | L1-09 | low | `paperknife/app.py:380` | _clear_main calls _hide_tooltip first (also clears _last_hover_path so the pending after(400) does nothing) | none: tooltip timing; verified by reading | 9055593 |
@@ -317,6 +326,16 @@ baseline failure. Test names in it refer to the files as first written
 | RS-26 | low | `paperknife/job_queue.py:88` | Workers are always called as fn(stop); the signature sniffing and the unused stop property are gone; _nav_cli… | tests/test_shell.py job tests | bc48149 |
 | RS-27 | low | `paperknife/tools/__init__.py:18` | tools/__init__.py imports modules only, without the stale stars; customtkinter, PREFS and PIL imports moved t… | tests/test_open_tools.py | bc48149 |
 | RS-28 | low | `tests/conftest.py:157` | test_fa..fe renamed to test_shell/enhance/organise/content/convert with subject docstrings; 'import pymupdf a… | full suite | bc48149 |
+| V-03 | low | `paperknife/app.py:63` | Auditor F6; spec now bundles assets/icon.ico. | tests/test_packaging.py::test_window_uses_the_app_icon_not_… | 93cca89 |
+| V-05 | low | `build_windows.bat:20-21` | Comment corrected; the signing method is decision V-16. |  | 93cca89 |
+| V-08 | low | `installer.nsi:64` | Auditor F5. | live: planted _internal\STALE-from-old-build.txt, upgrade | ae36e9e |
+| V-09 | low | `installer.nsi:134` | Uninstall left an empty HKCU\Software\potatameister key. | live: install then uninstall | ae36e9e |
+| V-10 | low | `installer.nsi:-` | RunningX64 check in .onInit; not run (no 32-bit Windows). Auditor F13. |  | ae36e9e |
+| V-11 | low | `installer.nsi:33` | ManifestDPIAware true. Auditor F11. |  | ae36e9e |
+| V-12 | low | `installer.nsi:9` | Auditor F20. |  | ae36e9e |
+| V-13 | low | `installer.nsi; build_windows.bat; version_info.txt; setup.bat; README.md:-` | Regression guard; the copies agree today. Auditor F14. | tests/test_packaging.py::test_every_copy_of_the_version_agr… | 93cca89 |
+| V-14 | low | `.gitignore:-` | Built Setup.exe showed as an untracked file. |  | ae36e9e |
+| V-17 | low | `build_windows.bat:31` | Found by the independent review of this pass. | probe of the same lines from another folder | 823b604 |
 | HO-FA-1@FB |  | `paperknife/tools/crop.py, paperknife/tools/headerfooter.py, paperknife/tools/password.py, paperknife/tools/pdftools.py, paperknife/tools/enhance.py:` | Uses job_queue.atomic_output (see HO-FC-2); checked on Windows with the input open: closing the doc in the in… | tests/test_fb.py::test_crop_can_overwrite_its_input | ebbdb57 |
 | HO-FA-1@FE |  | `paperknife/tools/ocr.py, paperknife/tools/convert.py:` | FA handoff L1-27/L4-29/L1-28 (PREFS DPI and language) are the same change as L5-25/L3-32 | tests/test_fe.py::test_ocr_uses_preferences_language_and_dp… | d73e486 |
 | HO-FA-2@FB |  | `paperknife/tools/enhance.py, paperknife/tools/batch.py, paperknife/tools/password.py, paperknife/tools/headerfooter.py, paperknife/tools/crop.py:` | import fitz -> import pymupdf as fitz in my files (pdftools.py no longer imports it at all) and in tests/test… | none: import rename | ebbdb57 |
@@ -370,6 +389,17 @@ baseline failure. Test names in it refer to the files as first written
 | RS-13 | Route the 9 hand-built file rows through app._file_row (adds drag-and-drop and the hint; widths 120-136 and heights 40-44 become 136x44) and add a ToolBase helper for the 8 Ctrl+O lambdas? |
 | RS-14 | Replace the 15 hand-built primary buttons (heights 44/46) with app._big_btn (height 50, 16 pt bold), or add a compact card variant of _big_btn first? |
 | RS-22 | Page<->screen helpers belong in the shared canvas base of RS-07 (owner decision L3-51); decide together. |
+| V-18 | Signing: the PFX password reaches every signtool command line (/p); Uninstall.exe is written at install time and never signed (NSIS !uninstfinalize could); the loop re-signs Microsoft- and PSF-signed DLLs. Options: sign… |
+| V-19 | Reproducible builds: no lock file and PyInstaller unpinned, so each build can pick up new major versions. Pillow>=10.0.0 is untested (no Python 3.14 wheel exists for it). Option: a requirements-lock.txt (pip freeze) tha… |
+| V-20 | The desktop shortcut is created on every install, silent ones included. Keep, or make it an option on the finish page. Auditor F12. |
+| V-21 | Install folder %LOCALAPPDATA%\PaperKnifePlusPC vs the per-user convention %LOCALAPPDATA%\Programs\PaperKnifePlusPC (upgrades now follow the registry either way). Auditor F15. |
+| V-22 | Installer compression: measured LZMA 33.4 MB vs zlib 45.7 MB (-27%); silent install 8 s vs 5 s; makensis 42 s. Auditor F20. |
+
+## Withdrawn
+
+| id | reason |
+|---|---|
+| V-15 | Measured on the frozen exe: GetDpiAwarenessContextForProcess = PER_MONITOR_AWARE_V2. |
 
 ## Deferred
 
@@ -377,18 +407,22 @@ baseline failure. Test names in it refer to the files as first written
 |---|---|
 | L5-21 | Thumbnails still render on the main thread. The mtime-keyed cache now makes repeat Home visits free; moving the first render off-thread needs placeholder cards and a CTkImage handoff through after(), which is more chang… |
 | RS-05 | Home thumbnails/existence checks off the Tk thread need a worker plus placeholder cards; thumbnails are cached after the first visit and there is no correctness impact. Left for a performance pass. |
+| V-23 | Revisit if an ARM64 build is wanted. UPX (auditor F9) is L4-45. |
+| V-24 | Cosmetic. |
+| V-25 | Belongs with L3-50 (queue-based UI updates), the owner's call. |
 
 ## Not reviewed or not verified
 
-- **Frozen build.** `paperknife.spec`, `build_windows.bat` and `installer.nsi` were
-  corrected and dry-run (stub PyInstaller, real makensis compile) but no real
-  PyInstaller build, install or uninstall was run. Bundle size is unmeasured.
-- **Real drag and drop.** Tests prove tkdnd loads and drop targets register; an
-  OS-level drop from Explorer was not performed.
-- **Tesseract.** Not installed here; OCR tests stub `pytesseract`. Language packs
-  and real recognition quality are untested.
-- **PyMuPDF 1.27.2** (the stated floor) and customtkinter 5.2 were not installed;
-  everything ran on PyMuPDF 1.28.2 / customtkinter 6.0.0 / Python 3.14.
+The verifying pass of 2026-10-02 (`verification-2026-10-02.md`) ran the real build,
+silent install, upgrade and uninstall, real Tesseract 5.5, and the PyMuPDF 1.27.2 and
+customtkinter floors. Still open:
+
+- **Real drag and drop** from Explorer, the taskbar icon, and OCR from the installed
+  app: an owner checklist in `verification-2026-10-02.md`. Tests prove tkdnd loads
+  and drop targets register.
+- **Installs from Explorer.** Installs made from the Claude app are redirected into
+  its MSIX container, so a real-world install is the checklist's first step.
+- **32-bit Windows** (the installer's refusal, V-10) and **signed builds** (V-18).
 - **macOS / Linux.** Nothing was run there (see decision L4-07).
 - **Visual layout.** No screenshots were compared; the app was launched and the
   views built headless in light and dark mode.
@@ -405,8 +439,9 @@ baseline failure. Test names in it refer to the files as first written
 - `convert.py` parses user XML with `xml.etree.ElementTree`. The bundled expat is
   2.8.1; expat has limited entity expansion ("billion laughs") since 2.4.1, so no
   change was made. `defusedxml` would add a dependency for no current gain.
-- No finding was withdrawn. Each fixing lane was told to confirm a finding at its
-  line before acting and to withdraw it otherwise; none did. The coordinator
+- No audit finding was withdrawn (V-15, from the verifying pass, was: measured).
+  Each fixing lane was told to confirm a finding at its line before acting and to
+  withdraw it otherwise; none did. The coordinator
   reproduced the headline defects independently, not all 322. Two hints were
   wrong and dropped: lane FB's note that merge/split kept their own range parsers
   (both call `pages.parse_ranges`) and ruff's F821 on `ImageTk` in edit_text.py
