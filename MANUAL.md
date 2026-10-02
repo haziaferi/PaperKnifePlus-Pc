@@ -418,6 +418,9 @@ Apart from the operation you invoke, the only file content read is the first pag
 
 ### v3.2.2 — current
 
+- **Fixed:** Redact, Edit Text, Find & Replace and Annotate crashed as soon as they were opened.
+- **Fixed:** Redact missed content on rotated pages and left the redacted words in the document properties, XMP, bookmarks, notes, form fields and attachments.
+- **Fixed:** Doc / Text → PDF never finished and kept writing pages; Watermark failed on every page.
 - **Fixed:** drag-and-drop never loaded; tkdnd is now loaded through `TkinterDnD._require`, and the build bundles it where that looks.
 - **Fixed:** sidebar section toggle and search could put tools back in the wrong place; the sidebar is now re-laid out in registry order.
 - **Fixed:** dark mode not persisted across sessions (appearance saved to `prefs.json` via Preferences panel).
@@ -432,13 +435,24 @@ Apart from the operation you invoke, the only file content read is the first pag
 
 ### v3.2.1
 
-- The fixes in this release are listed (in Italian) in the changelog of `README.md`.
+- **Fixed:** the app did not start because of a wrong `PasswordTool` import in `tools/__init__.py`.
+- **Fixed:** internal tool errors were swallowed without a message.
+- **Fixed:** Undo in Edit Text did not restore the previous text.
+- **Fixed:** editing multi-line paragraphs pushed text off the page; text is now wrapped to the width of the original block.
+- **Fixed:** special characters (`<`, `&`, …) in OCR and converted text corrupted the output.
+- **Fixed:** XML export of multi-page PDFs produced invalid files (repeated XML prologues).
+- **Fixed:** three Preferences (output folder, maximum recent files, compression level) were saved but ignored.
+- **Fixed:** opening a corrupt or invalid PDF in 8 tools crashed without an error message.
+- **Fixed:** Merge reopened every source file a second time after merging.
+- **Fixed:** PPTX, XLSX, PNG and JPEG → PDF showed no completion dialog.
+- **Fixed:** entries with an invalid schema in `recent.json` crashed the app at start-up.
+- Version numbers in `setup.py` and `setup.bat` were set to 3.2.1; `paperknife/theme.py`, which the window shows, stayed at 3.0.0 until 3.2.2.
 
 ---
 
 ## 12. License
 
-PaperKnife+ PC is distributed under the **MIT License**. Third-party components:
+PaperKnife+ PC is distributed under the **GNU Affero General Public License v3.0** (see `LICENSE`), the licence of the PyMuPDF engine it bundles. The PaperKnife+ Android app it is modelled on is GPL-3.0-or-later, which is compatible. Third-party components:
 
 | Library | License | Purpose |
 |---|---|---|
@@ -451,7 +465,7 @@ PaperKnife+ PC is distributed under the **MIT License**. Third-party components:
 | python-pptx | MIT | PPTX conversion |
 | openpyxl | MIT | XLSX conversion |
 
-**PyMuPDF / AGPL note:** PyMuPDF is licensed under AGPL v3. If you distribute a modified version of this application that incorporates PyMuPDF, your modifications must also be released under AGPL v3 or a compatible license, or you must obtain a commercial PyMuPDF license from Artifex.
+**What the AGPL asks:** anyone who distributes the application, modified or not, must offer its complete source under the same licence.
 
 ---
 

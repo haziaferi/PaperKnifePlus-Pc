@@ -15,6 +15,7 @@ setup(
     name            = "paperknife-plus-pc",
     version         = VERSION,
     description     = "PaperKnife+ PC — 100% local PDF toolkit",
+    license         = "AGPL-3.0",
     packages        = find_packages(),
     python_requires = ">=3.10",
     install_requires = [
