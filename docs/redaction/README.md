@@ -72,6 +72,8 @@ the content stream, so drawing order and every graphics-state setting stay:
 Known cost: a rectangular clip with a corner inside a box is cut (the corner is
 information), and MuPDF then anti-aliases its edges, so text sitting exactly on the
 clip edge renders a little lighter (up to 152 px on one page of 104; `realworld.md`).
+The owner chose this over pixel-exact rendering on 2026-10-07: a redacted field's
+outline must not survive in the file either.
 
 **Safety net.** After cutting, `lineart.residual()` reads the page back through
 MuPDF's `get_drawings(extended=True)` and looks for a path vertex inside a box, a
