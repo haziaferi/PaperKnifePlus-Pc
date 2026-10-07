@@ -48,7 +48,7 @@ def _do_ocr(src, out_dir, opts, stop):
             pix = render(page, scale)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             add_text_layer(page, ocr_words(img, lang, scale))
-        doc.save(tmp, garbage=3, deflate=True)
+        doc.save(tmp, garbage=4, deflate=True, clean=True)    # as the OCR tool
     return out
 
 def _do_pdf2txt(src, out_dir, opts, stop):

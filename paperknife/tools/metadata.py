@@ -120,8 +120,9 @@ class MetadataTool(ToolBase):
                 # Viewers read the XMP stream too; left alone it would keep the
                 # old (or cleared) values.
                 self._doc.del_xml_metadata()
-            # garbage=3 drops the replaced Info and XMP objects from the file.
-            self._save_doc(out, garbage=3, deflate=True)
+            # garbage=1 drops the replaced Info and XMP objects from the file
+            # (levels 2-3 cost the square of the page count: tests/test_save_settings.py).
+            self._save_doc(out, garbage=1, deflate=True)
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF with updated metadata saved:\n{out}")
         except Exception as e:

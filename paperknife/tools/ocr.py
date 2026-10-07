@@ -217,7 +217,9 @@ class OCRTool(ToolBase):
                 if text_only:
                     nd.save(tmp, deflate=True)
                 else:
-                    doc.save(tmp, garbage=3, deflate=True)
+                    # Merges the fonts each page's text layer brings, at a cost that
+                    # grows linearly (garbage=3 grows with the square of the pages).
+                    doc.save(tmp, garbage=4, deflate=True, clean=True)
 
             def done():
                 app._widget_set(log, text=f"✓  Done — {total} page(s) processed")
