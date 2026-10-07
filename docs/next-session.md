@@ -7,13 +7,11 @@ to that register; each item still needs its own fail-before test, as in the audi
 
 - AGPL-3.0 licence (L5-49), Windows-only docs with MANUAL.md canonical (L4-07, L4-69).
 
-## 1. Redaction: clip line art at the box edge (L3-18)
+## 1. Redaction: clip line art at the box edge (L3-18) — done 2026-10-07
 
-Build from the prototype in `docs/redaction/redaction_bench.py` (`_clip_redraw`,
-`_rect_minus`); evidence and limits in `docs/redaction/README.md`. Before shipping:
-non-rectangular fills, drawing order of redrawn strokes, curves (redraw as Béziers cut
-by de Casteljau instead of polylines), shadings/patterns/clipping paths; re-run the
-bench, and add its cases as tests through the Redact tool.
+`paperknife/lineart.py` cuts paths in place in the content stream (not the prototype's
+remove-and-redraw); evidence in `docs/redaction/README.md`, tests in
+`tests/test_redact_lineart.py`.
 
 ## 2. Responsiveness and structure
 

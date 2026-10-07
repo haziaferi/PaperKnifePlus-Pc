@@ -10,6 +10,7 @@ from ..tool_base import ToolBase, register
 from ..theme import (ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER, DANGER_H,
                      CANVAS_BG, WARN_BG, WARN_TITLE, WARN_BODY, _tk_color)
 from ..pages import render
+from ..lineart import cut_line_art, residual
 
 _INFO_KEYS = ("title", "author", "subject", "keywords", "creator", "producer")
 # Annotation text a reader sees; the other info keys are dates, ids and icon names.
@@ -17,6 +18,66 @@ _ANNOT_TEXT_KEYS = ("content", "title", "subject")
 # A line under a drawn box shorter than this (a page number, a year suffix)
 # would match far too much elsewhere in the document.
 _MIN_BOX_PHRASE = 4
+
+
+def redact_page(doc: fitz.Document, pno: int, rects, fill) -> str:
+    """Destroy everything under rects (unrotated page space) on page pno.
+
+    fill is an RGB tuple, or None to leave the boxes unpainted.  Returns how line
+    art was handled: "cut" at the box edge; "whole" (drawings a box touches removed
+    entirely, when MuPDF still saw line art in a box after cutting); or "image"
+    (the page replaced by a picture of itself, when neither could empty the boxes).
+    """
+    page = doc[pno]
+    # apply_redactions removes only the redact annots themselves; a note or a
+    # form field under a box would keep showing (and storing) the content.
+    for annot in list(page.annots()):
+        if any(annot.rect.intersects(r) for r in rects):
+            page.delete_annot(annot)
+    for widget in list(page.widgets()):
+        if any(widget.rect.intersects(r) for r in rects):
+            page.delete_widget(widget)
+    # The page thumbnail is a picture of the unredacted page.
+    doc.xref_set_key(page.xref, "Thumb", "null")
+    # MuPDF keeps or drops whole paths; cut them at the box edge first, in place.
+    # Should MuPDF still see line art in a box (a stream read differently),
+    # go back to the original content and let MuPDF drop every path it touches.
+    contents = doc.xref_get_key(page.xref, "Contents")
+    mode, graphics, unsafe = "cut", fitz.PDF_REDACT_LINE_ART_NONE, []
+    try:
+        unsafe = cut_line_art(page, rects).unsafe
+        left = residual(page, rects)
+    except Exception:                   # a stream this module cannot read at all
+        left = True
+    if left:
+        doc.xref_set_key(page.xref, "Contents", contents[1])
+        mode, graphics = "whole", fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED
+    for r in rects:
+        page.add_redact_annot(r, fill=fill if fill is not None else False)
+    page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_PIXELS, graphics=graphics)
+    # MuPDF's own removal misses soft-mask groups, and nothing removes the data of
+    # a mesh shading: last resort, the page becomes a picture of itself.
+    if unsafe or (mode == "whole" and residual(doc[pno], rects)):
+        _page_to_image(doc, pno)
+        mode = "image"
+    return mode
+
+
+def _page_to_image(doc: fitz.Document, pno: int, dpi: int = 200) -> None:
+    """Replace page pno by a picture of it.  Its old resources go too, so nothing
+    the page drew survives in the file once it is saved with garbage collection."""
+    page = doc[pno]
+    rotation = page.rotation
+    page.set_rotation(0)
+    pix = page.get_pixmap(dpi=dpi, annots=False)
+    xref = doc.get_new_xref()
+    doc.update_object(xref, "<<>>")
+    doc.update_stream(xref, b"")
+    doc.xref_set_key(page.xref, "Contents", f"{xref} 0 R")
+    doc.xref_set_key(page.xref, "Resources", "<<>>")
+    page = doc[pno]
+    page.insert_image(page.rect, pixmap=pix)
+    page.set_rotation(rotation)
 
 
 @register
@@ -275,25 +336,24 @@ class RedactTool(ToolBase):
                 for ln in self._doc[pg_num].get_textbox(r).splitlines():
                     if len(ln.strip()) >= _MIN_BOX_PHRASE:
                         self._secrets.setdefault(ln.strip(), True)
-        for pg_num, rects in by_page.items():
-            page = self._doc[pg_num]
-            # apply_redactions removes only the redact annots themselves; a note or a
-            # form field under a box would keep showing (and storing) the content.
-            for annot in list(page.annots()):
-                if any(annot.rect.intersects(r) for r in rects):
-                    page.delete_annot(annot)
-            for widget in list(page.widgets()):
-                if any(widget.rect.intersects(r) for r in rects):
-                    page.delete_widget(widget)
-            # The page thumbnail is a picture of the unredacted page.
-            self._doc.xref_set_key(page.xref, "Thumb", "null")
-            for r in rects:
-                page.add_redact_annot(r, fill=fill)
-            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_PIXELS)
+        modes = {pg_num + 1: redact_page(self._doc, pg_num, rects, fill)
+                 for pg_num, rects in by_page.items()}
         self._pending = []
         self._update_pending_lbl()
+        whole = [str(p) for p, m in modes.items() if m == "whole"]
+        image = [str(p) for p, m in modes.items() if m == "image"]
+        note = ((f" · page {', '.join(whole)}: drawings under a box removed whole"
+                 if whole else "")
+                + (f" · page {', '.join(image)}: turned into an image (its text is no "
+                   "longer selectable)" if image else ""))
         self.app._set_status(
-            f"✓  {n} redaction(s) applied — save to write to disk", SUCCESS)
+            f"✓  {n} redaction(s) applied — save to write to disk{note}", SUCCESS)
+        if image:
+            messagebox.showwarning(
+                "Redact",
+                f"Page {', '.join(image)} holds drawings this tool cannot cut at a box "
+                "edge (a gradient mesh, or a soft mask), so the page was replaced by "
+                "an image of itself. Its text can no longer be selected or searched.")
         self._render()
 
     # ── undo last pending box ─────────────────────────────────────────────────

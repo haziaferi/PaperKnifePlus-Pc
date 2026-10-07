@@ -261,7 +261,7 @@ Pick one of seven tools — **Highlight**, **Underline**, **Strikeout**, **Recta
 
 ### 5.19 Redact
 
-Drag boxes over content, or type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. **Apply Redactions** permanently removes the text and image pixels under the boxes, plus any annotations or form fields they touch; **↩ Undo last** removes a pending box before applying. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
+Drag boxes over content, or type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. **Apply Redactions** permanently removes the text, image pixels and drawings under the boxes, plus any annotations or form fields they touch. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable; **↩ Undo last** removes a pending box before applying. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
 
 ### 5.20 Metadata
 

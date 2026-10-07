@@ -264,6 +264,14 @@ def _rect_minus(r, boxes):
     return pieces
 
 
+def _shipped(doc, boxes, fill):
+    """What the Redact tool now does: paperknife.tools.redact.redact_page."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from paperknife.tools.redact import redact_page
+    redact_page(doc, 0, boxes, fill if fill else None)
+
+
 def _rasterise(page_doc, pno, boxes, fill):
     """LibreOffice-style: redact, then replace the page by a picture of itself."""
     page = page_doc[pno]
@@ -282,6 +290,7 @@ STRATEGIES = {
     "covered (1, now)": lambda doc, b, fill: _apply(doc[0], b, fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED, fill),
     "touched (2)":     lambda doc, b, fill: _apply(doc[0], b, fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED, fill),
     "clip at edge":    lambda doc, b, fill: _clip_redraw(doc[0], b, fill),
+    "shipped (L3-18)": lambda doc, b, fill: _shipped(doc, b, fill),
     "rasterise page":  lambda doc, b, fill: _rasterise(doc, 0, b, fill),
 }
 
