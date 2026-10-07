@@ -4,9 +4,9 @@ Source audited: `paperknife_clean.zip` (v3.2.2), committed verbatim as tag `base
 The quarantined single-file v2.1 copy that the session started in, and the six other
 lineage copies, were used only to find lost features.
 
-**347 findings · 297 fixed · 44 need your decision ·
-1 withdrawn · 5 deferred · 0 handed off** — register built at `37847a3`.
-Fixed by severity: 35 high, 108 medium, 145 low.
+**347 findings · 298 fixed · 43 need your decision ·
+1 withdrawn · 5 deferred · 0 handed off** — register built at `b15a501`.
+Fixed by severity: 35 high, 109 medium, 145 low.
 
 ## How it was done
 
@@ -113,6 +113,7 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | L3-08 | medium | `paperknife/tools/edit_text.py:282` | apply_redactions(images=PDF_REDACT_IMAGE_NONE, graphics=PDF_REDACT_LINE_ART_NONE) in Edit Text and Find & Rep… | tests/test_fd.py::test_edit_apply_replaces_only_that_text_a… | 0d9d9d7 |
 | L3-13 | medium | `paperknife/tools/annotate.py:209` | annotate _canvas_to_pdf applies derotation_matrix and the rect is normalized; edit_text block overlays/hit-te… | tests/test_fd.py::test_annotate_on_rotated_page_lands_under… | 0d9d9d7 |
 | L3-16 | medium | `paperknife/tools/redact.py:266` | on Save, bookmark titles have the phrase stripped (set_toc keeps destinations) and attachments whose name/des… | tests/test_fd.py::test_redact_removes_secret_from_whole_file | 0d9d9d7 |
+| L3-18 | medium | `paperknife/tools/redact.py:266` | Line art is cut at the box edge in place in the content stream (lineart.py), checked back through MuPDF (resi… | tests/test_redact_lineart.py (37); docs/redaction/realworld… | b15a501 |
 | L3-19 | medium | `paperknife/tools/redact.py:156` | each view binds <Destroy> on its canvas to _close_doc(), so leaving the tool closes the document and releases… | tests/test_fd.py::test_leaving_tool_closes_document | 0d9d9d7 |
 | L3-20 | medium | `paperknife/tools/find_replace.py:170` | replacement drawn with TextWriter at the first matched character's baseline origin, in that span's size and c… | tests/test_fd.py::test_replace_keeps_baseline_size_and_colo… | 0d9d9d7 |
 | L3-21 | medium | `paperknife/tools/find_replace.py:164` | new module helper _find_matches searches the page's rawdict characters case-sensitively, joins lines with one… | tests/test_fd.py::test_replace_is_case_sensitive; tests/tes… | 0d9d9d7 |
@@ -356,7 +357,6 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | L2-36 | Owner question: Normalise redraws pages as XObjects and loses links, annotations, form fields and bookmarks - copy the TOC and warn, or rework it to resize in place (set_mediabox + content transform)? |
 | L3-09 | Edited text is redrawn in a base-14 font (Helvetica when the PDF uses an embedded/subset font, so bold/italic is lost): reuse the embedded font via doc.extract_font where it is a full font, or keep Helvetica and tell th… |
 | L3-17 | search_for misses a phrase hyphenated across a line break; probe: search_for('SECRET-ALPHA-42', flags=TEXT_DEHYPHENATE) on 'SECRET-AL-' / 'PHA-42' still returns []. Add a character-level hyphen-aware search (like Find &… |
-| L3-18 | DECIDED 2026-10-02: clip line art at the box edge (Acrobat / PDF-XChange / Apryse behaviour); build next session from the prototype in docs/redaction/. Evidence: docs/redaction/README.md. Original question: Vector paths… |
 | L3-50 | Move worker->UI calls (job_queue and every tool's app.after(0, ...)) to a queue.Queue drained by a main-thread after() poll, for non-threaded Tcl builds? Today python.org Tcl is threaded, and job_queue now survives a de… |
 | L3-51 | Extract a shared PdfCanvasView (open/close/nav/zoom/render/screen<->page mapping) for the four canvas tools, now that each carries the same rotation and close-on-leave code? |
 | L4-45 | Question: set upx=False for release builds (antivirus false positives, conflicts with signing, depends on UPX happening to be on PATH)? |
