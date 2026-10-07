@@ -1,49 +1,29 @@
 from __future__ import annotations
 import tkinter as tk
-from tkinter import filedialog, messagebox, colorchooser
-from pathlib import Path
-from PIL import Image, ImageTk
+from tkinter import colorchooser
 import customtkinter as ctk
 import pymupdf as fitz
-from ..tool_base import ToolBase, register
-from ..theme import (ACCENT, ACCENT_H, CARD, CARD2, TEXT, SUCCESS, WARN, CANVAS_BG, DANGER,
-                     ON_ACCENT, _tk_color)
-from ..pages import render
+from ..page_canvas import PageCanvasTool
+from ..tool_base import register
+from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, WARN, DANGER, ON_ACCENT, _tk_color
 
 
 @register
-class AnnotateTool(ToolBase):
+class AnnotateTool(PageCanvasTool):
     section = "CONTENT"
     label   = "📝  Annotate"
+    save_name  = "annotated.pdf"
+    saved_what = "Annotated PDF"
 
-    _doc:    fitz.Document | None = None
-    _pg:     int   = 0
-    _zoom:   float = 1.5
     _tool:   str   = "highlight"
     _color:  tuple = (1.0, 1.0, 0.0)   # yellow
     _start:  tuple | None = None
-    _canvas: tk.Canvas | None = None
 
     def show(self):
         app  = self.app
         body = self._card("📝  Annotate PDF",
                           "Highlight · Underline · Strikethrough · Rectangle · Line · Note · Freetext")
-
-        # ── file row ──────────────────────────────────────────────────────────
-        self._path_var = tk.StringVar()
-        top = ctk.CTkFrame(body, fg_color="transparent")
-        top.pack(fill="x", padx=24, pady=(8, 4))
-        ctk.CTkEntry(top, textvariable=self._path_var, state="readonly",
-                     placeholder_text="Open a PDF…", height=40
-                     ).pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(top, text="Open PDF", width=128, height=40,
-                      command=self._open).pack(side="left", padx=4)
-        ctk.CTkButton(top, text="◀", width=40, height=40,
-                      command=lambda: self._nav(-1)).pack(side="left", padx=2)
-        self._pg_lbl = ctk.CTkLabel(top, text="—", width=60, text_color=TEXT)
-        self._pg_lbl.pack(side="left", padx=2)
-        ctk.CTkButton(top, text="▶", width=40, height=40,
-                      command=lambda: self._nav(1)).pack(side="left", padx=2)
+        self._viewer_file_row(body)
 
         # ── annotation toolbar ────────────────────────────────────────────────
         toolbar = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
@@ -94,11 +74,7 @@ class AnnotateTool(ToolBase):
             command=lambda v: self._op_lbl.configure(text=f"{int(v)}%"))
         ctk.CTkLabel(opts, text="Zoom:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(12, 4))
-        self._zoom_sl = ctk.CTkSlider(opts, from_=0.5, to=3.0, number_of_steps=50,
-                                       width=120)
-        self._zoom_sl.set(1.5)
-        self._zoom_sl.configure(command=self._on_zoom)
-        self._zoom_sl.pack(side="left")
+        self._viewer_zoom(opts, width=120).pack(side="left")
         ctk.CTkButton(opts, text="↩ Undo", width=80, height=28,
                       command=self._undo).pack(side="left", padx=(12, 4))
         ctk.CTkButton(opts, text="✕ Remove sel.", width=110, height=28,
@@ -113,23 +89,10 @@ class AnnotateTool(ToolBase):
             self._ft_lbl.pack(side="left", padx=(12, 4))
             self._ft_entry.pack(side="left")
 
-        # ── canvas ────────────────────────────────────────────────────────────
-        cf = ctk.CTkFrame(body, fg_color=CARD2, corner_radius=8)
-        cf.pack(fill="both", expand=True, padx=24, pady=4)
-        vbar = tk.Scrollbar(cf, orient="vertical")
-        vbar.pack(side="right", fill="y")
-        hbar = tk.Scrollbar(cf, orient="horizontal")
-        hbar.pack(side="bottom", fill="x")
-        self._canvas = tk.Canvas(cf, bg=_tk_color(CANVAS_BG), highlightthickness=0, cursor="crosshair",
-                                  yscrollcommand=vbar.set, xscrollcommand=hbar.set)
-        self._canvas.pack(fill="both", expand=True)
-        vbar.configure(command=self._canvas.yview)
-        hbar.configure(command=self._canvas.xview)
-        self._canvas.bind("<ButtonPress-1>",   self._press)
-        self._canvas.bind("<ButtonRelease-1>",  self._release)
-        self._canvas.bind("<B1-Motion>",        self._drag)
-        self._canvas.bind("<MouseWheel>",
-                          lambda e: self._canvas.yview_scroll(-1*(e.delta//120), "units"))
+        c = self._viewer_canvas(body, frame_color=CARD2, cursor="crosshair")
+        c.bind("<ButtonPress-1>",   self._press)
+        c.bind("<ButtonRelease-1>", self._release)
+        c.bind("<B1-Motion>",       self._drag)
         self._drag_id = None
 
         ctk.CTkButton(body, text="  Save Annotated PDF  →", height=46,
@@ -141,38 +104,14 @@ class AnnotateTool(ToolBase):
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
         app._cur_undo_fn = self._undo
-        self._undo_stack: list = []   # (page_num, xref of an annotation this tool added)
+        self._viewer_reset()
+
+    # Undo here removes the last annotation this tool added: (page, annotation xref).
+    def _on_open(self):
         self._sel_annot = None        # xref of the clicked annotation on the current page
-        self._doc = None
-        self._pg  = 0
 
-    # ── file ──────────────────────────────────────────────────────────────────
-    def _open(self):
-        f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
-        if not f:
-            return
-        self._close_doc()
-        self._doc = self.app._open_pdf_safe(f)
-        if not self._doc:
-            return
-        self._path_var.set(f)
-        self._pg = 0
-        self._undo_stack = []
+    def _on_page(self):
         self._sel_annot = None
-        self._render()
-
-    def _nav(self, d):
-        if not self._doc:
-            return
-        new = self._pg + d
-        if 0 <= new < len(self._doc):
-            self._pg = new
-            self._sel_annot = None
-            self._render()
-
-    def _on_zoom(self, v):
-        self._zoom = float(v)
-        self._render()
 
     # ── tool / colour selection ───────────────────────────────────────────────
     def _set_tool(self, tid):
@@ -197,15 +136,8 @@ class AnnotateTool(ToolBase):
             self._color_preview.configure(fg_color=hexc)
 
     # ── canvas interaction ────────────────────────────────────────────────────
-    def _canvas_to_pdf(self, cx, cy):
-        # The preview shows the page rotated; annotations live in unrotated space.
-        p = fitz.Point(cx / self._zoom, cy / self._zoom) * self._doc[self._pg].derotation_matrix
-        return p.x, p.y
-
     def _press(self, event):
-        cx = self._canvas.canvasx(event.x)
-        cy = self._canvas.canvasy(event.y)
-        self._start = (cx, cy)
+        self._start = self._event_point(event)
         if self._drag_id:
             self._canvas.delete(self._drag_id)
             self._drag_id = None
@@ -213,8 +145,7 @@ class AnnotateTool(ToolBase):
     def _drag(self, event):
         if not self._start:
             return
-        cx = self._canvas.canvasx(event.x)
-        cy = self._canvas.canvasy(event.y)
+        cx, cy = self._event_point(event)
         if self._drag_id:
             self._canvas.delete(self._drag_id)
         x0, y0 = self._start
@@ -228,8 +159,7 @@ class AnnotateTool(ToolBase):
     def _release(self, event):
         if not self._start or not self._doc:
             return
-        cx = self._canvas.canvasx(event.x)
-        cy = self._canvas.canvasy(event.y)
+        cx, cy = self._event_point(event)
         x0, y0 = self._start
         if self._drag_id:
             self._canvas.delete(self._drag_id)
@@ -238,15 +168,15 @@ class AnnotateTool(ToolBase):
         page = self._doc[self._pg]
         if abs(cx - x0) < 4 and abs(cy - y0) < 4:
             # A click on an existing annotation selects it for "Remove sel.".
-            pt = fitz.Point(*self._canvas_to_pdf(x0, y0))
+            pt = self._screen_to_page((x0, y0))
             hit = next((a for a in page.annots() if pt in a.rect), None)
             if hit is not None:
                 self._sel_annot = hit.xref
                 self._render()
                 return
             cx, cy = x0 + 60, y0 + 16
-        px0, py0 = self._canvas_to_pdf(x0, y0)
-        px1, py1 = self._canvas_to_pdf(cx, cy)
+        px0, py0 = self._screen_to_page((x0, y0))
+        px1, py1 = self._screen_to_page((cx, cy))
         rect     = fitz.Rect(px0, py0, px1, py1).normalize()
         opacity  = self._opacity.get() / 100.0
         color    = self._color
@@ -327,34 +257,9 @@ class AnnotateTool(ToolBase):
         self._render()
 
     # ── render ────────────────────────────────────────────────────────────────
-    def _render(self):
-        if not self._doc:
-            return
-        c = self._canvas
-        c.delete("all")
-        page = self._doc[self._pg]
-        pix  = render(page, self._zoom, shrink=True)
-        img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        self._raw_img = ImageTk.PhotoImage(img)
-        c.create_image(0, 0, anchor="nw", image=self._raw_img)
-        c.configure(scrollregion=(0, 0, pix.width, pix.height))
+    def _draw_overlay(self, page):
         sel = self._annot_by_xref(page, self._sel_annot) if self._sel_annot else None
         if sel is not None:
-            x0, y0, x1, y1 = sel.rect * page.rotation_matrix * fitz.Matrix(self._zoom, self._zoom)
-            c.create_rectangle(x0 - 3, y0 - 3, x1 + 3, y1 + 3,
-                               outline=DANGER, width=2, dash=(4, 2))
-        self._pg_lbl.configure(text=f"{self._pg + 1} / {len(self._doc)}")
-
-    # ── save ──────────────────────────────────────────────────────────────────
-    def _save(self):
-        if not self._doc:
-            return messagebox.showwarning("Save", "Open a PDF first.")
-        out = self.app._save_as("annotated.pdf")
-        if not out:
-            return
-        try:
-            self._save_doc(out, deflate=True)
-            self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
-            messagebox.showinfo("Saved", f"Annotated PDF saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Save Error", str(e))
+            x0, y0, x1, y1 = self._page_to_screen(sel.rect, page)
+            self._canvas.create_rectangle(x0 - 3, y0 - 3, x1 + 3, y1 + 3,
+                                          outline=DANGER, width=2, dash=(4, 2))

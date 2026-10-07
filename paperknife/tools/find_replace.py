@@ -1,14 +1,12 @@
 from __future__ import annotations
 import tkinter as tk
-from tkinter import filedialog, messagebox
-from pathlib import Path
-from PIL import Image, ImageTk
+from tkinter import messagebox
 import customtkinter as ctk
 import pymupdf as fitz
-from ..tool_base import ToolBase, register
-from ..theme import (ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, CANVAS_BG,
-                     HIT, HIT_CUR, HIT_EDGE, _tk_color)
-from ..pages import render, textwriter_point
+from ..page_canvas import PageCanvasTool, span_rgb
+from ..tool_base import register
+from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, HIT, HIT_CUR, HIT_EDGE, _tk_color
+from ..pages import textwriter_point
 
 
 def _find_matches(page, needle: str) -> list[dict]:
@@ -54,28 +52,20 @@ def _unicode_font(text: str):
 
 
 @register
-class FindReplaceTool(ToolBase):
+class FindReplaceTool(PageCanvasTool):
     section = "CONTENT"
     label   = "🔍  Find & Replace"
+    save_name  = "replaced.pdf"
+    saved_what = "PDF"
 
-    _doc:      fitz.Document | None = None
-    _pg:       int = 0
-    _zoom:     float = 1.5
     _hit_idx:  int   = -1
 
     def show(self):
         app  = self.app
         body = self._card("🔍  Find & Replace",
                           "Search PDF text and replace across all pages · Ctrl+S to save")
-        # ── file row ──────────────────────────────────────────────────────────
-        self._path_var = tk.StringVar()
-        top = ctk.CTkFrame(body, fg_color="transparent")
-        top.pack(fill="x", padx=24, pady=8)
-        ctk.CTkEntry(top, textvariable=self._path_var, state="readonly",
-                     placeholder_text="Open a PDF…", height=44
-                     ).pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(top, text="Open PDF", width=136, height=44,
-                      command=self._open).pack(side="left")
+        # Pages are reached through the hits, so there are no page buttons.
+        self._viewer_file_row(body, pady=8, height=44, button_width=136, page_buttons=False)
 
         # ── search / replace ──────────────────────────────────────────────────
         sr_card = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
@@ -113,21 +103,7 @@ class FindReplaceTool(ToolBase):
                                       text_color=MUTED, font=ctk.CTkFont(size=13))
         self._hit_lbl.pack(side="left", padx=12)
 
-        # ── canvas ────────────────────────────────────────────────────────────
-        cf = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
-        cf.pack(fill="both", expand=True, padx=24, pady=4)
-        vbar = tk.Scrollbar(cf, orient="vertical")
-        vbar.pack(side="right", fill="y")
-        hbar = tk.Scrollbar(cf, orient="horizontal")
-        hbar.pack(side="bottom", fill="x")
-        self._canvas = tk.Canvas(cf, bg=_tk_color(CANVAS_BG), highlightthickness=0,
-                                  yscrollcommand=vbar.set, xscrollcommand=hbar.set)
-        self._canvas.pack(fill="both", expand=True)
-        vbar.configure(command=self._canvas.yview)
-        hbar.configure(command=self._canvas.xview)
-        self._canvas.bind("<MouseWheel>",
-                          lambda e: self._canvas.yview_scroll(
-                              -1 * (e.delta // 120), "units"))
+        self._viewer_canvas(body, frame_color=CARD)
 
         ctk.CTkButton(body, text="  Save PDF  →", height=46,
                       command=self._save,
@@ -138,25 +114,12 @@ class FindReplaceTool(ToolBase):
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
         app._cur_undo_fn = self._undo
-        self._doc  = None
-        self._hits: list = []   # (page_num, [rect per line of the match])
-        self._pg   = 0
-        self._undo_stack: list = []   # (page, document bytes) before each Replace All
+        # Undo restores the whole document as it was before each Replace All.
+        self._viewer_reset()
 
-    # ── file ──────────────────────────────────────────────────────────────────
-    def _open(self):
-        f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
-        if not f:
-            return
-        self._close_doc()
-        self._doc = self.app._open_pdf_safe(f)
-        if not self._doc:
-            return
-        self._undo_stack = []
-        self._path_var.set(f)
-        self._pg = 0
-        self._hits = []
-        self._render()
+    def _on_open(self):
+        self._hits: list = []   # (page_num, [rect per line of the match])
+        self._hit_idx = -1
 
     # ── search ────────────────────────────────────────────────────────────────
     def _find_all(self):
@@ -237,38 +200,24 @@ class FindReplaceTool(ToolBase):
             for m in matches:
                 if not repl:
                     continue
-                c = m["span"]["color"]
-                rgb = ((c >> 16) / 255, ((c >> 8) & 0xFF) / 255, (c & 0xFF) / 255)
-                tw = fitz.TextWriter(page.rect, color=rgb)
+                tw = fitz.TextWriter(page.rect, color=span_rgb(m["span"]["color"]))
                 tw.append(textwriter_point(page, m["origin"]), repl,
                           font=font, fontsize=m["span"]["size"])
                 tw.write_text(page)
 
     # ── render ────────────────────────────────────────────────────────────────
-    def _render(self):
-        if not self._doc:
-            return
-        c = self._canvas
-        c.delete("all")
-        page = self._doc[self._pg]
-        pix  = render(page, self._zoom, shrink=True)
-        img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        self._raw_img = ImageTk.PhotoImage(img)
-        c.create_image(0, 0, anchor="nw", image=self._raw_img)
-        c.configure(scrollregion=(0, 0, pix.width, pix.height))
-        # Hit rects are in unrotated page space; the pixmap shows the page rotated.
-        to_screen = page.rotation_matrix * fitz.Matrix(self._zoom, self._zoom)
+    def _draw_overlay(self, page):
         for hi, (pg_num, rects) in enumerate(self._hits):
             if pg_num != self._pg:
                 continue
             is_cur = hi == self._hit_idx
             fill   = HIT_CUR if is_cur else HIT
             for rect in rects:
-                x0, y0, x1, y1 = rect * to_screen
-                c.create_rectangle(x0, y0, x1, y1,
-                                   fill=fill, outline=_tk_color(ACCENT) if is_cur else HIT_EDGE,
-                                   stipple="gray50" if not is_cur else "",
-                                   width=2)
+                x0, y0, x1, y1 = self._page_to_screen(rect, page)
+                self._canvas.create_rectangle(
+                    x0, y0, x1, y1,
+                    fill=fill, outline=_tk_color(ACCENT) if is_cur else HIT_EDGE,
+                    stipple="gray50" if not is_cur else "", width=2)
 
     # ── undo ──────────────────────────────────────────────────────────────────
     def _undo(self):
@@ -279,17 +228,3 @@ class FindReplaceTool(ToolBase):
         self._hit_idx = -1
         self._hit_lbl.configure(text="Replace undone")
         self._render()
-
-    # ── save ──────────────────────────────────────────────────────────────────
-    def _save(self):
-        if not self._doc:
-            return messagebox.showwarning("Save", "Open a PDF first.")
-        out = self.app._save_as("replaced.pdf")
-        if not out:
-            return
-        try:
-            self._save_doc(out, deflate=True)
-            self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
-            messagebox.showinfo("Saved", f"PDF saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Save Error", str(e))

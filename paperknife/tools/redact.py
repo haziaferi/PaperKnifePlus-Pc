@@ -1,15 +1,14 @@
 from __future__ import annotations
 import re
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from pathlib import Path
-from PIL import Image, ImageTk
 import customtkinter as ctk
 import pymupdf as fitz
-from ..tool_base import ToolBase, register
+from ..page_canvas import PageCanvasTool
+from ..tool_base import register
 from ..theme import (ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER, DANGER_H,
-                     CANVAS_BG, WARN_BG, WARN_TITLE, WARN_BODY, _tk_color)
-from ..pages import render
+                     WARN_BG, WARN_TITLE, WARN_BODY)
 from ..lineart import cut_line_art, residual
 
 _INFO_KEYS = ("title", "author", "subject", "keywords", "creator", "producer")
@@ -81,13 +80,10 @@ def _page_to_image(doc: fitz.Document, pno: int, dpi: int = 200) -> None:
 
 
 @register
-class RedactTool(ToolBase):
+class RedactTool(PageCanvasTool):
     section = "CONTENT"
     label   = "⬛  Redact"
 
-    _doc:      fitz.Document | None = None
-    _pg:       int   = 0
-    _zoom:     float = 1.5
     _start:    tuple | None = None
     _drag_id:  int | None   = None
 
@@ -113,21 +109,7 @@ class RedactTool(ToolBase):
             font=ctk.CTkFont(size=12), text_color=WARN_BODY, justify="left",
         ).pack(padx=16, pady=(0, 10), anchor="w")
 
-        # ── file row ──────────────────────────────────────────────────────────
-        self._path_var = tk.StringVar()
-        top = ctk.CTkFrame(body, fg_color="transparent")
-        top.pack(fill="x", padx=24, pady=(4, 4))
-        ctk.CTkEntry(top, textvariable=self._path_var, state="readonly",
-                     placeholder_text="Open a PDF…", height=40
-                     ).pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ctk.CTkButton(top, text="Open PDF", width=128, height=40,
-                      command=self._open).pack(side="left", padx=4)
-        ctk.CTkButton(top, text="◀", width=40, height=40,
-                      command=lambda: self._nav(-1)).pack(side="left", padx=2)
-        self._pg_lbl = ctk.CTkLabel(top, text="—", width=60, text_color=TEXT)
-        self._pg_lbl.pack(side="left", padx=2)
-        ctk.CTkButton(top, text="▶", width=40, height=40,
-                      command=lambda: self._nav(1)).pack(side="left", padx=2)
+        self._viewer_file_row(body, pady=(4, 4))
 
         # ── toolbar ───────────────────────────────────────────────────────────
         tb = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
@@ -160,11 +142,7 @@ class RedactTool(ToolBase):
 
         ctk.CTkLabel(trow, text="Zoom:", text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side="left", padx=(4, 4))
-        self._zoom_sl = ctk.CTkSlider(trow, from_=0.5, to=3.0,
-                                       number_of_steps=50, width=120)
-        self._zoom_sl.set(1.5)
-        self._zoom_sl.configure(command=self._on_zoom)
-        self._zoom_sl.pack(side="left")
+        self._viewer_zoom(trow, width=120).pack(side="left")
 
         self._pending_lbl = ctk.CTkLabel(
             trow, text="0 box(es) pending", width=130,
@@ -174,25 +152,10 @@ class RedactTool(ToolBase):
                       fg_color=CARD, text_color=TEXT,
                       command=self._undo).pack(side="left", padx=4)
 
-        # ── canvas ────────────────────────────────────────────────────────────
-        cf = ctk.CTkFrame(body, fg_color=CARD2, corner_radius=8)
-        cf.pack(fill="both", expand=True, padx=24, pady=4)
-        vbar = tk.Scrollbar(cf, orient="vertical")
-        vbar.pack(side="right", fill="y")
-        hbar = tk.Scrollbar(cf, orient="horizontal")
-        hbar.pack(side="bottom", fill="x")
-        self._canvas = tk.Canvas(
-            cf, bg=_tk_color(CANVAS_BG), highlightthickness=0, cursor="crosshair",
-            yscrollcommand=vbar.set, xscrollcommand=hbar.set)
-        self._canvas.pack(fill="both", expand=True)
-        vbar.configure(command=self._canvas.yview)
-        hbar.configure(command=self._canvas.xview)
-        self._canvas.bind("<ButtonPress-1>",  self._press)
-        self._canvas.bind("<B1-Motion>",       self._drag)
-        self._canvas.bind("<ButtonRelease-1>", self._release)
-        self._canvas.bind(
-            "<MouseWheel>",
-            lambda e: self._canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+        c = self._viewer_canvas(body, frame_color=CARD2, cursor="crosshair")
+        c.bind("<ButtonPress-1>",  self._press)
+        c.bind("<B1-Motion>",       self._drag)
+        c.bind("<ButtonRelease-1>", self._release)
 
         # ── apply / save row ──────────────────────────────────────────────────
         bot = ctk.CTkFrame(body, fg_color="transparent")
@@ -219,50 +182,24 @@ class RedactTool(ToolBase):
         app._cur_open_fn = self._open
         app._cur_save_fn = self._save
         app._cur_undo_fn = self._undo
-        self._doc     = None
-        self._pg      = 0
+        self._viewer_reset()
+
+    def _on_open(self):
         # (page_num, fitz.Rect in unrotated page space, search phrase or None) — not yet applied
         self._pending: list = []
         # phrase burned out of page content -> match whole words only (drawn boxes)
         self._secrets: dict[str, bool] = {}
-
-    # ── file / navigation ─────────────────────────────────────────────────────
-    def _open(self):
-        f = filedialog.askopenfilename(filetypes=[("PDF", "*.pdf")])
-        if not f:
-            return
-        self._close_doc()
-        self._doc     = self.app._open_pdf_safe(f)
-        self._pending = []
-        self._secrets = {}
-        if not self._doc:
-            return
-        self._path_var.set(f)
-        self._pg = 0
-        self._render()
-
-    def _nav(self, d):
-        if not self._doc:
-            return
-        new = self._pg + d
-        if 0 <= new < len(self._doc):
-            self._pg = new
-            self._render()
-
-    def _on_zoom(self, v):
-        self._zoom = float(v)
-        self._render()
+        if getattr(self, "_pending_lbl", None) is not None and self._pending_lbl.winfo_exists():
+            self._update_pending_lbl()
 
     # ── draw interaction ──────────────────────────────────────────────────────
     def _press(self, event):
-        self._start = (self._canvas.canvasx(event.x),
-                       self._canvas.canvasy(event.y))
+        self._start = self._event_point(event)
 
     def _drag(self, event):
         if not self._start:
             return
-        cx = self._canvas.canvasx(event.x)
-        cy = self._canvas.canvasy(event.y)
+        cx, cy = self._event_point(event)
         if self._drag_id:
             self._canvas.delete(self._drag_id)
         x0, y0 = self._start
@@ -274,8 +211,7 @@ class RedactTool(ToolBase):
     def _release(self, event):
         if not self._start or not self._doc:
             return
-        cx = self._canvas.canvasx(event.x)
-        cy = self._canvas.canvasy(event.y)
+        cx, cy = self._event_point(event)
         if self._drag_id:
             self._canvas.delete(self._drag_id)
             self._drag_id = None
@@ -283,11 +219,7 @@ class RedactTool(ToolBase):
         self._start = None
         if abs(cx - x0) < 4 and abs(cy - y0) < 4:
             return
-        z   = self._zoom
-        # The preview shows the page rotated; redaction annots live in unrotated space.
-        r   = fitz.Rect(min(x0,cx)/z, min(y0,cy)/z,
-                        max(x0,cx)/z, max(y0,cy)/z) * self._doc[self._pg].derotation_matrix
-        self._pending.append((self._pg, r, None))
+        self._pending.append((self._pg, self._screen_rect_to_page(x0, y0, cx, cy), None))
         self._update_pending_lbl()
         self._render()
 
@@ -370,32 +302,17 @@ class RedactTool(ToolBase):
             text_color=DANGER if n else MUTED)
 
     # ── render ────────────────────────────────────────────────────────────────
-    def _render(self):
-        if not self._doc:
-            return
+    def _draw_overlay(self, page):
         c    = self._canvas
-        page = self._doc[self._pg]
-        pix  = render(page, self._zoom, shrink=True)
-        img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        self._raw_img = ImageTk.PhotoImage(img)
-        c.delete("all")
-        c.create_image(0, 0, anchor="nw", image=self._raw_img)
-        c.configure(scrollregion=(0, 0, pix.width, pix.height))
-        self._pg_lbl.configure(
-            text=f"{self._pg + 1} / {len(self._doc)}")
-        z    = self._zoom
         fill = "black" if self._fill_var.get() == "Black" else "white"
         for pg_num, r, _ in self._pending:
             if pg_num != self._pg:
                 continue
-            r = r * page.rotation_matrix
-            c.create_rectangle(
-                r.x0 * z, r.y0 * z, r.x1 * z, r.y1 * z,
-                fill=fill, outline=DANGER, width=2, stipple="gray25")
-            c.create_text(
-                (r.x0 + r.x1) / 2 * z, (r.y0 + r.y1) / 2 * z,
-                text="REDACT", fill=DANGER,
-                font=("Segoe UI", 9, "bold"))
+            x0, y0, x1, y1 = self._page_to_screen(r, page)
+            c.create_rectangle(x0, y0, x1, y1,
+                               fill=fill, outline=DANGER, width=2, stipple="gray25")
+            c.create_text((x0 + x1) / 2, (y0 + y1) / 2, text="REDACT", fill=DANGER,
+                          font=("Segoe UI", 9, "bold"))
 
     # ── save ──────────────────────────────────────────────────────────────────
     def _save(self):
