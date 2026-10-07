@@ -4,9 +4,9 @@ Source audited: `paperknife_clean.zip` (v3.2.2), committed verbatim as tag `base
 The quarantined single-file v2.1 copy that the session started in, and the six other
 lineage copies, were used only to find lost features.
 
-**347 findings · 298 fixed · 43 need your decision ·
-1 withdrawn · 5 deferred · 0 handed off** — register built at `b15a501`.
-Fixed by severity: 35 high, 109 medium, 145 low.
+**347 findings · 301 fixed · 40 need your decision ·
+1 withdrawn · 5 deferred · 0 handed off** — register built at `bccf066`.
+Fixed by severity: 35 high, 110 medium, 147 low.
 
 ## How it was done
 
@@ -183,6 +183,7 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | RC-09 | medium | `paperknife/prefs.py:45-48` | prefs.json is read as bytes and decoded inside the try that renames unreadable files to .bad. | tests/test_review.py::test_prefs_file_that_is_not_utf8_is_r… | bc48149 |
 | RS-01 | medium | `paperknife/tools/batch.py:182` | pages.render(page, scale, shrink) caps pixmaps at 100 MP: exports refuse with 'too large ... choose a lower D… | tests/test_review.py::test_render_refuses_or_shrinks_a_huge… | bc48149 |
 | RS-06 | medium | `paperknife/job_queue.py:39` | Every final save goes through atomic_output. Tools holding the source use ToolBase._save_doc (or _release bef… | tests/test_review.py::test_content_tools_save_over_the_open… | bc48149 |
+| RS-07 | medium | `paperknife/tools/edit_text.py:68` | Shared PageCanvasTool base (paperknife/page_canvas.py): file row, zoom, canvas, open, nav, render, save; tool… | tests/test_page_canvas.py; widget trees identical before/af… | bccf066 |
 | RS-08 | medium | `paperknife/tools/merge.py:172` | selected_pages moved to pages.py (blank = every page, sorted unique); parse_ranges accepts 'all', so Merge (w… | tests/test_review.py::test_merge_accepts_all_as_its_placeho… | bc48149 |
 | RS-09 | medium | `paperknife/tools/batch.py:21` | One spelling: app._open_pdf_safe everywhere; the ToolBase._open_safe forwarder is removed; converters and OCR… | see RC-13 | bc48149 |
 | RS-10 | medium | `paperknife/tools/convert.py:648` | One module-level _FMTS and _NEEDS (lib, installed) dict, one _require() for the 'not installed' error, one _p… | tests/test_convert.py (unchanged, green) | bc48149 |
@@ -260,6 +261,7 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | L3-46 | low | `paperknife/tools/convert.py:648` | Doc→PDF creates the in-memory document only in the PPTX and PNG/JPEG branches that use it | none: dead-code removal | d73e486 |
 | L3-48 | low | `paperknife/tools/reader.py:144` | Page rects are read once in _load before the worker can see the document; _layout_pages and the page counts u… | none: a two-thread race on the Document is not deterministi… | d73e486 |
 | L3-49 | low | `paperknife/tools/reader.py:59` | Zoom slider kept as self._zoom_slider and set to self._zoom | tests/test_fe.py::test_reader_zoom_slider_shows_current_zoom | d73e486 |
+| L3-51 | low | `paperknife/tools/redact.py:287` | The four canvas tools share one viewer (see RS-07); found on the way: Edit Text kept a stale selection across… | tests/test_page_canvas.py; widget trees identical before/af… | bccf066 |
 | L4-03 | low | `setup.bat:3` | Banner says v3.2.2 | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-06 | low | `MANUAL.md:343` | 'Initial public release' replaced by a pointer to README's 3.2.1 changelog | none: docs lane; claim checked against code, evidence in no… | e500b75 |
 | L4-08 | low | `README.md:151` | macOS hint now says Apple's python3 (3.9) is below the 3.10 minimum | none: docs lane; claim checked against code, evidence in no… | e500b75 |
@@ -321,6 +323,7 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | RS-19 | low | `paperknife/tool_base.py:79` | Removed the unused ToolBase._listbox, _big_btn, _save_as and _open_safe forwarders. | full suite | bc48149 |
 | RS-20 | low | `paperknife/tools/redact.py:248` | Comment at the search_for call: case-insensitive over-marking is the safe side for redaction; Find & Replace … | none: comment only | bc48149 |
 | RS-21 | low | `paperknife/job_queue.py:48` | write_json_atomic is built on job_queue.atomic_output (open tmp, dump, fsync); one atomic-write helper. | tests/test_shell.py::test_prefs_atomic_write_leaves_old_fil… | bc48149 |
+| RS-22 | low | `paperknife/tools/annotate.py:219` | One page<->screen mapping in PageCanvasTool (_screen_matrix, _page_to_screen, _screen_to_page, _screen_rect_t… | tests/test_page_canvas.py; widget trees identical before/af… | bccf066 |
 | RS-23 | low | `paperknife/tools/headerfooter.py:166` | Removed the named narrating comments and the restating docstring; the three header/footer position flags are … | none: comments | bc48149 |
 | RS-24 | low | `paperknife/tools/redact.py:26` | Mutable class attributes (_blocks, _hits, _pending, _secrets, _page_rects) are initialised per view. | full suite | bc48149 |
 | RS-25 | low | `paperknife/app.py:738` | app._open_pdf_safe records the file in Recent; the per-tool RECENT.push calls are removed, so every tool that… | full suite | bc48149 |
@@ -358,7 +361,6 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | L3-09 | Edited text is redrawn in a base-14 font (Helvetica when the PDF uses an embedded/subset font, so bold/italic is lost): reuse the embedded font via doc.extract_font where it is a full font, or keep Helvetica and tell th… |
 | L3-17 | search_for misses a phrase hyphenated across a line break; probe: search_for('SECRET-ALPHA-42', flags=TEXT_DEHYPHENATE) on 'SECRET-AL-' / 'PHA-42' still returns []. Add a character-level hyphen-aware search (like Find &… |
 | L3-50 | Move worker->UI calls (job_queue and every tool's app.after(0, ...)) to a queue.Queue drained by a main-thread after() poll, for non-threaded Tcl builds? Today python.org Tcl is threaded, and job_queue now survives a de… |
-| L3-51 | Extract a shared PdfCanvasView (open/close/nav/zoom/render/screen<->page mapping) for the four canvas tools, now that each carries the same rotation and close-on-leave code? |
 | L4-45 | Question: set upx=False for release builds (antivirus false positives, conflicts with signing, depends on UPX happening to be on PATH)? |
 | L4-46 | Unmeasured: PyInstaller is not in the venv and the build is out of scope. README.md:13 says ~150 MB for the source install. Question: measure dist\PaperKnifePlusPC after a clean venv build and quote that number in both … |
 | L5-04 | Owner question: restore v2's All / Odd / Even page selector (or a page-range entry like Crop) on the Watermark tool? Its subtitle says 'every page', so today's behaviour matches the label. |
@@ -385,10 +387,8 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | L5-59 | Use PyMuPDF's pdfocr / get_textpage_ocr instead of the hOCR path, and add 'Make searchable' to Image to PDF? |
 | L5-60 | Add Sanitise (scrub) and Subset fonts ops to PDF Tools? |
 | RS-02 | Move the 15 tools' parse/save work off the Tk thread? Estimate ~2 days: the 11 single-shot tools are mechanical (~0.5 day); the 4 canvas editors need a busy state so the view cannot render or edit self._doc while a save… |
-| RS-07 | Extract a shared PageCanvasTool base (open/nav/zoom/render/save) for Annotate, Edit Text, Find & Replace and Redact? Overlaps owner decision L3-51. |
 | RS-13 | Route the 9 hand-built file rows through app._file_row (adds drag-and-drop and the hint; widths 120-136 and heights 40-44 become 136x44) and add a ToolBase helper for the 8 Ctrl+O lambdas? |
 | RS-14 | Replace the 15 hand-built primary buttons (heights 44/46) with app._big_btn (height 50, 16 pt bold), or add a compact card variant of _big_btn first? |
-| RS-22 | Page<->screen helpers belong in the shared canvas base of RS-07 (owner decision L3-51); decide together. |
 | V-18 | Signing: the PFX password reaches every signtool command line (/p); Uninstall.exe is written at install time and never signed (NSIS !uninstfinalize could); the loop re-signs Microsoft- and PSF-signed DLLs. Options: sign… |
 | V-19 | Reproducible builds: no lock file and PyInstaller unpinned, so each build can pick up new major versions. Pillow>=10.0.0 is untested (no Python 3.14 wheel exists for it). Option: a requirements-lock.txt (pip freeze) tha… |
 | V-20 | The desktop shortcut is created on every install, silent ones included. Keep, or make it an option on the finish page. Auditor F12. |
