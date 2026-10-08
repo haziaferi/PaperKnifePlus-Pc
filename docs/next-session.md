@@ -15,7 +15,9 @@ remove-and-redraw); evidence in `docs/redaction/README.md`, tests in
 
 ## 2. Responsiveness and structure
 
-- RS-02: move the 15 tools' parse/save work off the Tk thread (~2 days estimated).
+- RS-02: done 2026-10-08 (ef1dd92; measurements in `performance-2026-10-08.md`). A
+  single save still holds the window for its length (PyMuPDF keeps the GIL); moving
+  saves into a helper process would remove that — owner's call.
 - RS-07 / RS-22 / L3-51: done 2026-10-08 (`paperknife/page_canvas.py`, bccf066). The
   cropped-page TextWriter fix was already in `pages.textwriter_point`.
 - RS-13 / RS-14: shared file rows (adds drag and drop to 9 tools) and main buttons —

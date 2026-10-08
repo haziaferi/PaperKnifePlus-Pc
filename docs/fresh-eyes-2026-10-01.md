@@ -4,9 +4,9 @@ Source audited: `paperknife_clean.zip` (v3.2.2), committed verbatim as tag `base
 The quarantined single-file v2.1 copy that the session started in, and the six other
 lineage copies, were used only to find lost features.
 
-**347 findings · 301 fixed · 40 need your decision ·
-1 withdrawn · 5 deferred · 0 handed off** — register built at `bccf066`.
-Fixed by severity: 35 high, 110 medium, 147 low.
+**347 findings · 303 fixed · 39 need your decision ·
+1 withdrawn · 4 deferred · 0 handed off** — register built at `ef1dd92`.
+Fixed by severity: 35 high, 111 medium, 148 low.
 
 ## How it was done
 
@@ -182,6 +182,7 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | RC-08 | medium | `paperknife/tools/convert.py:66-75` | _write_story returns False when place() reports the same overflowing filled rect on consecutive pages (overfl… | tests/test_review.py::test_html_with_unsplittable_row_stops… | bc48149 |
 | RC-09 | medium | `paperknife/prefs.py:45-48` | prefs.json is read as bytes and decoded inside the try that renames unreadable files to .bad. | tests/test_review.py::test_prefs_file_that_is_not_utf8_is_r… | bc48149 |
 | RS-01 | medium | `paperknife/tools/batch.py:182` | pages.render(page, scale, shrink) caps pixmaps at 100 MP: exports refuse with 'too large ... choose a lower D… | tests/test_review.py::test_render_refuses_or_shrinks_a_huge… | bc48149 |
+| RS-02 | medium | `paperknife/tools/find_replace.py:178` | The 15 tools' parse/search/save work runs through app.run_job (ToolBase._run_job / _run_on_doc); jobs on the … | tests/test_jobs.py | ef1dd92 |
 | RS-06 | medium | `paperknife/job_queue.py:39` | Every final save goes through atomic_output. Tools holding the source use ToolBase._save_doc (or _release bef… | tests/test_review.py::test_content_tools_save_over_the_open… | bc48149 |
 | RS-07 | medium | `paperknife/tools/edit_text.py:68` | Shared PageCanvasTool base (paperknife/page_canvas.py): file row, zoom, canvas, open, nav, render, save; tool… | tests/test_page_canvas.py; widget trees identical before/af… | bccf066 |
 | RS-08 | medium | `paperknife/tools/merge.py:172` | selected_pages moved to pages.py (blank = every page, sorted unique); parse_ranges accepts 'all', so Merge (w… | tests/test_review.py::test_merge_accepts_all_as_its_placeho… | bc48149 |
@@ -340,6 +341,7 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | V-13 | low | `installer.nsi; build_windows.bat; version_info.txt; setup.bat; README.md:-` | Regression guard; the copies agree today. Auditor F14. | tests/test_packaging.py::test_every_copy_of_the_version_agr… | 93cca89 |
 | V-14 | low | `.gitignore:-` | Built Setup.exe showed as an untracked file. |  | ae36e9e |
 | V-17 | low | `build_windows.bat:31` | Found by the independent review of this pass. | probe of the same lines from another folder | 823b604 |
+| V-25 | low | `tests (PytestUnraisableExceptionWarning):-` | gc.collect() on the Tk thread before each job: the worker no longer deletes leftover Tk variables from the wr… | full suite: 0 such warnings (was 1-5 per run) | ef1dd92 |
 | HO-FA-1@FB |  | `paperknife/tools/crop.py, paperknife/tools/headerfooter.py, paperknife/tools/password.py, paperknife/tools/pdftools.py, paperknife/tools/enhance.py:` | Uses job_queue.atomic_output (see HO-FC-2); checked on Windows with the input open: closing the doc in the in… | tests/test_fb.py::test_crop_can_overwrite_its_input | ebbdb57 |
 | HO-FA-1@FE |  | `paperknife/tools/ocr.py, paperknife/tools/convert.py:` | FA handoff L1-27/L4-29/L1-28 (PREFS DPI and language) are the same change as L5-25/L3-32 | tests/test_fe.py::test_ocr_uses_preferences_language_and_dp… | d73e486 |
 | HO-FA-2@FB |  | `paperknife/tools/enhance.py, paperknife/tools/batch.py, paperknife/tools/password.py, paperknife/tools/headerfooter.py, paperknife/tools/crop.py:` | import fitz -> import pymupdf as fitz in my files (pdftools.py no longer imports it at all) and in tests/test… | none: import rename | ebbdb57 |
@@ -386,7 +388,6 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | L5-58 | Add N-up / booklet imposition as a Normalise Pages mode? |
 | L5-59 | Use PyMuPDF's pdfocr / get_textpage_ocr instead of the hOCR path, and add 'Make searchable' to Image to PDF? |
 | L5-60 | Add Sanitise (scrub) and Subset fonts ops to PDF Tools? |
-| RS-02 | Move the 15 tools' parse/save work off the Tk thread? Estimate ~2 days: the 11 single-shot tools are mechanical (~0.5 day); the 4 canvas editors need a busy state so the view cannot render or edit self._doc while a save… |
 | RS-13 | Route the 9 hand-built file rows through app._file_row (adds drag-and-drop and the hint; widths 120-136 and heights 40-44 become 136x44) and add a ToolBase helper for the 8 Ctrl+O lambdas? |
 | RS-14 | Replace the 15 hand-built primary buttons (heights 44/46) with app._big_btn (height 50, 16 pt bold), or add a compact card variant of _big_btn first? |
 | V-18 | Signing: the PFX password reaches every signtool command line (/p); Uninstall.exe is written at install time and never signed (NSIS !uninstfinalize could); the loop re-signs Microsoft- and PSF-signed DLLs. Options: sign… |
@@ -409,7 +410,6 @@ and dependency floors); method and logs in `verification-2026-10-02.md`.
 | RS-05 | Home thumbnails/existence checks off the Tk thread need a worker plus placeholder cards; thumbnails are cached after the first visit and there is no correctness impact. Left for a performance pass. |
 | V-23 | Revisit if an ARM64 build is wanted. UPX (auditor F9) is L4-45. |
 | V-24 | Cosmetic. |
-| V-25 | Belongs with L3-50 (queue-based UI updates), the owner's call. |
 
 ## Not reviewed or not verified
 
