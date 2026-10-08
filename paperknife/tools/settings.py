@@ -4,14 +4,8 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, MUTED, SUCCESS
-from ..prefs import PREFS, _DEFAULTS, DPI_RANGE
-from ..recent import RECENT_STORE_MAX
-
-# (label, min, max) for the integer settings.
-_INT_RANGES = {
-    "max_recent":  ("Max recent files shown", 1, RECENT_STORE_MAX),
-    "default_dpi": ("Default DPI", *DPI_RANGE),
-}
+from ..prefs import PREFS
+from ..core import settings as core
 
 
 @register
@@ -84,32 +78,19 @@ class SettingsTool(ToolBase):
                      ).pack(side="right")
 
     def _save(self):
-        values = {}
-        for key, var in self._vars.items():
-            val = var.get()
-            if key in _INT_RANGES:
-                name, lo, hi = _INT_RANGES[key]
-                try:
-                    val = int(val)
-                except ValueError:
-                    val = None
-                if val is None or not lo <= val <= hi:
-                    messagebox.showwarning(
-                        "Not saved",
-                        f"{name} must be a whole number from {lo} to {hi}.")
-                    return
-            values[key] = val
-        for key, val in values.items():
-            setattr(PREFS, key, val)
+        values = {key: var.get() for key, var in self._vars.items()}
+        warning = core.check_values(values)
+        if warning:
+            messagebox.showwarning("Not saved", warning)
+            return
+        core.apply_values(PREFS, values)
         ctk.set_appearance_mode(PREFS.appearance)
         self._persist("✓  Preferences saved", "Preferences saved.")
 
     def _restore(self):
         if not messagebox.askyesno("Restore", "Reset all preferences to defaults?"):
             return
-        for key, val in _DEFAULTS.items():
-            if key != "window_geometry":
-                setattr(PREFS, key, val)
+        core.restore_defaults(PREFS)
         ctk.set_appearance_mode(PREFS.appearance)
         self._persist("✓  Preferences restored to defaults", None)
         self.show()
