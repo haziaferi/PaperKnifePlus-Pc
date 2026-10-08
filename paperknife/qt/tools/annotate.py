@@ -47,7 +47,7 @@ class AnnotatePage(DocHolder, WorkspacePage):
         self.primary("Save", self.save)
         self.view.pressed.connect(self._press)
         self.view.dragged.connect(self._drag)
-        self.view.released.connect(self._release)
+        self.view.released.connect(self._mouse_up)
         self.set_kind("highlight")
         self.show_current()
 
@@ -150,7 +150,7 @@ class AnnotatePage(DocHolder, WorkspacePage):
         self._band = self.view.add_scene_shape("line" if self.kind == "line" else "rect",
                                                x0, y0, xy[0], xy[1], "#2B4C8C")
 
-    def _release(self, xy):
+    def _mouse_up(self, xy):
         if self._start is None or self._doc is None:
             return
         (x0, y0), (cx, cy) = self._start, xy

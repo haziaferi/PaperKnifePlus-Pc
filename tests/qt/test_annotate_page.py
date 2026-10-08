@@ -23,7 +23,7 @@ def _scene(page, x, y):
 def _drag(page, p0, p1):
     page._press(_scene(page, *p0))
     page._drag(_scene(page, *p1))
-    page._release(_scene(page, *p1))
+    page._mouse_up(_scene(page, *p1))
 
 
 @pytest.mark.parametrize("kind,type_name", [
@@ -58,7 +58,7 @@ def test_click_selects_then_delete_removes(window, tmp_path):
     _drag(page, (100, 100), (200, 200))
     xy = _scene(page, 150, 150)
     page._press(xy)
-    page._release(xy)
+    page._mouse_up(xy)
     assert page.sel_xref is not None
     page.delete()
     pg = page._doc[0]
