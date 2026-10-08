@@ -1,75 +1,14 @@
 from __future__ import annotations
-import math
 import tkinter as tk
 from tkinter import messagebox, colorchooser
 from pathlib import Path
-import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..job_queue import atomic_output
+from ..core import enhance as core
+from ..core.enhance import (_COMPRESS_DPI, _image_rewrite_options,  # noqa: F401
+                            compress_pdf, watermark_pdf)
 from ..prefs import PREFS
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, WARN
-
-
-_COMPRESS_DPI = {"medium": 150, "aggressive": 96}
-
-
-def _image_rewrite_options(dpi: int):
-    # rewrite_images() hard-codes FZ_SUBSAMPLE_AVERAGE, which only divides by
-    # whole factors (a 360-DPI image lands at 180, not 150); bicubic hits the
-    # target exactly.  Bitonal images are left alone.
-    opts = fitz.mupdf.PdfImageRewriterOptions()
-    opts.recompress_when = fitz.mupdf.FZ_RECOMPRESS_WHEN_SMALLER
-    for kind in ("color_lossless", "color_lossy", "gray_lossless", "gray_lossy"):
-        setattr(opts, f"{kind}_image_recompress_method", fitz.mupdf.FZ_RECOMPRESS_JPEG)
-        setattr(opts, f"{kind}_image_recompress_quality", "80")
-        setattr(opts, f"{kind}_image_subsample_method", fitz.mupdf.FZ_SUBSAMPLE_BICUBIC)
-        setattr(opts, f"{kind}_image_subsample_threshold", dpi + 1)
-        setattr(opts, f"{kind}_image_subsample_to", dpi)
-    return opts
-
-
-# Both helpers take an open document and close it before the output is moved
-# into place, so *out* may be the input file itself.
-
-def compress_pdf(doc, out: str, level: str) -> None:
-    """Light: clean + deflate.  Medium/aggressive: also resample embedded
-    images above 150/96 DPI down to that DPI; page content is kept."""
-    with atomic_output(out) as tmp, doc:
-        dpi = _COMPRESS_DPI.get(level)
-        if dpi:
-            doc.rewrite_images(options=_image_rewrite_options(dpi))
-        doc.save(tmp, deflate=True, garbage=4, clean=True)
-
-
-def watermark_pdf(doc, out, text, size, opacity, color, stop, progress=None):
-    """Stamp *text* at 45° through the centre of every page.  Returns *out*,
-    or None when *stop* was set."""
-    with atomic_output(out) as tmp, doc:
-        total = len(doc)
-        for i, page in enumerate(doc):
-            if stop.is_set():
-                return None
-            r = page.rect
-            # A 45° line of length L and height fs spans (L + fs) / sqrt(2) on
-            # both axes; shrink the font until that fits inside the page.
-            per_pt = fitz.get_text_length(text, fontname="helv", fontsize=1)
-            fit = min(r.width, r.height) * 0.9 * math.sqrt(2) / (per_pt + 1)
-            fs = min(size, fit)
-            length = per_pt * fs
-            # insert_text works in unrotated page space, so place the centre
-            # there and add the page's /Rotate to keep the stamp at 45° on screen.
-            centre = fitz.Point(r.width / 2, r.height / 2) * page.derotation_matrix
-            page.insert_text(
-                fitz.Point(centre.x - length / 2, centre.y + fs * 0.35),
-                text, fontname="helv", fontsize=fs, color=color,
-                fill_opacity=opacity, stroke_opacity=opacity,
-                morph=(centre, fitz.Matrix(45 + page.rotation)),
-            )
-            if progress:
-                progress(i + 1, total)
-        doc.save(tmp, deflate=True)
-    return out
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -127,7 +66,7 @@ class CompressTool(ToolBase):
         orig  = Path(src).stat().st_size
 
         def work(stop):
-            compress_pdf(doc, out, level)
+            core.compress_pdf(doc, out, level)
             new  = Path(out).stat().st_size
             orig_kb, new_kb = orig // 1024, new // 1024
             def report():
@@ -241,11 +180,9 @@ class WatermarkTool(ToolBase):
         color   = self._color_rgb
         app     = self.app
 
-        def progress(n, total):
-            app.after(0, lambda v=n / total: app._prog_update(v))
-
         def work(stop):
-            if watermark_pdf(doc, out, text, size, opacity, color, stop, progress) is None:
+            if core.watermark_pdf(doc, out, text, size, opacity, color, stop,
+                                  lambda v: app.after(0, lambda: app._prog_update(v))) is None:
                 return
 
             def done():
@@ -264,10 +201,7 @@ class NormaliseTool(ToolBase):
     section = "ENHANCE"
     label   = "📐  Normalise Pages"
 
-    _PAGE_SIZES = {
-        "A4": (595, 842), "A3": (842, 1191), "A5": (420, 595),
-        "Letter": (612, 792), "Legal": (612, 1008), "Tabloid": (792, 1224),
-    }
+    _PAGE_SIZES = core.PAGE_SIZES
 
     def show(self):
         body = self._card("📐  Normalise Pages",
@@ -326,38 +260,14 @@ class NormaliseTool(ToolBase):
         out = self.app._save_as("normalised.pdf")
         if not out:
             return doc.close()
-        tw, th  = self._PAGE_SIZES[self._size.get()]
+        size    = self._size.get()
         orient  = self._orient.get()
-        if orient == "Landscape":
-            tw, th = th, tw
         stretch = "Stretch" in self._scale.get()
         app = self.app
 
-        pages = len(doc)
-
         def work(stop):
-            with atomic_output(out) as tmp, doc, fitz.open() as nd:
-                for page in doc:
-                    if stop.is_set():
-                        return          # nothing written: atomic_output drops the file
-                    app.after(0, lambda v=(page.number + 1) / pages: app._prog_update(v))
-                    pw, ph = page.rect.width, page.rect.height
-                    if orient == "Keep original":
-                        ftw, fth = (tw, th) if pw <= ph else (th, tw)
-                    else:
-                        ftw, fth = tw, th
-                    np = nd.new_page(width=ftw, height=fth)
-                    if stretch:
-                        clip = fitz.Rect(0, 0, ftw, fth)
-                    else:
-                        sx = ftw / pw
-                        sy = fth / ph
-                        sc = min(sx, sy)
-                        ox = (ftw - pw * sc) / 2
-                        oy = (fth - ph * sc) / 2
-                        clip = fitz.Rect(ox, oy, ox + pw * sc, oy + ph * sc)
-                    np.show_pdf_page(clip, doc, page.number, keep_proportion=not stretch)
-                nd.save(tmp, deflate=True)
+            core.normalise_pdf(doc, out, size, orient, stretch, stop,
+                               lambda v: app.after(0, lambda: app._prog_update(v)))
 
         def done(_):
             self.app._set_status(f"✓  Normalised → {Path(out).name}", SUCCESS)
