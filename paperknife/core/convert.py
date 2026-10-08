@@ -3,8 +3,10 @@ from __future__ import annotations
 import html
 import importlib.util as _ilu
 import io
+import os
 import re
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import pymupdf as fitz
@@ -383,3 +385,57 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
     if stop.is_set():
         return None
     return notes
+
+
+# ── extract embedded images ───────────────────────────────────────────────────
+@dataclass
+class Extracted:
+    count: int        # images written
+    scanned: int      # unique image xrefs looked at
+    failed: int       # images that could not be decoded or written
+
+
+def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> Extracted | None:
+    """Write every embedded image of *doc* (closed here) at least *min_px* on both
+    sides into *out_dir*, as "Original", "PNG" or "JPEG".  None if cancelled."""
+    from PIL import Image as _Image
+    seen, count, failed = set(), 0, 0
+    total = len(doc)
+    with doc:
+        for pg_i, page in enumerate(doc):
+            if stop.is_set():
+                return None
+            progress((pg_i + 1) / total)
+            for img_info in page.get_images(full=True):
+                xref = img_info[0]
+                if xref in seen:
+                    continue
+                seen.add(xref)
+                try:
+                    base = doc.extract_image(xref)
+                    w, h = base["width"], base["height"]
+                    if w < min_px or h < min_px:
+                        continue
+                    data = base["image"]
+                    ext  = base["ext"]
+                    if fmt == "PNG":
+                        img = _Image.open(io.BytesIO(data))
+                        if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
+                            img = img.convert("RGB")      # PNG cannot store CMYK
+                        buf = io.BytesIO()
+                        img.save(buf, "PNG")
+                        data = buf.getvalue()
+                        ext  = "png"
+                    elif fmt == "JPEG":
+                        img = _Image.open(io.BytesIO(data)).convert("RGB")
+                        buf = io.BytesIO()
+                        img.save(buf, "JPEG", quality=92)
+                        data = buf.getvalue()
+                        ext  = "jpg"
+                    fname = os.path.join(out_dir, f"img_{xref:05d}.{ext}")
+                    with atomic_output(fname) as tmp:
+                        Path(tmp).write_bytes(data)
+                    count += 1
+                except Exception:
+                    failed += 1
+    return Extracted(count, len(seen), failed)

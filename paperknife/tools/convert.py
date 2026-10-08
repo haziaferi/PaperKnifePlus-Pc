@@ -2,9 +2,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-import io, os
 import pymupdf as fitz
-from PIL import Image
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import (ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN,
@@ -229,47 +227,13 @@ class ExtractTool(ToolBase):
         log = self._log
 
         def work(stop):
-            seen, count, failed = set(), 0, 0
-            total = len(doc)
-            with doc:
-                for pg_i, page in enumerate(doc):
-                    if stop.is_set():
-                        return
-                    app.after(0, lambda v=(pg_i + 1) / total: app._prog_update(v))
-                    for img_info in page.get_images(full=True):
-                        xref = img_info[0]
-                        if xref in seen:
-                            continue
-                        seen.add(xref)
-                        try:
-                            base = doc.extract_image(xref)
-                            w, h = base["width"], base["height"]
-                            if w < min_px or h < min_px:
-                                continue
-                            data = base["image"]
-                            ext  = base["ext"]
-                            if fmt == "PNG":
-                                img = Image.open(io.BytesIO(data))
-                                if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
-                                    img = img.convert("RGB")      # PNG cannot store CMYK
-                                buf = io.BytesIO()
-                                img.save(buf, "PNG")
-                                data = buf.getvalue()
-                                ext  = "png"
-                            elif fmt == "JPEG":
-                                img = Image.open(io.BytesIO(data)).convert("RGB")
-                                buf = io.BytesIO()
-                                img.save(buf, "JPEG", quality=92)
-                                data = buf.getvalue()
-                                ext  = "jpg"
-                            fname = os.path.join(out_dir, f"img_{xref:05d}.{ext}")
-                            with atomic_output(fname) as tmp:
-                                Path(tmp).write_bytes(data)
-                            count += 1
-                        except Exception:
-                            failed += 1
+            res = core.extract_images(doc, out_dir, fmt, min_px, stop,
+                                      lambda v: app.after(0, lambda: app._prog_update(v)))
+            if res is None:
+                return
+            count, failed = res.count, res.failed
             msg = (f"Found and extracted {count} image(s)  "
-                   f"({len(seen)} unique xrefs scanned)")
+                   f"({res.scanned} unique xrefs scanned)")
             fail_txt = f"\n{failed} image(s) could not be extracted." if failed else ""
 
             def done():

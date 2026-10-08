@@ -82,6 +82,39 @@ def test_doc_to_pdf_image_page_matches_the_image(tmp_path):
         assert (round(d[0].rect.width), round(d[0].rect.height)) == (300, 200)
 
 
+def _pdf_with_images(path, sizes):
+    from PIL import Image
+    import io
+    d = fitz.open()
+    pg = d.new_page()
+    for i, (w, h) in enumerate(sizes):
+        buf = io.BytesIO()
+        Image.new("RGB", (w, h), (i * 40, 100, 200)).save(buf, "PNG")
+        pg.insert_image(fitz.Rect(20, 20 + i * 120, 120, 120 + i * 120), stream=buf.getvalue())
+    d.save(path)
+    return str(path)
+
+
+@pytest.mark.parametrize("fmt,ext", [("PNG", "png"), ("JPEG", "jpg")])
+def test_extract_images_skips_small_ones_and_converts(tmp_path, fmt, ext):
+    src = _pdf_with_images(tmp_path / "imgs.pdf", [(200, 150), (30, 30), (120, 90)])
+    out = tmp_path / "out"
+    out.mkdir()
+    res = core.extract_images(fitz.open(src), str(out), fmt, 50, threading.Event(),
+                              lambda v: None)
+    assert (res.count, res.scanned, res.failed) == (2, 3, 0)
+    assert sorted(p.suffix for p in out.iterdir()) == [f".{ext}", f".{ext}"]
+
+
+def test_extract_images_cancelled_returns_none(tmp_path):
+    src = _pdf_with_images(tmp_path / "imgs.pdf", [(200, 150)])
+    stop = threading.Event()
+    stop.set()
+    doc = fitz.open(src)
+    assert core.extract_images(doc, str(tmp_path), "PNG", 50, stop, lambda v: None) is None
+    assert doc.is_closed
+
+
 def test_doc_to_pdf_cancelled_returns_none_and_writes_nothing(tmp_path):
     src = tmp_path / "a.txt"
     src.write_text("x " * 5000, encoding="utf-8")
