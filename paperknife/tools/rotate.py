@@ -7,7 +7,7 @@ import customtkinter as ctk
 import pymupdf as fitz
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, CARD, CARD2, TEXT, MUTED, SUCCESS
-from ..job_queue import atomic_output
+from ..core import organise
 
 
 @register
@@ -145,15 +145,7 @@ class RotateTool(ToolBase):
 
         def work(stop):
             self._release(out)
-            with atomic_output(out) as tmp, fitz.open() as nd:
-                for pi in order:
-                    nd.insert_pdf(self._doc, from_page=pi, to_page=pi)
-                for ni, pi in enumerate(order):
-                    ex = extra[pi]
-                    if ex:
-                        p = nd[ni]
-                        p.set_rotation((p.rotation + ex) % 360)
-                nd.save(tmp, deflate=True)
+            organise.reorder(self._doc, order, extra, out)
 
         def done(_):
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)

@@ -1,14 +1,12 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import os
 from pathlib import Path
 import customtkinter as ctk
-import pymupdf as fitz
 from ..pages import PageRangeError, parse_ranges
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, MUTED, SUCCESS
-from ..job_queue import atomic_output
+from ..core import organise
 
 
 @register
@@ -59,19 +57,12 @@ class SplitTool(ToolBase):
         out_dir = self.app._ask_dir()
         if not out_dir:
             return doc.close()
-        base, app, parts = Path(src).stem, self.app, len(groups)
+        base, app = Path(src).stem, self.app
 
         def work(stop):
             with doc:                   # the job owns the document from here
-                for i, (fr, to) in enumerate(groups):
-                    if stop.is_set():
-                        return
-                    target = os.path.join(out_dir,
-                                          f"{base}_part{i + 1:02d}_p{fr + 1}-{to + 1}.pdf")
-                    with atomic_output(target) as tmp, fitz.open() as nd:
-                        nd.insert_pdf(doc, from_page=fr, to_page=to)
-                        nd.save(tmp, deflate=True)
-                    app.after(0, lambda v=(i + 1) / parts: app._prog_update(v))
+                organise.split_ranges(doc, groups, out_dir, base, stop,
+                                      lambda v: app.after(0, lambda: app._prog_update(v)))
 
         def done(_):
             self.app._set_status(f"✓  Split into {len(groups)} file(s) → {out_dir}", SUCCESS)

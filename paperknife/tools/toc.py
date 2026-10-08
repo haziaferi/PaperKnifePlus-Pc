@@ -4,6 +4,7 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 import customtkinter as ctk
 import pymupdf as fitz
+from ..core import organise
 from ..tool_base import ToolBase, register
 from ..theme import CARD, TEXT, DANGER, DANGER_H, SUCCESS
 
@@ -165,26 +166,16 @@ class TocTool(ToolBase):
         i = self._current_idx()
         if i is None:
             return
-        level = self._toc.pop(i)[0]
-        # Promote the deleted entry's children so the levels stay contiguous.
-        for e in self._toc[i:]:
-            if e[0] <= level:
-                break
-            e[0] -= 1
+        organise.delete_entry(self._toc, i)
         self._refresh()
 
     # ── save ──────────────────────────────────────────────────────────────────
     def _save(self):
         if not self._doc:
             return messagebox.showwarning("Save", "Open a PDF first.")
-        prev = 0
-        for n, (level, title, *_) in enumerate(self._toc, 1):
-            if level > prev + 1:
-                return messagebox.showwarning(
-                    "Save", f"Bookmark {n} ('{title}') is level {level} but "
-                            f"follows level {prev}; a bookmark can be at most "
-                            "one level deeper than the one above it.")
-            prev = level
+        problem = organise.toc_level_error(self._toc)
+        if problem:
+            return messagebox.showwarning("Save", problem)
         out = self.app._save_as("with_bookmarks.pdf")
         if not out:
             return

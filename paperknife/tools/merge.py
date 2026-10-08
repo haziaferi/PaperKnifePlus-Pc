@@ -6,7 +6,7 @@ import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, CARD2, TEXT, MUTED, DANGER, DANGER_H, SUCCESS
-from ..job_queue import atomic_output
+from ..core import organise
 from ..pages import PageRangeError, parse_ranges
 
 
@@ -180,24 +180,16 @@ class MergeTool(ToolBase):
         out = app._save_as("merged.pdf")
         if not out:
             return close_all()
-        n = len(jobs)
 
         def work(stop):
-            pg_total = 0
             try:
-                with atomic_output(out) as tmp, fitz.open() as merged:
-                    for i, (_, src, groups) in enumerate(jobs):
-                        if stop.is_set():
-                            return
-                        for fr, to in groups:
-                            merged.insert_pdf(src, from_page=fr, to_page=to)
-                            pg_total += to - fr + 1
-                        # The output may be one of the inputs; it must not be open at the replace.
-                        src.close()
-                        app.after(0, lambda v=(i+1)/n: app._prog_update(v))
-                    merged.save(tmp, deflate=True)
+                pg_total = organise.merge(
+                    [(src, groups) for _, src, groups in jobs], out, stop,
+                    lambda v: app.after(0, lambda: app._prog_update(v)))
             finally:
                 close_all()
+            if pg_total is None:
+                return
 
             def done():
                 app._set_status(

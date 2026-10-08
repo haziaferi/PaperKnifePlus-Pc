@@ -1,12 +1,10 @@
 from __future__ import annotations
-import re, os
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import CARD2, TEXT, MUTED, SUCCESS, WARN
-from ..job_queue import atomic_output
+from ..core import organise
 
 
 @register
@@ -87,40 +85,19 @@ class BookmarksTool(ToolBase):
         if not self._toc:
             return messagebox.showwarning("Bookmarks", "PDF has no bookmarks.")
         all_levels = "All" in self._level_var.get()
-        total = len(self._doc)
-        chosen = [(title, page) for level, title, page, *_ in self._toc
-                  if all_levels or level == 1]
-        # get_toc reports -1 for a bookmark with no page target; levels can
-        # also point backwards, so chapters are cut in page order.
-        entries = sorted(((t, p - 1) for t, p in chosen if 1 <= p <= total),
-                         key=lambda e: e[1])
-        skipped = len(chosen) - len(entries)
+        entries, skipped = organise.bookmark_chapters(self._toc, len(self._doc), all_levels)
         if not entries:
             return messagebox.showwarning("Bookmarks",
                                           "No matching bookmarks point to a page.")
         out_dir = self.app._ask_dir()
         if not out_dir:
             return
-        entries.append(("_END_", total))
-        app, parts = self.app, len(entries) - 1
+        app = self.app
 
         def work(stop):
-            count = 0
-            for i, (title, start) in enumerate(entries[:-1]):
-                if stop.is_set():
-                    break
-                end  = entries[i + 1][1] - 1
-                if start > end:
-                    continue
-                safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title)[:50].strip()
-                target = os.path.join(out_dir, f"{i + 1:02d}_{safe}.pdf")
-                self._release(target)
-                with atomic_output(target) as tmp, fitz.open() as nd:
-                    nd.insert_pdf(self._doc, from_page=start, to_page=end)
-                    nd.save(tmp, deflate=True)
-                count += 1
-                app.after(0, lambda v=(i + 1) / parts: app._prog_update(v))
-            return count
+            return organise.split_chapters(
+                self._doc, entries, out_dir, stop,
+                lambda v: app.after(0, lambda: app._prog_update(v)), release=self._release)
 
         def done(count):
             self.app._set_status(

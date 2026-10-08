@@ -8,7 +8,7 @@ import pytest
 from conftest import SRC
 
 TOOLKIT_FREE = ["paperknife", "paperknife.core", "paperknife.core.convert",
-                "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
+                "paperknife.core.organise", "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
                 "paperknife.pages", "paperknife.lineart", "paperknife.tool_base"]
 
 
