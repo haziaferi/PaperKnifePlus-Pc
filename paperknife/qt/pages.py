@@ -1021,12 +1021,294 @@ class CollectionPage(ToolPage):
         return super().accept_drop(path)        # a file card in the settings
 
 
-class OrganiserPage(ToolPage):
-    """TODO(phase 3): group B, page organiser (Rotate & Reorder, Split by
-    Bookmarks).
+THUMB_BOX = (120, 150)      # organiser: the largest thumbnail, in px
+THUMBS_PER_TICK = 4         # thumbnails rendered per event-loop turn
 
-    A thumbnail grid of the pages in the centre; the actions for the
-    selected pages in a context bar above it; the main action fixed."""
+
+def _thumb_delegate():
+    """Paints an organiser item: the page centred in THUMB_BOX with a hairline
+    border, its label under it; selected = accent border on a tinted backing,
+    hover = a faint backing.  (qfluentwidgets' ListWidget delegate paints
+    list rows only, clipping icons in IconMode.)"""
+    from PySide6.QtCore import QRect, QRectF, QSize
+    from PySide6.QtGui import QColor, QPen
+    from PySide6.QtWidgets import QStyle, QStyledItemDelegate
+
+    class ThumbDelegate(QStyledItemDelegate):
+        def sizeHint(self, option, index):
+            return QSize(THUMB_BOX[0] + 24, THUMB_BOX[1] + 40)
+
+        def paint(self, p, option, index):
+            p.save()
+            p.setRenderHint(QPainter.Antialiasing)
+            r = option.rect.adjusted(2, 2, -2, -2)
+            sel = bool(option.state & QStyle.State_Selected)
+            hover = bool(option.state & QStyle.State_MouseOver)
+            accent = theme.color("accent")
+            if sel or hover:
+                bg = QColor(accent)
+                bg.setAlpha(46 if sel else 18)
+                p.setPen(Qt.NoPen)
+                p.setBrush(bg)
+                p.drawRoundedRect(QRectF(r), 6, 6)
+            icon = index.data(Qt.DecorationRole)
+            box = QRect(r.x() + (r.width() - THUMB_BOX[0]) // 2, r.y() + 8, *THUMB_BOX)
+            if icon is not None and not icon.isNull():
+                pm = icon.pixmap(QSize(*THUMB_BOX))
+                dpr = pm.devicePixelRatio() or 1
+                w, h = int(pm.width() / dpr), int(pm.height() / dpr)
+                img = QRect(box.x() + (box.width() - w) // 2,
+                            box.y() + (box.height() - h) // 2, w, h)
+                p.drawPixmap(img, pm)
+            else:
+                img = QRect(box.x() + 20, box.y() + 10, box.width() - 40, box.height() - 20)
+                p.fillRect(img, theme.color("drop_zone"))
+            if sel:
+                p.setPen(QPen(accent, 2))
+            else:
+                p.setPen(QPen(theme.color("thumb_border"), 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(QRectF(img).adjusted(-0.5, -0.5, 0.5, 0.5))
+            p.setPen(theme.color("text" if sel else "muted"))
+            f = p.font()
+            f.setPixelSize(12)
+            p.setFont(f)
+            p.drawText(QRect(r.x(), box.bottom() + 6, r.width(), 20),
+                       Qt.AlignHCenter | Qt.AlignTop, str(index.data(Qt.DisplayRole) or ""))
+            p.restore()
+
+    return ThumbDelegate()
+
+
+class OrganiserPage(ToolPage):
+    """Group B, page organiser (Rotate & Reorder, Split by Bookmarks): the
+    file card on top, then a context bar with the actions for the selected
+    pages (add_action; they are enabled only while something is selected,
+    and a hint takes their place's meaning when nothing is), then the pages
+    as a thumbnail grid in a card.  Thumbnails can be dragged to a new place
+    (drag_reorder=True) and are rendered a few per event-loop turn, so a long
+    document never blocks the window.  settings=True adds a settings column
+    at the right (self.settings, as CollectionPage).  A page whose centre is
+    not a thumbnail grid (an outline) calls set_centre(widget).
+
+    The file card's on_change calls self.load(path); a subclass overrides
+    load() to open the document and call set_pages(keys, render, label).
+
+        set_pages(keys, render, label)  render(key) -> QImage; label(key) -> str
+        order() -> keys in their current order
+        selected() -> indices, in order; select(i); current() -> index | None
+        move(d)   move the selected page(s) by d places
+        refresh(i)  render item i again (after a rotation)"""
+
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
+                 settings: bool = False, drag_reorder: bool = True,
+                 hint: str = "Click a thumbnail to select it", parent=None):
+        from PySide6.QtCore import QSize, QTimer
+        from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget
+        super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
+                         parent=parent)
+        self.file = file_card(self.load)
+        self.body.addWidget(self.file)
+        self.body.addSpacing(8)
+
+        bar = QWidget()
+        bar.setObjectName("contextBar")
+        self.context_bar = QHBoxLayout(bar)
+        self.context_bar.setContentsMargins(0, 0, 0, 0)
+        self.context_bar.setSpacing(4)
+        self.hint_label = muted_caption(hint)
+        self.context_bar.addStretch(1)
+        self.context_bar.addWidget(self.hint_label)
+        self._hint = hint
+        self._actions: list = []
+        self.body.addWidget(bar)
+
+        cols = QHBoxLayout()
+        cols.setSpacing(16)
+        self.grid_card = SimpleCardWidget()
+        gv = QVBoxLayout(self.grid_card)
+        gv.setContentsMargins(8, 8, 8, 8)
+        self._grid_v = gv
+        g = QListWidget(self.grid_card)
+        g.setObjectName("thumbGrid")
+        g.setStyleSheet("QListWidget#thumbGrid { background: transparent; border: none; }")
+        self._delegate = _thumb_delegate()       # Qt does not own a Python delegate
+        g.setItemDelegate(self._delegate)
+        g.setMouseTracking(True)
+        g.viewport().setAttribute(Qt.WA_Hover, True)
+        g.setViewMode(QListView.IconMode)
+        g.setResizeMode(QListView.Adjust)
+        g.setWrapping(True)
+        g.setUniformItemSizes(True)
+        g.setSpacing(8)
+        g.setIconSize(QSize(*THUMB_BOX))
+        g.setGridSize(QSize(THUMB_BOX[0] + 24, THUMB_BOX[1] + 40))
+        g.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        g.setMovement(QListView.Snap if drag_reorder else QListView.Static)
+        g.setDragDropMode(QAbstractItemView.InternalMove if drag_reorder
+                          else QAbstractItemView.NoDragDrop)
+        g.setDefaultDropAction(Qt.MoveAction)
+        g.setFrameShape(QFrame.NoFrame)
+        g.itemSelectionChanged.connect(self._selection_changed)
+        self.grid = g
+        gv.addWidget(g)
+        self.empty_label = muted_caption("Open a PDF to see its pages")
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        gv.addWidget(self.empty_label)
+        cols.addWidget(self.grid_card, 1)
+
+        self.settings_area = None
+        self.settings = None
+        if settings:
+            sa = SingleDirectionScrollArea(self, Qt.Vertical)
+            sa.setWidgetResizable(True)
+            sa.enableTransparentBackground()
+            sa.setFrameShape(QFrame.NoFrame)
+            sa.setFixedWidth(SETTINGS_W)
+            sw = QWidget()
+            sw.setObjectName("organiserSettings")
+            sw.setStyleSheet("QWidget#organiserSettings { background: transparent; }")
+            self.settings = QVBoxLayout(sw)
+            self.settings.setContentsMargins(0, 0, 0, 0)
+            self.settings.setSpacing(8)
+            sa.setWidget(sw)
+            self.settings_area = sa
+            cols.addWidget(sa)
+        self.body.addLayout(cols, 1)
+
+        self._render = None
+        self._label = None
+        self._queue: list = []
+        self._timer = QTimer(self, interval=0)
+        self._timer.timeout.connect(self._render_some)
+        self._show_grid_state()
+        self._selection_changed()
+
+    @staticmethod
+    def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
+        return setting_row(group, title, desc, label_width=0)
+
+    # ── what a subclass fills ──
+    def load(self, path: str):
+        """The file card changed; open *path* and call set_pages()."""
+
+    def add_action(self, text: str, icon, slot, needs_selection: bool = True):
+        from qfluentwidgets import TransparentPushButton
+        b = TransparentPushButton(icon, text) if icon is not None else TransparentPushButton(text)
+        b.clicked.connect(slot)
+        b.pk_needs_selection = needs_selection
+        self.context_bar.insertWidget(len(self._actions), b)
+        self._actions.append(b)
+        self._selection_changed()
+        return b
+
+    def set_centre(self, w: QWidget):
+        """Put *w* in the card instead of the thumbnail grid."""
+        self.grid.hide()
+        self.empty_label.hide()
+        self._grid_v.addWidget(w)
+        self._centre = w
+
+    # ── pages ──
+    def set_pages(self, keys, render, label=None):
+        from PySide6.QtWidgets import QListWidgetItem
+        self._timer.stop()
+        self.grid.clear()
+        self._render, self._label = render, (label or (lambda k: str(k)))
+        for k in keys:
+            it = QListWidgetItem(self._label(k))
+            it.setData(Qt.UserRole, k)
+            it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            it.setFlags(it.flags() | Qt.ItemIsDragEnabled)
+            self.grid.addItem(it)
+        self._queue = list(range(self.grid.count()))
+        if self._queue:
+            self._timer.start()
+        self._show_grid_state()
+        self._selection_changed()
+
+    def clear_pages(self):
+        self._timer.stop()
+        self._queue = []
+        self.grid.clear()
+        self._show_grid_state()
+        self._selection_changed()
+
+    def _show_grid_state(self):
+        if getattr(self, "_centre", None) is not None:
+            return
+        empty = self.grid.count() == 0
+        self.grid.setVisible(not empty)
+        self.empty_label.setVisible(empty)
+
+    def _thumb_icon(self, key):
+        from PySide6.QtGui import QIcon, QPixmap
+        img = self._render(key)
+        pm = QPixmap.fromImage(img)
+        if pm.width() > THUMB_BOX[0] or pm.height() > THUMB_BOX[1]:
+            pm = pm.scaled(*THUMB_BOX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return QIcon(pm)
+
+    def _render_some(self):
+        for _ in range(THUMBS_PER_TICK):
+            if not self._queue:
+                self._timer.stop()
+                return
+            i = self._queue.pop(0)
+            it = self.grid.item(i)
+            if it is not None and self._render is not None:
+                it.setIcon(self._thumb_icon(it.data(Qt.UserRole)))
+
+    def rendering(self) -> bool:
+        return bool(self._queue)
+
+    def refresh(self, i: int):
+        it = self.grid.item(i)
+        if it is not None and self._render is not None:
+            it.setIcon(self._thumb_icon(it.data(Qt.UserRole)))
+            it.setText(self._label(it.data(Qt.UserRole)))
+
+    def order(self) -> list:
+        return [self.grid.item(i).data(Qt.UserRole) for i in range(self.grid.count())]
+
+    def selected(self) -> list[int]:
+        return sorted(self.grid.row(it) for it in self.grid.selectedItems())
+
+    def current(self) -> int | None:
+        s = self.selected()
+        return s[0] if s else None
+
+    def select(self, i: int | None):
+        self.grid.clearSelection()
+        if i is not None and 0 <= i < self.grid.count():
+            self.grid.item(i).setSelected(True)
+            self.grid.setCurrentRow(i)
+            self.grid.scrollToItem(self.grid.item(i))
+
+    def move(self, d: int):
+        """Move the selected pages by *d* places as a block, keeping them selected."""
+        sel = self.selected()
+        n = self.grid.count()
+        if not sel or not (0 <= sel[0] + d and sel[-1] + d < n):
+            return
+        items = [self.grid.takeItem(i) for i in reversed(sel)][::-1]
+        for k, it in zip([i + d for i in sel], items, strict=True):
+            self.grid.insertItem(k, it)
+        self.grid.clearSelection()
+        for it in items:
+            it.setSelected(True)
+
+    def _selection_changed(self):
+        has = bool(self.grid.selectedItems())
+        for b in self._actions:
+            if getattr(b, "pk_needs_selection", True):
+                b.setEnabled(has)
+        n = len(self.grid.selectedItems())
+        self.hint_label.setText(self._hint if not n else
+                                f"{n} page{'s' if n != 1 else ''} selected")
+
+    def accept_drop(self, path: str) -> bool:
+        return self.file.accept_drop(path)
 
 
 class MasterDetailPage(ToolPage):

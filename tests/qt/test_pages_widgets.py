@@ -97,3 +97,67 @@ def test_collection_row_extra_and_note(qapp, tmp_path):
     assert page.rows[0].note.text() == "✓" and not page.rows[0].note.isHidden()
     assert page.settings is not None
     page.close()
+
+
+def _organiser(n=6):
+    from PySide6.QtGui import QImage
+    from paperknife.qt.pages import OrganiserPage
+    page = OrganiserPage("Rotate & Reorder", "")
+    page.resize(1000, 700)
+    page.show()
+    calls = []
+
+    def render(k):
+        calls.append(k)
+        img = QImage(60, 80, QImage.Format_RGB32)
+        img.fill(0xFFFFFF)
+        return img
+    page.set_pages(list(range(n)), render, lambda k: f"p.{k + 1}")
+    return page, calls
+
+
+def test_organiser_renders_thumbs_a_few_per_turn(qapp):
+    page, calls = _organiser(n=10)
+    assert calls == [] and page.rendering()      # nothing rendered inside set_pages
+    pump(0.2)
+    assert sorted(calls) == list(range(10)) and not page.rendering()
+    assert not page.grid.item(0).icon().isNull()
+    page.close()
+
+
+def test_organiser_selection_enables_actions_and_moves_a_block(qapp):
+    from qfluentwidgets import FluentIcon as FIF
+    page, _ = _organiser()
+    hits = []
+    b = page.add_action("Rotate", FIF.ROTATE, lambda: hits.append(1))
+    assert not b.isEnabled() and "Click a thumbnail" in page.hint_label.text()
+    page.select(1)
+    page.grid.item(2).setSelected(True)
+    assert b.isEnabled() and page.selected() == [1, 2]
+    assert page.hint_label.text() == "2 pages selected"
+    page.move(1)
+    assert page.order() == [0, 3, 1, 2, 4, 5] and page.selected() == [2, 3]
+    page.move(-2)
+    assert page.order() == [1, 2, 0, 3, 4, 5]
+    page.move(-1)                                 # at the start: nothing moves
+    assert page.order() == [1, 2, 0, 3, 4, 5]
+    page.clear_pages()
+    assert page.order() == [] and page.empty_label.isVisibleTo(page)
+    page.close()
+
+
+def test_organiser_drop_goes_to_the_file_card(qapp, tmp_path):
+    from paperknife.qt.pages import OrganiserPage
+    loaded = []
+
+    class P(OrganiserPage):
+        def load(self, path):
+            loaded.append(path)
+    page = P("Rotate", "")
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF")
+    other = tmp_path / "a.txt"
+    other.write_text("x")
+    assert page.accept_drop(str(other)) is False
+    assert page.accept_drop(str(pdf)) is True and loaded == [str(pdf)]
+    page.close()
