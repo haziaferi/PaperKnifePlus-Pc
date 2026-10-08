@@ -86,6 +86,22 @@ def block_font(name: str) -> tuple[fitz.Font, bool]:
         return fitz.Font("helv"), False
 
 
+def text_blocks(page) -> list[tuple[int, dict]]:
+    """(index, block) for each text block of *page*, in page space.
+
+    "dict" spans carry their 'text'; "rawdict" spans only have per-char entries."""
+    raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+    return [(bi, b) for bi, b in enumerate(raw.get("blocks", [])) if b.get("type") == 0]
+
+
+def block_text(block: dict) -> str:
+    """The block's text with its line breaks kept, for editing.
+
+    Spans are consecutive runs of one line; their text already holds the spaces."""
+    return "\n".join("".join(s["text"] for s in line.get("spans", []))
+                     for line in block.get("lines", []))
+
+
 def block_style(block: dict) -> tuple:
     """Return (font_name, font_size, rgb) from the first span of the block."""
     try:

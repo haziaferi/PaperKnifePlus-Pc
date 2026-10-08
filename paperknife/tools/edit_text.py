@@ -1,7 +1,6 @@
 from __future__ import annotations
 from tkinter import messagebox
 import customtkinter as ctk
-import pymupdf as fitz
 from ..page_canvas import PageCanvasTool
 from ..tool_base import register
 from ..theme import ACCENT, ACCENT_H, CARD, MUTED, SUCCESS, WARN, _tk_color
@@ -78,11 +77,7 @@ class EditTextTool(PageCanvasTool):
     # ── render ────────────────────────────────────────────────────────────────
     def _draw_overlay(self, page):
         self._blocks = []
-        # "dict" spans carry their 'text'; "rawdict" spans only have per-char entries.
-        raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-        for bi, block in enumerate(raw.get("blocks", [])):
-            if block.get("type") != 0:
-                continue
+        for bi, block in core_text.text_blocks(page):
             bx0, by0, bx1, by1 = self._page_to_screen(block["bbox"], page)
             rid = self._canvas.create_rectangle(
                 bx0, by0, bx1, by1,
@@ -111,13 +106,9 @@ class EditTextTool(PageCanvasTool):
         block = next((it["block"] for it in self._blocks if it["bi"] == bi), None)
         if not block:
             return
-        lines_text = []
-        for line in block.get("lines", []):
-            # Spans are consecutive runs of one line; their text already holds the spaces.
-            lines_text.append("".join(s["text"] for s in line.get("spans", [])))
         self._edit_box.configure(state="normal")
         self._edit_box.delete("1.0", "end")
-        self._edit_box.insert("1.0", "\n".join(lines_text))
+        self._edit_box.insert("1.0", core_text.block_text(block))
         self._apply_btn.configure(state="normal")
         self._edit_box.focus_set()
 

@@ -18,3 +18,4 @@ from . import batch  # noqa: F401
 from . import toc  # noqa: F401
 from . import rotate  # noqa: F401
 from . import bookmarks  # noqa: F401
+from . import edit_text  # noqa: F401
