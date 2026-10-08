@@ -4,3 +4,7 @@ from . import split  # noqa: F401
 from . import password  # noqa: F401
 from . import pdftools  # noqa: F401
 from . import crop  # noqa: F401
+from . import watermark  # noqa: F401
+from . import normalise  # noqa: F401
+from . import headerfooter  # noqa: F401
+from . import ocr  # noqa: F401
