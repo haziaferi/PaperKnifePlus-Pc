@@ -1,0 +1,269 @@
+"""The Qt OCR page: a single-file transform.  Tesseract is stubbed (as in
+tests/test_convert.py) except for one test that needs the real binary and is
+skipped when none is found."""
+import html as _html
+import os
+import shutil
+
+import pymupdf as fitz
+import pytest
+
+from qt_harness import make_pdf, pump, wait_job
+
+_WORDS = [  # (text, conf, left, top, width, height) in 72-dpi pixels
+    ("Smith", 95, 100, 300, 50, 16),
+    ("&", 90, 155, 300, 10, 16),
+    ("don't", 92, 170, 300, 40, 16),
+    ("Ελληνικά", 88, 220, 300, 70, 16),
+    ("zzzq", 10, 300, 300, 40, 16),
+]
+
+
+@pytest.fixture
+def tess(monkeypatch):
+    import pytesseract
+    calls = {"sizes": []}
+
+    def scale_of(img):
+        return img.size[0] / 595.0
+
+    def image_to_data(img, lang=None, output_type=None, **k):
+        calls["lang"] = lang
+        calls["sizes"].append(img.size)
+        s = scale_of(img)
+        d = {"text": [], "conf": [], "left": [], "top": [], "width": [], "height": []}
+        for text, conf, x, y, w, h in _WORDS:
+            for key, v in zip(("text", "conf", "left", "top", "width", "height"),
+                              (text, conf, x * s, y * s, w * s, h * s), strict=True):
+                d[key].append(round(v) if key not in ("text", "conf") else v)
+        return d
+
+    def image_to_pdf_or_hocr(img, lang=None, extension=None, **k):
+        calls["lang"] = lang
+        s = scale_of(img)
+        spans = "".join(
+            f"<span class='ocrx_word' title='bbox {round(x*s)} {round(y*s)} "
+            f"{round((x+w)*s)} {round((y+h)*s)}; x_wconf {c}'>{_html.escape(t)}</span>"
+            for t, c, x, y, w, h in _WORDS)
+        return f"<html><body>{spans}</body></html>".encode()
+
+    def image_to_string(img, lang=None, **k):
+        calls["lang"] = lang
+        calls["sizes"].append(img.size)
+        return "Plain OCR text"
+
+    monkeypatch.setattr(pytesseract, "get_tesseract_version", lambda: "5.0")
+    monkeypatch.setattr(pytesseract, "image_to_data", image_to_data)
+    monkeypatch.setattr(pytesseract, "image_to_pdf_or_hocr", image_to_pdf_or_hocr)
+    monkeypatch.setattr(pytesseract, "image_to_string", image_to_string)
+    return calls
+
+
+@pytest.fixture
+def prefs(monkeypatch):
+    from paperknife.prefs import PREFS
+    monkeypatch.setitem(PREFS._data, "ocr_lang", "ita")
+    monkeypatch.setitem(PREFS._data, "default_dpi", 200)
+    return PREFS
+
+
+def _page(window):
+    assert window.open_tool("OCRTool")
+    pump(0.05)
+    return window.current_page()
+
+
+def _spy_open(window):
+    opened = []
+    real = window.open_pdf_safe
+
+    def spy(path):
+        doc = real(path)
+        opened.append(doc)
+        return doc
+    window.open_pdf_safe = spy
+    return opened
+
+
+def _source_pdf(path, rotation=0):
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 120), "Original vector heading", fontsize=18, color=(0, 0, 1))
+    page.draw_rect(fitz.Rect(72, 500, 300, 560), color=(1, 0, 0), width=2)
+    page.set_rotation(rotation)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def _run(window, dialogs, page, src, out):
+    page.file.set_path(src)
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+
+
+def test_the_page_builds_with_the_ctk_defaults(window):
+    page = _page(window)
+    assert page.title_label.text() == "OCR"
+    assert page.lang.text() == "eng" and page.lang.placeholderText() == "eng"
+    assert page.dpi.minimum() == 72 and page.dpi.maximum() == 400
+    assert page.dpi_label.text() == f"{page.dpi.value()} DPI"
+    page.dpi.setValue(123)
+    assert page.dpi_label.text() == "123 DPI"
+    assert page.text_only is False and page.run_button.isEnabled()
+
+
+def test_without_a_file_it_warns(window, dialogs):
+    page = _page(window)
+    page.run()
+    assert dialogs.msgs[-1] == ("warning", "OCR", "Select a PDF first.")
+    assert not window._current_job
+
+
+def test_ocr_overlay_keeps_original_page_and_adds_clean_text(window, dialogs, tmp_path, tess):
+    page = _page(window)
+    src = _source_pdf(tmp_path / "scan.pdf")
+    out = tmp_path / "ocr.pdf"
+    _run(window, dialogs, page, src, out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(src) as a, fitz.open(out) as b:
+        text = b[0].get_text()
+        words = {w[4] for w in b[0].get_text("words")}
+        assert {"Smith", "&", "don't", "Ελληνικά"} <= words, text
+        assert "zzzq" not in text, "low-confidence words must be dropped"
+        assert "Original vector heading" in text, "the original page content was replaced"
+        assert not b[0].get_images(), "the page was rasterised"
+        assert a[0].get_pixmap(alpha=False).samples == b[0].get_pixmap(alpha=False).samples
+    assert dialogs.msgs[-1] == ("info", "OCR Complete",
+                                f"OCR PDF saved:\n{out}\n\nPages processed: 1")
+    assert window.status_text() == "✓  OCR complete — 1 page(s) → ocr.pdf"
+    assert page.log.text() == "✓  Done — 1 page(s) processed"
+
+
+def test_ocr_overlay_places_words_on_rotated_page(window, dialogs, tmp_path, tess):
+    page = _page(window)
+    src = _source_pdf(tmp_path / "rot.pdf", rotation=90)
+    out = tmp_path / "rot_ocr.pdf"
+    _run(window, dialogs, page, src, out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(src) as a, fitz.open(out) as b:
+        pg = b[0]
+        assert pg.rotation == 0
+        smith = [w for w in pg.get_text("words") if w[4] == "Smith"]
+        assert smith, pg.get_text()
+        x0, y0, x1, y1 = smith[0][:4]
+        sx = pg.rect.width / 595.0
+        assert abs(x0 - 100 * sx) < 4 and abs(y1 - 316 * sx) < 6, smith
+        assert a[0].get_pixmap(alpha=False).samples == pg.get_pixmap(alpha=False).samples
+
+
+def test_ocr_uses_preferences_language_and_dpi(window, dialogs, tmp_path, tess, prefs):
+    page = _page(window)
+    assert page.lang.text() == "ita"
+    assert page.dpi.value() == 200 and page.dpi_label.text() == "200 DPI"
+    _run(window, dialogs, page, _source_pdf(tmp_path / "p.pdf"), tmp_path / "p_ocr.pdf")
+    assert tess["lang"] == "ita"
+    assert tess["sizes"] == [(round(595 * 200 / 72), round(842 * 200 / 72))]
+
+
+def test_language_and_dpi_reach_tesseract(window, dialogs, tmp_path, tess):
+    page = _page(window)
+    page.lang.setText("deu+fra")
+    page.dpi.setValue(144)
+    _run(window, dialogs, page, _source_pdf(tmp_path / "p.pdf"), tmp_path / "o.pdf")
+    assert tess["lang"] == "deu+fra" and tess["sizes"] == [(1190, 1684)]
+    page.lang.setText("  ")                 # blank falls back to eng
+    _run(window, dialogs, page, _source_pdf(tmp_path / "q.pdf"), tmp_path / "o2.pdf")
+    assert tess["lang"] == "eng"
+
+
+def test_text_only_mode_writes_a4_text_pages(window, dialogs, tmp_path, tess):
+    page = _page(window)
+    page.modes["text"].setChecked(True)
+    assert page.text_only is True
+    out = tmp_path / "text.pdf"
+    _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf", pages=2), out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as d:
+        assert len(d) == 2
+        assert all("Plain OCR text" in p.get_text() for p in d)
+        assert "Page 2" not in d[1].get_text()
+        assert (round(d[0].rect.width), round(d[0].rect.height)) == (595, 842)
+
+
+def test_missing_tesseract_is_an_error_and_writes_nothing(window, dialogs, tmp_path,
+                                                          monkeypatch):
+    import pytesseract
+
+    def missing():
+        raise pytesseract.TesseractNotFoundError()
+    monkeypatch.setattr(pytesseract, "get_tesseract_version", missing)
+    page = _page(window)
+    opened = _spy_open(window)
+    out = tmp_path / "o.pdf"
+    _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), out)
+    assert dialogs.errors() and "Tesseract not found" in dialogs.errors()[-1][2]
+    assert opened and opened[0].is_closed and not out.exists()
+
+
+def test_without_pytesseract_the_page_says_how_to_install_it(window, dialogs, monkeypatch,
+                                                             tmp_path):
+    from paperknife.core import ocr as core_ocr
+    monkeypatch.setattr(core_ocr, "HAS_OCR", False)
+    page = _page(window)
+    assert page.missing is not None and not page.run_button.isEnabled()
+    assert page.accept_drop(make_pdf(tmp_path / "in.pdf")) is False
+    page.run()
+    assert not dialogs.msgs and not window._current_job
+
+
+def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
+    page = _page(window)
+    src = make_pdf(tmp_path / "in.pdf")
+    other = tmp_path / "x.txt"
+    other.write_text("x", encoding="utf-8")
+    assert page.accept_drop(str(other)) is False and page.file.path() == ""
+    assert page.accept_drop(src) is True and page.file.path() == src
+
+
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+    page = _page(window)
+    page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    opened = _spy_open(window)
+    page.run()
+    assert opened and opened[0].is_closed
+    assert not window._current_job
+
+
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, tess):
+    page = _page(window)
+    opened = _spy_open(window)
+    _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), tmp_path / "o.pdf")
+    assert window.show_page("home")
+    assert opened and all(d.is_closed for d in opened)
+
+
+def _real_tesseract():
+    from paperknife.core import ocr as core_ocr
+    if shutil.which("tesseract"):
+        return True
+    return any(os.path.isfile(os.path.join(os.environ.get(v, ""), sub, "tesseract.exe"))
+               for v, sub in core_ocr.TESS_DIRS)
+
+
+@pytest.mark.skipif(not _real_tesseract(), reason="no Tesseract binary on this machine")
+def test_ocr_with_real_tesseract_makes_an_image_only_page_searchable(window, dialogs, tmp_path):
+    with fitz.open() as text_doc, fitz.open() as img:
+        p = text_doc.new_page()
+        p.insert_text((72, 120), "Invoice quarterly statement", fontsize=22)
+        img.new_page(width=p.rect.width, height=p.rect.height).insert_image(
+            p.rect, pixmap=p.get_pixmap(dpi=200))
+        img.save(tmp_path / "image_only.pdf")
+    page = _page(window)
+    out = tmp_path / "real_ocr.pdf"
+    _run(window, dialogs, page, str(tmp_path / "image_only.pdf"), out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as doc:
+        for word in ("Invoice", "quarterly", "statement"):
+            assert doc[0].search_for(word), (word, doc[0].get_text())
