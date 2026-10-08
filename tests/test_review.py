@@ -331,7 +331,7 @@ def test_prefs_file_that_is_not_utf8_is_renamed(tmp_path, monkeypatch):
 
 # ── RC-10: a cancelled batch says so ─────────────────────────────────────────
 def test_cancelled_batch_does_not_report_success(app, dialogs, tmp_path, monkeypatch):
-    from paperknife.tools import batch
+    from paperknife.core import batch       # the worker looks compress_pdf up here
     in_dir, out_dir = tmp_path / "in", tmp_path / "out"
     in_dir.mkdir()
     out_dir.mkdir()

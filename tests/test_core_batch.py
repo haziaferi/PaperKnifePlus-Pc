@@ -1,0 +1,94 @@
+"""paperknife.core.batch without any user interface: every operation, option
+checks, password-protected inputs and Cancel."""
+import threading
+
+import pymupdf as fitz
+import pytest
+
+from conftest import make_pdf
+from paperknife.core import batch as core
+from paperknife.prefs import DPI_RANGE
+
+
+def _locked(path):
+    src = make_pdf(path.with_name("plain.pdf"), pages=1)
+    with fitz.open(src) as d:
+        d.save(path, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="u", owner_pw="o")
+    return str(path)
+
+
+def test_ops_are_the_four_batch_operations():
+    assert list(core.OPS) == ["Compress", "Watermark", "OCR", "PDF → TXT"]
+
+
+def test_validate_options_converts_numbers_in_place():
+    opts = {"text": "X", "size": "48", "opacity": "0.5"}
+    assert core.validate_options(opts) is opts
+    assert opts == {"text": "X", "size": 48, "opacity": 0.5}
+    lo, _ = DPI_RANGE
+    assert core.validate_options({"lang": "eng", "dpi": str(lo)}) == {"lang": "eng", "dpi": lo}
+    assert core.validate_options({"level": "light"}) == {"level": "light"}
+
+
+@pytest.mark.parametrize("opts", [{"size": "big"}, {"size": "0"}, {"opacity": "0"},
+                                  {"opacity": "1.5"}, {"dpi": "1"}, {"dpi": "150.5"}])
+def test_validate_options_refuses_bad_values_with_the_message(opts):
+    lo, hi = DPI_RANGE
+    with pytest.raises(ValueError) as e:
+        core.validate_options(opts)
+    assert str(e.value) == (f"Size must be a positive whole number, DPI a whole number "
+                            f"from {lo} to {hi}, opacity a number above 0 and up to 1.")
+
+
+def test_open_input_refuses_a_password_protected_file(tmp_path):
+    with pytest.raises(ValueError, match="password-protected"):
+        core.open_input(_locked(tmp_path / "locked.pdf"))
+
+
+@pytest.mark.parametrize("op,opts,name", [
+    ("Compress", {"level": "light"}, "a_compressed.pdf"),
+    ("Watermark", {"text": "BATCH MARK", "size": 40, "opacity": 0.3}, "a_watermarked.pdf"),
+    ("PDF → TXT", {}, "a.txt"),
+])
+def test_each_operation_writes_its_output(tmp_path, op, opts, name):
+    src = make_pdf(tmp_path / "a.pdf", pages=2)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    res = core.OPS[op](src, str(out_dir), opts, threading.Event())
+    assert res == str(out_dir / name)
+    if name.endswith(".txt"):
+        text = (out_dir / name).read_text(encoding="utf-8")
+        assert "Page 1" in text and "── Page Break ──" in text and "Page 2" in text
+    else:
+        with fitz.open(res) as d:
+            assert d.page_count == 2
+            if op == "Watermark":
+                assert "BATCH MARK" in d[0].get_text()
+
+
+def test_ocr_operation_adds_a_text_layer(tmp_path, monkeypatch):
+    pytesseract = pytest.importorskip("pytesseract")
+    monkeypatch.setattr(pytesseract, "image_to_data", lambda img, lang=None, **k: {
+        "text": ["", "HELLO"], "conf": [-1, 95], "left": [0, 100], "top": [0, 200],
+        "width": [0, 150], "height": [0, 40]})
+    src = make_pdf(tmp_path / "a.pdf", pages=1)
+    res = core.OPS["OCR"](src, str(tmp_path), {"lang": "eng", "dpi": 72}, threading.Event())
+    with fitz.open(res) as d:
+        assert "HELLO" in d[0].get_text()
+
+
+@pytest.mark.parametrize("op", ["Compress", "Watermark", "OCR", "PDF → TXT"])
+def test_each_operation_cancelled_returns_none_and_writes_nothing(tmp_path, op):
+    src = make_pdf(tmp_path / "a.pdf", pages=2)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    stop = threading.Event()
+    stop.set()
+    assert core.OPS[op](src, str(out_dir), {}, stop) is None
+    assert list(out_dir.iterdir()) == []
+
+
+@pytest.mark.parametrize("op", ["Compress", "Watermark", "OCR", "PDF → TXT"])
+def test_each_operation_refuses_a_password_protected_input(tmp_path, op):
+    with pytest.raises(ValueError, match="password-protected"):
+        core.OPS[op](_locked(tmp_path / "locked.pdf"), str(tmp_path), {}, threading.Event())

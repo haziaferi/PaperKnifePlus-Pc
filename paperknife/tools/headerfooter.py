@@ -3,11 +3,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 from datetime import date
-import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
-from ..job_queue import atomic_output
+from ..core import headerfooter as core
 from ..pages import PageRangeError, selected_pages
 
 _TOKENS = (
@@ -129,11 +128,9 @@ class HeaderFooterTool(ToolBase):
         fi     = _FONT_LABELS.index(self._font.get())
         font   = _FONTS[fi]
         try:
-            size   = float(self._size.get()   or "10")
-            margin = float(self._margin.get() or "20")
-        except ValueError:
-            return messagebox.showwarning(
-                "Header/Footer", "Enter numeric values for size and margin.")
+            size, margin = core.parse_style(self._size.get(), self._margin.get())
+        except ValueError as e:
+            return messagebox.showwarning("Header/Footer", str(e))
 
         range_str = self._page_range.get().strip()
         today_str = date.today().strftime("%Y-%m-%d")
@@ -151,37 +148,9 @@ class HeaderFooterTool(ToolBase):
         if not out:
             return doc.close()
 
-        is_top   = pos.startswith("top")
-        is_left  = pos.endswith("left")
-        is_right = pos.endswith("right")
         def work(stop):
-            with atomic_output(out) as tmp, doc:
-                for pg_num in pages:
-                    if stop.is_set():
-                        return          # nothing written: atomic_output drops the file
-                    page = doc[pg_num]
-                    w, h = page.rect.width, page.rect.height
-                    text = (content_tmpl
-                            .replace("{page}",  str(pg_num + 1))
-                            .replace("{total}", str(total))
-                            .replace("{date}",  today_str))
-                    tw = fitz.get_text_length(text, fontname=font, fontsize=size)
-                    if is_left:
-                        x = margin
-                    elif is_right:
-                        x = w - margin - tw
-                    else:
-                        x = (w - tw) / 2
-
-                    y = margin + size if is_top else h - margin
-
-                    page.insert_text(
-                        fitz.Point(x, y), text,
-                        fontname=font, fontsize=size,
-                        color=(0, 0, 0),
-                    )
-
-                doc.save(tmp, deflate=True)
+            core.stamp_pdf(doc, out, pages, content_tmpl, pos, font, size, margin,
+                           today_str, stop)
 
         def done(_):
             self.app._set_status(

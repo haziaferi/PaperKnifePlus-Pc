@@ -1,17 +1,12 @@
 from __future__ import annotations
-import secrets
 import tkinter as tk
 from tkinter import messagebox
 from pathlib import Path
-import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..job_queue import atomic_output
+from ..core import password as core
+from ..core.password import ALL_PERMS as _ALL_PERMS  # noqa: F401
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, DANGER, DANGER_H, SUCCESS
-
-_ALL_PERMS = (fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_COPY
-              | fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_ANNOTATE | fitz.PDF_PERM_FORM
-              | fitz.PDF_PERM_ACCESSIBILITY | fitz.PDF_PERM_ASSEMBLE)
 
 
 @register
@@ -69,17 +64,11 @@ class PasswordTool(ToolBase):
         pw = self._pw1.get()
         if not pw:
             return messagebox.showwarning("Protect", "Enter a password.")
-        # Anyone who knows the owner password gets every right, so an owner
-        # password equal to the open password would void the restrictions.
-        owner = self._pw2.get() or secrets.token_urlsafe(24)
+        owner = core.owner_password(self._pw2.get())
         out   = self.app._save_as("protected.pdf")
         if not out:
             return
-        perm = _ALL_PERMS
-        if not self._allow_print.get():
-            perm &= ~(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ)
-        if not self._allow_copy.get():
-            perm &= ~fitz.PDF_PERM_COPY
+        perm = core.permissions(self._allow_print.get(), self._allow_copy.get())
         doc = self._open_unlocked(src, self._cur_pw.get(), "Protect",
                                   "This PDF is already encrypted. Enter its password "
                                   "in “Current password” below to change it.")
@@ -87,9 +76,7 @@ class PasswordTool(ToolBase):
             return
 
         def work(stop):
-            with atomic_output(out) as tmp, doc:
-                doc.save(tmp, encryption=fitz.PDF_ENCRYPT_AES_256,
-                         user_pw=pw, owner_pw=owner, permissions=perm)
+            core.protect_pdf(doc, out, pw, owner, perm)
 
         def done(_):
             self.app._set_status(f"✓  Protected → {Path(out).name}", SUCCESS)
@@ -104,15 +91,12 @@ class PasswordTool(ToolBase):
         to open (or, with any_encryption, whenever it is encrypted at all), or
         None after telling the user why not."""
         try:
-            doc = fitz.open(src)
+            doc = core.open_unlocked(src, password, any_encryption)
         except Exception as e:
             messagebox.showerror("Error", str(e))
             return None
-        locked = doc.is_encrypted if any_encryption else doc.needs_pass
-        if locked and not doc.authenticate(password):
-            doc.close()
+        if doc is None:
             messagebox.showerror(title, wrong_message)
-            return None
         return doc
 
     def _unprotect(self):
@@ -128,8 +112,7 @@ class PasswordTool(ToolBase):
             return
 
         def work(stop):
-            with atomic_output(out) as tmp, doc:
-                doc.save(tmp, encryption=fitz.PDF_ENCRYPT_NONE)
+            core.unprotect_pdf(doc, out)
 
         def done(_):
             self.app._set_status(f"✓  Unlocked → {Path(out).name}", SUCCESS)

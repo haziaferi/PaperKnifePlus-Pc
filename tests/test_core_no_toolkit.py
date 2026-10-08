@@ -9,7 +9,12 @@ from conftest import SRC
 
 TOOLKIT_FREE = ["paperknife", "paperknife.core", "paperknife.core.convert",
                 "paperknife.core.organise", "paperknife.core.text", "paperknife.core.redact",
-                "paperknife.core.annotate", "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
+                "paperknife.core.annotate", "paperknife.core.doc_state",
+                "paperknife.core.enhance", "paperknife.core.headerfooter",
+                "paperknife.core.crop", "paperknife.core.pdftools",
+                "paperknife.core.password", "paperknife.core.metadata",
+                "paperknife.core.ocr", "paperknife.core.batch",
+                "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
                 "paperknife.pages", "paperknife.lineart", "paperknife.tool_base"]
 
 

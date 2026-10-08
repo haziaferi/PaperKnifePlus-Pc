@@ -1,36 +1,13 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from datetime import datetime
 from pathlib import Path
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
+from ..core import metadata as core
+from ..core.metadata import FIELDS as _FIELDS, DATE_KEYS as _DATE_KEYS  # noqa: F401
+from ..core.metadata import pdf_date as _pdf_date  # noqa: F401
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS
-
-_FIELDS = [
-    ("title",    "Title"),
-    ("author",   "Author"),
-    ("subject",  "Subject"),
-    ("keywords", "Keywords"),
-    ("creator",  "Creator (application)"),
-    ("producer", "Producer"),
-    ("creationDate", "Creation date"),
-    ("modDate",      "Modified date"),
-]
-_DATE_KEYS = ("creationDate", "modDate")
-
-
-def _pdf_date(text: str) -> str:
-    """Return *text* as a PDF date string (D:YYYYMMDDHHmmSS); raise ValueError if unreadable."""
-    text = text.strip()
-    if not text or text.startswith("D:"):
-        return text
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt).strftime("D:%Y%m%d%H%M%S")
-        except ValueError:
-            pass
-    raise ValueError(text)
 
 
 @register
@@ -90,8 +67,7 @@ class MetadataTool(ToolBase):
         if not self._doc:
             return
         self._path_var.set(f)
-        meta = self._doc.metadata or {}
-        self._loaded = {key: meta.get(key, "") or "" for key, _ in _FIELDS}
+        self._loaded = core.read_metadata(self._doc)
         for key, _ in _FIELDS:
             self._vars[key].set(self._loaded[key])
 
@@ -103,25 +79,16 @@ class MetadataTool(ToolBase):
         if not self._doc:
             return messagebox.showwarning("Save", "Open a PDF first.")
         meta = {key: self._vars[key].get() for key, _ in _FIELDS}
-        for key, label in _FIELDS:
-            if key in _DATE_KEYS:
-                try:
-                    meta[key] = _pdf_date(meta[key])
-                except ValueError:
-                    return messagebox.showerror(
-                        "Metadata", f"{label}: use YYYY-MM-DD, YYYY-MM-DD HH:MM[:SS] "
-                                    "or a PDF date (D:YYYYMMDDHHmmSS).")
+        error = core.check_dates(meta)
+        if error:
+            return messagebox.showerror("Metadata", error)
         out = self.app._save_as("with_metadata.pdf")
         if not out:
             return
         changed = meta != self._loaded
 
         def work(stop):
-            self._doc.set_metadata(meta)
-            if changed:
-                # Viewers read the XMP stream too; left alone it would keep the
-                # old (or cleared) values.
-                self._doc.del_xml_metadata()
+            core.apply_metadata(self._doc, meta, changed)
             # garbage=1 drops the replaced Info and XMP objects from the file
             # (levels 2-3 cost the square of the page count: tests/test_save_settings.py).
             self._save_doc(out, garbage=1, deflate=True)
