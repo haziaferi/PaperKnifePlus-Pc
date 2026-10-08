@@ -51,7 +51,7 @@ class RedactPage(DocHolder, WorkspacePage):
         self.primary("Apply and save", self.save, danger=True)
         self.view.pressed.connect(self._press)
         self.view.dragged.connect(self._drag)
-        self.view.released.connect(self._release)
+        self.view.released.connect(self._mouse_up)
         self.set_kind("box")
         self.show_current()
 
@@ -163,7 +163,7 @@ class RedactPage(DocHolder, WorkspacePage):
         self._band = self.view.add_scene_shape("rect", x0, y0, xy[0], xy[1],
                                                theme.hex_color("danger"))
 
-    def _release(self, xy):
+    def _mouse_up(self, xy):
         if self._start is None or self._doc is None:
             return
         (x0, y0), (cx, cy) = self._start, xy

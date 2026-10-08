@@ -60,7 +60,7 @@ def _scene(page, x, y):
 def _drag(page, p0, p1):
     page._press(_scene(page, *p0))
     page._drag(_scene(page, *p1))
-    page._release(_scene(page, *p1))
+    page._mouse_up(_scene(page, *p1))
 
 
 def _apply_save(window, dialogs, page, out, fill="Black"):
@@ -125,7 +125,7 @@ def test_a_drag_marks_a_box_undo_and_remove_take_it_back(window, tmp_path):
     # A click is not a box.
     xy = _scene(page, 100, 100)
     page._press(xy)
-    page._release(xy)
+    page._mouse_up(xy)
     assert page._pending == []
 
 
