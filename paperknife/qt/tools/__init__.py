@@ -15,3 +15,4 @@ from . import doc2pdf  # noqa: F401
 from . import img2pdf  # noqa: F401
 from . import merge  # noqa: F401
 from . import batch  # noqa: F401
+from . import redact  # noqa: F401

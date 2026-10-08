@@ -3,7 +3,6 @@ import tkinter as tk
 from tkinter import messagebox
 from pathlib import Path
 import customtkinter as ctk
-import pymupdf as fitz
 from ..page_canvas import PageCanvasTool
 from ..tool_base import register
 from ..theme import (ACCENT, ACCENT_H, CARD, CARD2, TEXT, MUTED, SUCCESS, WARN, DANGER, DANGER_H,
@@ -166,15 +165,9 @@ class RedactTool(PageCanvasTool):
         app = self.app
 
         def work(stop):
-            found, total = [], len(self._doc)
-            for pg_num in range(total):
-                if stop.is_set():
-                    return None
-                # search_for ignores case; for redaction over-marking is the safe side
-                # (Find & Replace needs exact case and searches the characters itself).
-                found += [(pg_num, rect, needle) for rect in self._doc[pg_num].search_for(needle)]
-                app.after(0, lambda v=(pg_num + 1) / total: app._prog_update(v))
-            return found
+            return core_redact.find_phrase(
+                self._doc, needle, stop,
+                lambda v: app.after(0, lambda: app._prog_update(v)))
 
         def done(found):
             # A cancelled search marks nothing: half the matches would look like all.
@@ -202,40 +195,21 @@ class RedactTool(PageCanvasTool):
             icon="warning",
         ):
             return
-        fill = (0, 0, 0) if self._fill_var.get() == "Black" else (1, 1, 1)
+        fill = core_redact.FILLS[self._fill_var.get()]
         pending = list(self._pending)
-        by_page: dict[int, list[fitz.Rect]] = {}
-        for pg_num, r, _ in pending:
-            by_page.setdefault(pg_num, []).append(r)
+        pages = len({p[0] for p in pending})
         modes: dict[int, str] = {}      # page number -> how its line art went
         secrets: dict[str, bool] = {}
         app = self.app
 
         def work(stop):
-            pages = len(by_page)
-            for i, (pg_num, rects) in enumerate(by_page.items()):
-                if stop.is_set():
-                    return              # the boxes of the pages not done stay pending
-                for pg, r, phrase in pending:
-                    if pg != pg_num:
-                        continue
-                    if phrase:
-                        secrets[phrase] = False
-                    else:
-                        # What a drawn box covered, so _save can find it outside the page.
-                        for ln in self._doc[pg_num].get_textbox(r).splitlines():
-                            if len(ln.strip()) >= _MIN_BOX_PHRASE:
-                                secrets.setdefault(ln.strip(), True)
-                modes[pg_num] = redact_page(self._doc, pg_num, rects, fill)
-                app.after(0, lambda v=(i + 1) / pages: app._prog_update(v))
+            core_redact.apply_boxes(
+                self._doc, pending, fill, stop,
+                lambda v: app.after(0, lambda: app._prog_update(v)), modes, secrets)
 
         def settle(_kind):
             # Pages done are redacted in memory whatever the outcome.
-            for phrase, whole_words in secrets.items():
-                if not whole_words:
-                    self._secrets[phrase] = False
-                else:
-                    self._secrets.setdefault(phrase, True)
+            core_redact.merge_secrets(self._secrets, secrets)
             self._pending = [p for p in self._pending if p[0] not in modes]
             self._update_pending_lbl()
 
@@ -255,7 +229,7 @@ class RedactTool(PageCanvasTool):
                     "box edge (a gradient mesh, or a soft mask), so the page was replaced "
                     "by an image of itself. Its text can no longer be selected or searched.")
 
-        self._run_on_doc(work, f"Redacting {len(by_page)} page(s)…", done, settle)
+        self._run_on_doc(work, f"Redacting {pages} page(s)…", done, settle)
 
     # ── undo last pending box ─────────────────────────────────────────────────
     def _undo(self):
