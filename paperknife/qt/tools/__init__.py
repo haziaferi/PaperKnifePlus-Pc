@@ -3,3 +3,4 @@ from . import annotate, compress  # noqa: F401
 from . import pdf2img  # noqa: F401
 from . import extract  # noqa: F401
 from . import pdf2doc  # noqa: F401
+from . import doc2pdf  # noqa: F401
