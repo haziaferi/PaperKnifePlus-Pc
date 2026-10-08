@@ -12,7 +12,7 @@ import math
 import pymupdf as fitz
 import pytest
 
-from conftest import tool
+from conftest import tool, wait_job
 
 DPI = 144
 S = DPI / 72
@@ -394,8 +394,10 @@ def _redact_with_tool(app, dialogs, tmp_path, name, src_bytes, boxes, pno=0):
     t._pending = [(pno, fitz.Rect(b), None) for b in boxes]
     dialogs.asks.append(True)
     t._apply()
+    wait_job(app)
     dialogs.save(out)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     return out
 

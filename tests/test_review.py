@@ -59,9 +59,11 @@ def test_find_replace_on_rotated_page_applies_and_undoes(app, dialogs, tmp_path)
     t._open()
     t._find_var.set("Hello")
     t._find_all()
+    wait_job(app)
     assert t._hits
     t._repl_var.set("World")
     t._replace_all()
+    wait_job(app)
     assert "World" in t._doc[0].get_text()
     t._undo()
     text = t._doc[0].get_text()
@@ -96,6 +98,7 @@ def test_replace_on_cropped_page_keeps_the_baseline(app, dialogs, tmp_path):
     t._find_var.set("Hello")
     t._repl_var.set("World")
     t._replace_all()
+    wait_job(app)
     after = _words(t._doc[0], "World")
     assert after and abs(after[0].y1 - before.y1) < 1 and abs(after[0].x0 - before.x0) < 1, (
         before, after)
@@ -151,6 +154,7 @@ def test_metadata_saves_over_the_open_input(app, dialogs, tmp_path):
     t._vars["title"].set("New title")
     dialogs.save(src)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     assert _parts(tmp_path) == []
     tool(app, "CropTool")
@@ -167,6 +171,7 @@ def test_content_tools_save_over_the_open_input(app, dialogs, tmp_path, name):
     dialogs.save(src)
     dialogs.asks.append(True)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     assert len(t._doc) == 2, "the tool lost its document after saving"
     tool(app, "CropTool")
@@ -190,6 +195,7 @@ def test_toc_saved_in_place_keeps_the_password(app, dialogs, tmp_path, monkeypat
     t._add()
     dialogs.save(str(src))
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     tool(app, "CropTool")
     with fitz.open(str(src)) as d:
@@ -212,6 +218,7 @@ def test_file_opened_in_another_tool_can_be_overwritten(app, dialogs, tmp_path, 
     c._margins["top"].set("50")
     dialogs.save(src)
     c._run()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     assert _parts(tmp_path) == []
 
@@ -261,9 +268,11 @@ def test_redact_box_over_short_text_leaves_unrelated_content(app, dialogs, tmp_p
     t._open()
     t._pending.append((0, fitz.Rect(70, 85, 100, 105), None))
     t._apply()
+    wait_job(app)
     out = tmp_path / "out.pdf"
     dialogs.save(str(out))
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     with fitz.open(str(out)) as d:
         assert "12" not in d[0].get_text()
@@ -459,10 +468,13 @@ def test_output_dialogs_start_in_the_preferred_folder(app, dialogs, tmp_path, mo
     s = tool(app, "SplitTool")
     s._path.set(src)
     s._run()
+    wait_job(app)
     p = tool(app, "Pdf2ImgTool")
     p._path.set(src)
     p._run()
+    wait_job(app)
     d = tool(app, "Pdf2DocTool")
     d._path.set(src)
     d._run()
+    wait_job(app)
     assert seen == [str(tmp_path)] * 3, seen

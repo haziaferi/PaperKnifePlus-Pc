@@ -128,19 +128,31 @@ class FindReplaceTool(PageCanvasTool):
         needle = self._find_var.get().strip()
         if not needle:
             return
-        self._hits = []
-        for pg_num in range(len(self._doc)):
-            for m in _find_matches(self._doc[pg_num], needle):
-                self._hits.append((pg_num, m["rects"]))
-        if self._hits:
-            self._hit_idx = 0
-            self._pg      = self._hits[0][0]
-            self._hit_lbl.configure(
-                text=f"Found {len(self._hits)} hit(s)")
-            self._render()
-        else:
-            self._hit_lbl.configure(text="Not found")
-            messagebox.showinfo("Find", f"'{needle}' not found.")
+        app = self.app
+
+        def work(stop):
+            hits, total = [], len(self._doc)
+            for pg_num in range(total):
+                if stop.is_set():
+                    return None
+                hits += [(pg_num, m["rects"]) for m in _find_matches(self._doc[pg_num], needle)]
+                app.after(0, lambda v=(pg_num + 1) / total: app._prog_update(v))
+            return hits
+
+        def done(hits):
+            if hits is None:            # cancelled: keep what was shown before
+                return
+            self._hits = hits
+            if hits:
+                self._hit_idx = 0
+                self._pg      = hits[0][0]
+                self._hit_lbl.configure(text=f"Found {len(hits)} hit(s)")
+            else:
+                self._hit_idx = -1
+                self._hit_lbl.configure(text="Not found")
+                messagebox.showinfo("Find", f"'{needle}' not found.")
+
+        self._run_on_doc(work, f"Searching for '{needle}'…", done)
 
     def _jump(self, d):
         if not self._hits:
@@ -170,27 +182,49 @@ class FindReplaceTool(PageCanvasTool):
         if font is None:
             return messagebox.showerror(
                 "Replace", "The replacement contains characters no built-in font can draw.")
-        found = [(pg_num, ms) for pg_num in range(len(self._doc))
-                 if (ms := _find_matches(self._doc[pg_num], needle))]
-        count = sum(len(ms) for _, ms in found)
-        if found:
-            self._push_undo()
-            try:
-                self._replace(found, repl, font)
-            except Exception as e:
-                # Pages already done would keep the text removed; put it all back.
-                self._pop_undo()
-                self._render()
-                return messagebox.showerror("Replace", f"Nothing was replaced:\n{e}")
-        self._hits = []
-        self._hit_idx = -1
-        self._hit_lbl.configure(text=f"Replaced {count} occurrence(s)")
-        self.app._set_status(
-            f"✓  Replaced {count} occurrence(s) · Save to write to disk", SUCCESS)
-        self._render()
+        app = self.app
+        state = {"count": 0, "snapshot": False}
 
-    def _replace(self, found: list, repl: str, font):
-        for pg_num, matches in found:
+        def work(stop):
+            found, total = [], len(self._doc)
+            for pg_num in range(total):
+                if stop.is_set():
+                    return
+                if ms := _find_matches(self._doc[pg_num], needle):
+                    found.append((pg_num, ms))
+                app.after(0, lambda v=(pg_num + 1) / total * 0.5: app._prog_update(v))
+            if not found or stop.is_set():
+                return
+            self._push_undo()
+            state["snapshot"] = True
+            try:
+                self._replace(found, repl, font, stop)
+            except Exception as e:
+                raise RuntimeError(f"Nothing was replaced:\n{e}") from e
+            state["count"] = sum(len(ms) for _, ms in found)
+
+        def settle(kind):
+            # All or nothing: pages already done would keep their text removed.
+            if kind != "done" and state["snapshot"]:
+                self._pop_undo()
+
+        def done(_):
+            count = state["count"]
+            self._hits = []
+            self._hit_idx = -1
+            self._hit_lbl.configure(text=f"Replaced {count} occurrence(s)")
+            self.app._set_status(
+                f"✓  Replaced {count} occurrence(s) · Save to write to disk", SUCCESS)
+
+        self._run_on_doc(work, f"Replacing '{needle}'…", done, settle)
+
+    def _replace(self, found: list, repl: str, font, stop=None):
+        app, n = self.app, len(found)
+        for i, (pg_num, matches) in enumerate(found):
+            if stop is not None and stop.is_set():
+                return                  # the job reports a cancel; settle() undoes
+            if stop is not None:
+                app.after(0, lambda v=0.5 + (i + 1) / n * 0.5: app._prog_update(v))
             page = self._doc[pg_num]
             for m in matches:
                 for r in m["rects"]:

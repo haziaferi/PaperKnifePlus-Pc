@@ -230,20 +230,32 @@ class RedactTool(PageCanvasTool):
         needle = self._search_var.get().strip()
         if not needle:
             return messagebox.showwarning("Mark", "Enter search text.")
-        count = 0
-        for pg_num in range(len(self._doc)):
-            # search_for ignores case; for redaction over-marking is the safe side
-            # (Find & Replace needs exact case and searches the characters itself).
-            for rect in self._doc[pg_num].search_for(needle):
-                self._pending.append((pg_num, rect, needle))
-                count += 1
-        self._update_pending_lbl()
-        if count:
-            self._render()
-            self.app._set_status(
-                f"Marked {count} occurrence(s) of '{needle}' across all pages", WARN)
-        else:
-            messagebox.showinfo("Mark", f"'{needle}' not found in this PDF.")
+        app = self.app
+
+        def work(stop):
+            found, total = [], len(self._doc)
+            for pg_num in range(total):
+                if stop.is_set():
+                    return None
+                # search_for ignores case; for redaction over-marking is the safe side
+                # (Find & Replace needs exact case and searches the characters itself).
+                found += [(pg_num, rect, needle) for rect in self._doc[pg_num].search_for(needle)]
+                app.after(0, lambda v=(pg_num + 1) / total: app._prog_update(v))
+            return found
+
+        def done(found):
+            # A cancelled search marks nothing: half the matches would look like all.
+            if found is None:
+                return
+            self._pending += found
+            self._update_pending_lbl()
+            if found:
+                self.app._set_status(
+                    f"Marked {len(found)} occurrence(s) of '{needle}' across all pages", WARN)
+            else:
+                messagebox.showinfo("Mark", f"'{needle}' not found in this PDF.")
+
+        self._run_on_doc(work, f"Searching for '{needle}'…", done)
 
     # ── apply ─────────────────────────────────────────────────────────────────
     def _apply(self):
@@ -258,35 +270,59 @@ class RedactTool(PageCanvasTool):
         ):
             return
         fill = (0, 0, 0) if self._fill_var.get() == "Black" else (1, 1, 1)
+        pending = list(self._pending)
         by_page: dict[int, list[fitz.Rect]] = {}
-        for pg_num, r, phrase in self._pending:
+        for pg_num, r, _ in pending:
             by_page.setdefault(pg_num, []).append(r)
-            if phrase:
-                self._secrets[phrase] = False
-            else:
-                # Remember what a drawn box covered so _save can find it outside the page content.
-                for ln in self._doc[pg_num].get_textbox(r).splitlines():
-                    if len(ln.strip()) >= _MIN_BOX_PHRASE:
-                        self._secrets.setdefault(ln.strip(), True)
-        modes = {pg_num + 1: redact_page(self._doc, pg_num, rects, fill)
-                 for pg_num, rects in by_page.items()}
-        self._pending = []
-        self._update_pending_lbl()
-        whole = [str(p) for p, m in modes.items() if m == "whole"]
-        image = [str(p) for p, m in modes.items() if m == "image"]
-        note = ((f" · page {', '.join(whole)}: drawings under a box removed whole"
-                 if whole else "")
-                + (f" · page {', '.join(image)}: turned into an image (its text is no "
-                   "longer selectable)" if image else ""))
-        self.app._set_status(
-            f"✓  {n} redaction(s) applied — save to write to disk{note}", SUCCESS)
-        if image:
-            messagebox.showwarning(
-                "Redact",
-                f"Page {', '.join(image)} holds drawings this tool cannot cut at a box "
-                "edge (a gradient mesh, or a soft mask), so the page was replaced by "
-                "an image of itself. Its text can no longer be selected or searched.")
-        self._render()
+        modes: dict[int, str] = {}      # page number -> how its line art went
+        secrets: dict[str, bool] = {}
+        app = self.app
+
+        def work(stop):
+            pages = len(by_page)
+            for i, (pg_num, rects) in enumerate(by_page.items()):
+                if stop.is_set():
+                    return              # the boxes of the pages not done stay pending
+                for pg, r, phrase in pending:
+                    if pg != pg_num:
+                        continue
+                    if phrase:
+                        secrets[phrase] = False
+                    else:
+                        # What a drawn box covered, so _save can find it outside the page.
+                        for ln in self._doc[pg_num].get_textbox(r).splitlines():
+                            if len(ln.strip()) >= _MIN_BOX_PHRASE:
+                                secrets.setdefault(ln.strip(), True)
+                modes[pg_num] = redact_page(self._doc, pg_num, rects, fill)
+                app.after(0, lambda v=(i + 1) / pages: app._prog_update(v))
+
+        def settle(_kind):
+            # Pages done are redacted in memory whatever the outcome.
+            for phrase, whole_words in secrets.items():
+                if not whole_words:
+                    self._secrets[phrase] = False
+                else:
+                    self._secrets.setdefault(phrase, True)
+            self._pending = [p for p in self._pending if p[0] not in modes]
+            self._update_pending_lbl()
+
+        def done(_):
+            whole = [str(p + 1) for p, m in modes.items() if m == "whole"]
+            image = [str(p + 1) for p, m in modes.items() if m == "image"]
+            note = ((f" · page {', '.join(whole)}: drawings under a box removed whole"
+                     if whole else "")
+                    + (f" · page {', '.join(image)}: turned into an image (its text is no "
+                       "longer selectable)" if image else ""))
+            self.app._set_status(
+                f"✓  {n} redaction(s) applied — save to write to disk{note}", SUCCESS)
+            if image:
+                messagebox.showwarning(
+                    "Redact",
+                    f"Page {', '.join(image)} holds drawings this tool cannot cut at a "
+                    "box edge (a gradient mesh, or a soft mask), so the page was replaced "
+                    "by an image of itself. Its text can no longer be selected or searched.")
+
+        self._run_on_doc(work, f"Redacting {len(by_page)} page(s)…", done, settle)
 
     # ── undo last pending box ─────────────────────────────────────────────────
     def _undo(self):
@@ -329,16 +365,20 @@ class RedactTool(PageCanvasTool):
         out = self.app._save_as("redacted.pdf")
         if not out:
             return
-        try:
+
+        def work(stop):
             removed = self._scrub_secrets()
             # garbage=4 + no incremental save: the old content streams, Info dict
             # and XMP stream must not survive as unreferenced objects in the file.
             self._save_doc(out, deflate=True, garbage=4, clean=True)
+            return removed
+
+        def done(removed):
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             extra = ("\n\nAlso removed from: " + ", ".join(removed)) if removed else ""
             messagebox.showinfo("Saved", f"Redacted PDF saved:\n{out}{extra}")
-        except Exception as e:
-            messagebox.showerror("Save Error", str(e))
+
+        self._run_on_doc(work, f"Saving {Path(out).name}…", done)
 
     def _scrub_secrets(self) -> list[str]:
         """Remove every redacted phrase from the places apply_redactions does not touch.

@@ -48,13 +48,17 @@ class PdfToolsTool(ToolBase):
         out = self.app._save_as("repaired.pdf")
         if not out:
             return doc.close()
-        try:
+        def work(stop):
             with atomic_output(out) as tmp, doc:
                 repaired = doc.is_repaired
                 doc.save(tmp, deflate=True, garbage=4, clean=True)
+            return repaired
+
+        def done(repaired):
             msg = ("Repaired PDF saved" if repaired
                    else "No damage found; cleaned copy saved")
             self.app._set_status(f"✓  {msg} → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"{msg}:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        if not self._run_job(work, "Repairing…", done):
+            doc.close()

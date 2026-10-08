@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pymupdf as fitz
 from PIL import Image
 
-from conftest import tool
+from conftest import tool, wait_job
 
 SECRET = "SECRET-ALPHA-42"
 BG_RGB = (230, 230, 120)
@@ -70,9 +70,12 @@ def test_redact_removes_secret_from_whole_file(app, dialogs, tmp_path):
     _open(t, dialogs, src)
     t._search_var.set(SECRET)
     t._mark_search()
+    wait_job(app)
     t._apply()
+    wait_job(app)
     dialogs.save(out)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
 
     raw = out.read_bytes()
@@ -116,6 +119,7 @@ def test_redact_box_on_rotated_page_covers_drawn_content(app, dialogs, tmp_path)
     x0, y0, x1, y1 = _screen_rect(page, word, t._zoom)
     _drag(t, x0 - 2, y0 - 2, x1 + 2, y1 + 2)
     t._apply()
+    wait_job(app)
     assert "TOPSECRET" not in t._doc[0].get_text()
 
 
@@ -226,6 +230,7 @@ def _fr(app, dialogs, tmp_path, text, find, repl, **kw):
     t._find_var.set(find)
     t._repl_var.set(repl)
     t._replace_all()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     return t
 

@@ -496,6 +496,7 @@ def test_metadata_clear_all_also_removes_xmp(app, dialogs, tmp_path):
     t._clear()
     dialogs.save(out)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     with fitz.open(out) as d:
         assert "PRIVATE" not in (d.get_xml_metadata() or "")
@@ -516,6 +517,7 @@ def test_metadata_date_field_converted_to_pdf_date(app, dialogs, tmp_path):
     t._vars["creationDate"].set("2024-01-31")
     dialogs.save(out)
     t._save()
+    wait_job(app)
     with fitz.open(out) as d:
         assert d.metadata["creationDate"].startswith("D:20240131")
     t._doc.close()

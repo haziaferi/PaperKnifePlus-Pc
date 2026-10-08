@@ -50,6 +50,7 @@ def _split(app, dialogs, src, ranges, out_dir):
     t._ranges.insert(0, ranges)
     dialogs.dirs.append(str(out_dir))
     t._run()
+    wait_job(app)
 
 
 def test_split_rejects_pages_past_the_end(app, dialogs, tmp_path):
@@ -131,6 +132,7 @@ def test_bookmark_split_skips_untargeted_entries(app, dialogs, tmp_path):
     t._open()
     dialogs.dirs.append(str(out))
     t._run()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     files = {p.name: _texts(p) for p in out.iterdir()}
     assert files == {"01_A.pdf": ["Page 1", "Page 2"],
@@ -151,6 +153,7 @@ def test_bookmark_split_cuts_in_page_order(app, dialogs, tmp_path):
     t._level_var.set("All bookmark levels")
     dialogs.dirs.append(str(out))
     t._run()
+    wait_job(app)
     pages = sorted(page for p in out.iterdir() for page in _texts(p))
     assert pages == ["Page 1", "Page 2", "Page 3"], {
         p.name: _texts(p) for p in out.iterdir()}
@@ -172,6 +175,7 @@ def test_toc_saves_over_the_open_input(app, dialogs, tmp_path):
     t._add()
     dialogs.save(src)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     t._doc.close()
     t._doc = None
@@ -191,6 +195,7 @@ def test_toc_delete_parent_promotes_children(app, dialogs, tmp_path):
     t._delete()
     dialogs.save(out)
     t._save()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     with fitz.open(out) as doc:
         assert doc.get_toc() == [[1, "A1", 2], [2, "A1a", 2], [1, "B", 3]]

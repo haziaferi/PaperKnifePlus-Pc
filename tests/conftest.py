@@ -128,8 +128,12 @@ def tool(app, class_name: str):
     """Open a tool by class name exactly as a sidebar click does; return it."""
     from paperknife.tool_base import TOOLS
     t = next(t for t in TOOLS if type(t).__name__ == class_name)
+    # A job on the shown document holds navigation until it ends; a user
+    # waits for it too.
+    wait_job(app)
     app._nav_click(t.label, t.activate)
     app.update()
+    assert app._active_tool is t, f"navigation to {class_name} was refused"
     return t
 
 

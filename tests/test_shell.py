@@ -217,6 +217,7 @@ def test_settings_save_reports_write_failure(app, dialogs, monkeypatch, tmp_path
     monkeypatch.setattr(prefs, "PREFS_PATH", blocker)
     t = tool(app, "SettingsTool")
     t._save()
+    wait_job(app)
     kinds = [m[0] for m in dialogs.msgs]
     assert "showerror" in kinds, dialogs.msgs
     assert "showinfo" not in kinds
@@ -264,6 +265,7 @@ def test_settings_rejects_out_of_range_max_recent(app, dialogs):
     old = PREFS.max_recent
     t._vars["max_recent"].set("0")
     t._save()
+    wait_job(app)
     assert PREFS.max_recent == old
     assert any(m[0] == "showwarning" for m in dialogs.msgs), dialogs.msgs
 

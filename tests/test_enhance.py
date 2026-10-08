@@ -160,6 +160,7 @@ def test_pdftools_default_run_saves_without_errors(app, dialogs, tmp_path):
     t._path.set(src)
     dialogs.save(out)
     t._run()
+    wait_job(app)
     assert [m for m in dialogs.msgs if m[0] != "showinfo"] == [], dialogs.msgs
     with fitz.open(out) as doc:
         assert doc.page_count == 3
@@ -193,6 +194,7 @@ def test_pdftools_repair_recovers_a_truncated_file(app, dialogs, tmp_path):
     t._path.set(str(bad))
     dialogs.save(out)
     t._run()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     assert any("Repaired" in m[2] for m in dialogs.msgs), dialogs.msgs
     with fitz.open(out) as doc:
@@ -211,6 +213,7 @@ def _protect(app, dialogs, src, out, user="u", owner="", print_=True, copy=True)
     t._allow_copy.select() if copy else t._allow_copy.deselect()
     dialogs.save(out)
     t._protect()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     return t
 
@@ -258,6 +261,7 @@ def test_password_change_on_an_encrypted_file(app, dialogs, tmp_path):
     t._cur_pw.insert(0, "old")
     dialogs.save(out)
     t._protect()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     with fitz.open(out) as doc:
         assert not doc.authenticate("old") and doc.authenticate("new")
@@ -271,6 +275,7 @@ def _stamp(app, dialogs, src, out, rng):
     t._page_range.insert(0, rng)
     dialogs.save(out)
     t._run()
+    wait_job(app)
     return t
 
 
@@ -301,6 +306,7 @@ def test_headerfooter_bad_size_warns_instead_of_defaulting(app, dialogs, tmp_pat
     t._size.insert(0, "abc")
     dialogs.save(out)
     t._run()
+    wait_job(app)
     assert any(m[0] == "showwarning" for m in dialogs.msgs), dialogs.msgs
     assert not out.exists()
 
@@ -316,6 +322,7 @@ def _crop(app, dialogs, src, out, rng="", **margins):
         t._page_range.insert(0, rng)
     dialogs.save(out)
     t._run()
+    wait_job(app)
     return t
 
 
@@ -370,6 +377,7 @@ def test_normalise_stretch_fills_the_page(app, dialogs, tmp_path):
     t._scale.set("Stretch (fill page)")
     dialogs.save(out)
     t._run()
+    wait_job(app)
     assert not dialogs.errors(), dialogs.errors()
     with fitz.open(out) as doc:
         pix = doc[0].get_pixmap(dpi=36)

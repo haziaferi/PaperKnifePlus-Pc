@@ -49,26 +49,34 @@ class SplitTool(ToolBase):
         doc = self.app._open_pdf_safe(src)
         if not doc:
             return
+        total = len(doc)
         try:
-            total = len(doc)
-            try:
-                groups = (parse_ranges(ranges_str, total) if ranges_str
-                          else [(i, i) for i in range(total)])
-            except PageRangeError as e:
-                return messagebox.showerror("Split", str(e))
-            out_dir = self.app._ask_dir()
-            if not out_dir:
-                return
-            base = Path(src).stem
-            for i, (fr, to) in enumerate(groups):
-                target = os.path.join(out_dir, f"{base}_part{i + 1:02d}_p{fr + 1}-{to + 1}.pdf")
-                with atomic_output(target) as tmp, fitz.open() as nd:
-                    nd.insert_pdf(doc, from_page=fr, to_page=to)
-                    nd.save(tmp, deflate=True)
+            groups = (parse_ranges(ranges_str, total) if ranges_str
+                      else [(i, i) for i in range(total)])
+        except PageRangeError as e:
+            doc.close()
+            return messagebox.showerror("Split", str(e))
+        out_dir = self.app._ask_dir()
+        if not out_dir:
+            return doc.close()
+        base, app, parts = Path(src).stem, self.app, len(groups)
+
+        def work(stop):
+            with doc:                   # the job owns the document from here
+                for i, (fr, to) in enumerate(groups):
+                    if stop.is_set():
+                        return
+                    target = os.path.join(out_dir,
+                                          f"{base}_part{i + 1:02d}_p{fr + 1}-{to + 1}.pdf")
+                    with atomic_output(target) as tmp, fitz.open() as nd:
+                        nd.insert_pdf(doc, from_page=fr, to_page=to)
+                        nd.save(tmp, deflate=True)
+                    app.after(0, lambda v=(i + 1) / parts: app._prog_update(v))
+
+        def done(_):
             self.app._set_status(f"✓  Split into {len(groups)} file(s) → {out_dir}", SUCCESS)
             messagebox.showinfo("Done",
                                 f"Created {len(groups)} file(s) in:\n{out_dir}")
-        except Exception as e:
-            messagebox.showerror("Split Error", str(e))
-        finally:
+
+        if not self._run_job(work, f"Splitting into {len(groups)} file(s)…", done):
             doc.close()

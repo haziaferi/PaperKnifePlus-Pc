@@ -8,6 +8,7 @@ paperknife/tools/__init__.py which populates tool_base.TOOLS.
 """
 from __future__ import annotations
 
+import gc
 import sys
 import time
 import tkinter as tk
@@ -339,10 +340,17 @@ class App(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════════
     def _bind_keys(self):
         # Caps Lock or Shift turns the keysym upper-case; bind both.
+        def tool_key(name):
+            def handler(_e):
+                fn = getattr(self, name)
+                if fn and not self._view_locked:
+                    fn()
+            return handler
+
         for key, fn in (
-            ("o", lambda e: self._cur_open_fn() if self._cur_open_fn else None),
-            ("s", lambda e: self._cur_save_fn() if self._cur_save_fn else None),
-            ("z", lambda e: self._cur_undo_fn() if self._cur_undo_fn else None),
+            ("o", tool_key("_cur_open_fn")),
+            ("s", tool_key("_cur_save_fn")),
+            ("z", tool_key("_cur_undo_fn")),
             # Ctrl+K / Ctrl+F focus the sidebar search
             ("k", lambda e: self._focus_search()),
             ("f", lambda e: self._focus_search()),
@@ -357,7 +365,7 @@ class App(ctk.CTk):
         # there edits text and must not remove the selected list item.
         if event.widget.winfo_class() in ("Entry", "Text", "TEntry", "Spinbox"):
             return
-        if self._cur_del_fn:
+        if self._cur_del_fn and not self._view_locked:
             self._cur_del_fn()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -366,6 +374,8 @@ class App(ctk.CTk):
     def _nav_click(self, active_label: str, cmd):
         """Highlight the active nav button; reset keyboard hooks; run cmd,
         which is show_home or a tool's bound activate."""
+        if self._view_locked:   # the tool's document is in use by a running job
+            return
         for lbl, btn in self._nav_btns.items():
             if lbl == active_label:
                 btn.configure(fg_color=ACCENT, text_color=ON_ACCENT)
@@ -393,10 +403,16 @@ class App(ctk.CTk):
     # ══════════════════════════════════════════════════════════════════════════
     # JOB QUEUE  (progress bar + Cancel button lifecycle)
     # ══════════════════════════════════════════════════════════════════════════
-    def run_job(self, worker_fn, label: str = "Working…") -> CancellableJob:
+    def run_job(self, worker_fn, label: str = "Working…", *, lock: bool = False,
+                then=None) -> CancellableJob:
         """
         Run *worker_fn(stop)* in a background thread with full progress +
         cancel UI; stop is a threading.Event the worker checks with is_set().
+
+        lock=True: the worker uses a document the window also shows, so until
+        it ends every click goes to the progress bar (only Cancel works) and
+        shortcuts and navigation are ignored.  then(kind, value), kind "done" /
+        "error" / "cancel", runs on the Tk thread after the job has ended.
 
         Only one job runs at a time; while one is running this shows a
         warning and returns None.
@@ -407,34 +423,44 @@ class App(ctk.CTk):
                         "or cancel it first.")
             return None
 
+        # Collect garbage here, on the Tk thread: a tool view left behind holds
+        # Tk variables, and the collector running in the worker would delete
+        # them there, a Tk call from the wrong thread that waits on this one.
+        gc.collect()
         self._prog_show(0)
         self._job_label.configure(text=f"  {label}")
         seq_at_start = self._status_seq
+        if lock:
+            self._lock_view()
 
-        def hide_progress():
+        def finish(kind, value):
             if self._current_job is job:
                 self._prog_hide()
+            if lock:
+                self._unlock_view()
+            if then is not None:
+                then(kind, value)
 
         def on_done(result):
-            hide_progress()
             if isinstance(result, str) and result:
                 self._set_status(result, SUCCESS)
             # The worker posts its own outcome through after() before it
             # returns, so it is already showing; do not cover it.
             elif self._status_seq == seq_at_start:
                 self._set_status("Done", SUCCESS)
+            finish("done", result)
 
         def on_error(exc):
-            hide_progress()
+            finish("error", exc)
             self._set_status(f"Error: {exc}", DANGER)
             messagebox.showerror("Error", str(exc))
 
         def on_cancel():
-            hide_progress()
             # A worker that reported an outcome got past its last stop check
             # and finished; "Cancelled" would contradict its saved message.
             if self._status_seq == seq_at_start:
                 self._set_status("Cancelled", WARN)
+            finish("cancel", None)
 
         job = CancellableJob(
             fn        = worker_fn,
@@ -449,6 +475,24 @@ class App(ctk.CTk):
     def _cancel_job(self):
         if self._current_job and self._current_job.is_running:
             self._current_job.cancel()
+
+    # A job that uses the shown document: input is held at the progress bar.
+    _view_locked = False
+
+    def _lock_view(self):
+        self._view_locked = True
+        try:
+            self.update_idletasks()
+            self._prog_frame.grab_set()
+        except tk.TclError:
+            pass        # not viewable (a hidden window): the flag still holds
+
+    def _unlock_view(self):
+        self._view_locked = False
+        try:
+            self._prog_frame.grab_release()
+        except tk.TclError:
+            pass
 
     # ══════════════════════════════════════════════════════════════════════════
     # PROGRESS BAR

@@ -170,12 +170,16 @@ class PageCanvasTool(ToolBase):
         out = self.app._save_as(self.save_name)
         if not out:
             return
-        try:
-            self._save_doc(out, deflate=True)
+
+        def done(_):
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"{self.saved_what} saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Save Error", str(e))
+        self._run_on_doc(lambda stop: self._save_doc(out, deflate=True),
+                         f"Saving {Path(out).name}…", done)
+
+    def _after_job(self, kind):
+        # A save over the open file goes on from an in-memory copy of it.
+        self._render()
 
 
 def span_rgb(color: int) -> tuple[float, float, float]:

@@ -154,9 +154,11 @@ class HeaderFooterTool(ToolBase):
         is_top   = pos.startswith("top")
         is_left  = pos.endswith("left")
         is_right = pos.endswith("right")
-        try:
+        def work(stop):
             with atomic_output(out) as tmp, doc:
                 for pg_num in pages:
+                    if stop.is_set():
+                        return          # nothing written: atomic_output drops the file
                     page = doc[pg_num]
                     w, h = page.rect.width, page.rect.height
                     text = (content_tmpl
@@ -180,8 +182,11 @@ class HeaderFooterTool(ToolBase):
                     )
 
                 doc.save(tmp, deflate=True)
+
+        def done(_):
             self.app._set_status(
                 f"✓  Stamped {len(pages)} page(s) → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"PDF with header/footer saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        if not self._run_job(work, f"Stamping {len(pages)} page(s)…", done):
+            doc.close()

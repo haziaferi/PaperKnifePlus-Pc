@@ -331,9 +331,16 @@ class NormaliseTool(ToolBase):
         if orient == "Landscape":
             tw, th = th, tw
         stretch = "Stretch" in self._scale.get()
-        try:
+        app = self.app
+
+        pages = len(doc)
+
+        def work(stop):
             with atomic_output(out) as tmp, doc, fitz.open() as nd:
                 for page in doc:
+                    if stop.is_set():
+                        return          # nothing written: atomic_output drops the file
+                    app.after(0, lambda v=(page.number + 1) / pages: app._prog_update(v))
                     pw, ph = page.rect.width, page.rect.height
                     if orient == "Keep original":
                         ftw, fth = (tw, th) if pw <= ph else (th, tw)
@@ -351,7 +358,10 @@ class NormaliseTool(ToolBase):
                         clip = fitz.Rect(ox, oy, ox + pw * sc, oy + ph * sc)
                     np.show_pdf_page(clip, doc, page.number, keep_proportion=not stretch)
                 nd.save(tmp, deflate=True)
+
+        def done(_):
             self.app._set_status(f"✓  Normalised → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"Normalised PDF saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        if not self._run_job(work, "Normalising pages…", done):
+            doc.close()

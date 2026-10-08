@@ -141,18 +141,22 @@ class RotateTool(ToolBase):
         out = self.app._save_as("reordered.pdf")
         if not out:
             return
-        try:
+        order, extra = list(self._order), dict(self._extra)
+
+        def work(stop):
             self._release(out)
             with atomic_output(out) as tmp, fitz.open() as nd:
-                for pi in self._order:
+                for pi in order:
                     nd.insert_pdf(self._doc, from_page=pi, to_page=pi)
-                for ni, pi in enumerate(self._order):
-                    ex = self._extra[pi]
+                for ni, pi in enumerate(order):
+                    ex = extra[pi]
                     if ex:
                         p = nd[ni]
                         p.set_rotation((p.rotation + ex) % 360)
                 nd.save(tmp, deflate=True)
+
+        def done(_):
             self.app._set_status(f"✓  Saved → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        self._run_on_doc(work, f"Saving {Path(out).name}…", done)

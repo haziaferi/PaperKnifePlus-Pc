@@ -101,10 +101,14 @@ class BookmarksTool(ToolBase):
         out_dir = self.app._ask_dir()
         if not out_dir:
             return
-        try:
-            entries.append(("_END_", total))
+        entries.append(("_END_", total))
+        app, parts = self.app, len(entries) - 1
+
+        def work(stop):
             count = 0
             for i, (title, start) in enumerate(entries[:-1]):
+                if stop.is_set():
+                    break
                 end  = entries[i + 1][1] - 1
                 if start > end:
                     continue
@@ -115,11 +119,15 @@ class BookmarksTool(ToolBase):
                     nd.insert_pdf(self._doc, from_page=start, to_page=end)
                     nd.save(tmp, deflate=True)
                 count += 1
+                app.after(0, lambda v=(i + 1) / parts: app._prog_update(v))
+            return count
+
+        def done(count):
             self.app._set_status(
                 f"✓  Split into {count} chapter(s) → {out_dir}", SUCCESS)
             note = (f"\n\n{skipped} bookmark(s) with no page target were skipped."
                     if skipped else "")
             messagebox.showinfo("Done",
                                 f"Split into {count} file(s):\n{out_dir}{note}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        self._run_on_doc(work, "Splitting by bookmarks…", done)

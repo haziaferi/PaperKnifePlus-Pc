@@ -75,23 +75,45 @@ class PasswordTool(ToolBase):
         out   = self.app._save_as("protected.pdf")
         if not out:
             return
-        try:
-            perm = _ALL_PERMS
-            if not self._allow_print.get():
-                perm &= ~(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ)
-            if not self._allow_copy.get():
-                perm &= ~fitz.PDF_PERM_COPY
-            with atomic_output(out) as tmp, fitz.open(src) as doc:
-                if doc.needs_pass and not doc.authenticate(self._cur_pw.get()):
-                    return messagebox.showerror(
-                        "Protect", "This PDF is already encrypted. Enter its password "
-                                   "in “Current password” below to change it.")
+        perm = _ALL_PERMS
+        if not self._allow_print.get():
+            perm &= ~(fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ)
+        if not self._allow_copy.get():
+            perm &= ~fitz.PDF_PERM_COPY
+        doc = self._open_unlocked(src, self._cur_pw.get(), "Protect",
+                                  "This PDF is already encrypted. Enter its password "
+                                  "in “Current password” below to change it.")
+        if doc is None:
+            return
+
+        def work(stop):
+            with atomic_output(out) as tmp, doc:
                 doc.save(tmp, encryption=fitz.PDF_ENCRYPT_AES_256,
                          user_pw=pw, owner_pw=owner, permissions=perm)
+
+        def done(_):
             self.app._set_status(f"✓  Protected → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"Protected PDF saved:\n{out}")
+
+        if not self._run_job(work, "Encrypting…", done):
+            doc.close()
+
+    @staticmethod
+    def _open_unlocked(src, password, title, wrong_message, any_encryption=False):
+        """The document at src, authenticated with password when it needs one
+        to open (or, with any_encryption, whenever it is encrypted at all), or
+        None after telling the user why not."""
+        try:
+            doc = fitz.open(src)
         except Exception as e:
             messagebox.showerror("Error", str(e))
+            return None
+        locked = doc.is_encrypted if any_encryption else doc.needs_pass
+        if locked and not doc.authenticate(password):
+            doc.close()
+            messagebox.showerror(title, wrong_message)
+            return None
+        return doc
 
     def _unprotect(self):
         src = self._path.get()
@@ -101,12 +123,17 @@ class PasswordTool(ToolBase):
         out = self.app._save_as("unlocked.pdf")
         if not out:
             return
-        try:
-            with atomic_output(out) as tmp, fitz.open(src) as doc:
-                if doc.is_encrypted and not doc.authenticate(pw):
-                    return messagebox.showerror("Error", "Incorrect password.")
+        doc = self._open_unlocked(src, pw, "Error", "Incorrect password.", any_encryption=True)
+        if doc is None:
+            return
+
+        def work(stop):
+            with atomic_output(out) as tmp, doc:
                 doc.save(tmp, encryption=fitz.PDF_ENCRYPT_NONE)
+
+        def done(_):
             self.app._set_status(f"✓  Unlocked → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Done", f"Unlocked PDF saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        if not self._run_job(work, "Removing the password…", done):
+            doc.close()

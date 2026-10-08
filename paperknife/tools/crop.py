@@ -113,10 +113,12 @@ class CropTool(ToolBase):
         out = self.app._save_as("cropped.pdf")
         if not out:
             return doc.close()
-        try:
+        def work(stop):
             with atomic_output(out) as tmp, doc:
                 cropped = 0
                 for pg_num in pages:
+                    if stop.is_set():
+                        return None     # nothing written: atomic_output drops the file
                     page = doc[pg_num]
                     if reset:
                         page.set_cropbox(page.mediabox)
@@ -130,6 +132,9 @@ class CropTool(ToolBase):
                     page.set_cropbox(new + (cb.x0, cb.y0, cb.x0, cb.y0))
                     cropped += 1
                 doc.save(tmp, deflate=True)
+            return cropped
+
+        def done(cropped):
             skipped = len(pages) - cropped
             note = (f" · {skipped} skipped (margins larger than the page)"
                     if skipped else "")
@@ -137,5 +142,6 @@ class CropTool(ToolBase):
                 f"✓  Cropped {cropped} page(s){note} → {Path(out).name}",
                 WARN if skipped else SUCCESS)
             messagebox.showinfo("Done", f"Cropped PDF saved:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        if not self._run_job(work, f"Cropping {len(pages)} page(s)…", done):
+            doc.close()

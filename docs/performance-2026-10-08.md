@@ -48,3 +48,20 @@ A worker thread runs a long PyMuPDF operation while the main thread ticks every
 PyMuPDF holds the GIL for the length of each call, so work done page by page in a
 background job leaves the window responsive, with progress and Cancel, but one big
 call (a save) freezes it for as long as it runs, background or not.
+
+## The window during a job (RS-02, measured in the running app)
+
+`../_step3-2026-10-08/ui_gaps.py` runs the app's own main loop with a 10 ms timer and
+records the longest time the window went without processing events:
+
+| action | before RS-02: longest freeze | after: longest freeze | after: whole action |
+|---|---|---|---|
+| Find All, 400 pages | 3 484 ms | 79 ms | 4 486 ms (was 3 504) |
+| Save, 800 pages | 1 680 ms | 1 684 ms | 1 801 ms |
+
+Work done page by page no longer freezes the window, and it shows progress and can
+be cancelled; it takes about a quarter longer, as the job and the window share the
+interpreter. A save is still one call that holds the window for its length (about
+2 ms per page with deflate; Redact's garbage=4 clean save about 5.6 ms per page).
+While a job uses the shown document, clicks reach only the progress bar's Cancel,
+and shortcuts and navigation wait.

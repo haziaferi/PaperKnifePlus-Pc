@@ -188,14 +188,18 @@ class TocTool(ToolBase):
         out = self.app._save_as("with_bookmarks.pdf")
         if not out:
             return
-        try:
-            self._doc.set_toc(self._toc)
+        toc = [list(item) for item in self._toc]
+
+        def work(stop):
+            self._doc.set_toc(toc)
             # Saving over the source keeps its password, as the incremental
             # save this replaced did; a copy elsewhere is written unprotected.
             keep = {"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) else {}
             self._save_doc(out, deflate=True, **keep)
+
+        def done(_):
             self.app._set_status(
-                f"✓  Saved {len(self._toc)} bookmark(s) → {Path(out).name}", SUCCESS)
+                f"✓  Saved {len(toc)} bookmark(s) → {Path(out).name}", SUCCESS)
             messagebox.showinfo("Saved", f"PDF with updated bookmarks:\n{out}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        self._run_on_doc(work, f"Saving {Path(out).name}…", done)

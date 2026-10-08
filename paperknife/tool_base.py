@@ -88,6 +88,35 @@ class ToolBase(ABC):
     def _file_row(self, parent, var, btn_text="Open PDF", exts=(".pdf",)):
         return self.app._file_row(parent, var, btn_text, exts)
 
+    # ── Background work ───────────────────────────────────────────────────────
+    # PyMuPDF holds the GIL for each call, so page-by-page work in a job keeps
+    # the window responsive while one long call (a save) still pauses it
+    # (docs/performance-2026-10-08.md).  Dialogs stay on the Tk thread: ask
+    # first, run the work, then report in done().
+    def _run_job(self, work, label: str, done=None, settle=None) -> bool:
+        """Run work(stop) in the background on documents it opened itself;
+        done(result) runs on the Tk thread if it succeeds, settle(kind) after
+        any outcome ("done", "error", "cancel")."""
+        return self.app.run_job(work, label, then=self._then(done, settle)) is not None
+
+    def _run_on_doc(self, work, label: str, done=None, settle=None) -> bool:
+        """As _run_job for work that uses self._doc: until it ends the window
+        cannot reach the document (no edits, no Open, no leaving the tool)."""
+        return self.app.run_job(work, label, lock=True,
+                                then=self._then(done, settle)) is not None
+
+    def _then(self, done, settle=None):
+        def then(kind, value):
+            if settle is not None:
+                settle(kind)
+            if kind == "done" and done is not None:
+                done(value)
+            self._after_job(kind)
+        return then
+
+    def _after_job(self, kind: str) -> None:  # noqa: B027  (an optional hook)
+        """Called on the Tk thread after every job this tool started."""
+
     # ── Saving the document held in self._doc ─────────────────────────────────
     def _holds(self, path: str) -> bool:
         """True when self._doc was read from the file at *path*."""
