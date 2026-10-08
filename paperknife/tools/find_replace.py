@@ -2,53 +2,12 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox
 import customtkinter as ctk
-import pymupdf as fitz
-from ..page_canvas import PageCanvasTool, span_rgb
+from ..page_canvas import PageCanvasTool
 from ..tool_base import register
 from ..theme import ACCENT, ACCENT_H, CARD, TEXT, MUTED, SUCCESS, HIT, HIT_CUR, HIT_EDGE, _tk_color
-from ..pages import textwriter_point
-
-
-def _find_matches(page, needle: str) -> list[dict]:
-    """Case-sensitive matches of *needle* in the page text.
-
-    Each match is {"rects": one rect per text line it covers, "origin": baseline
-    point of its first character, "span": the span that character belongs to}.
-    page.search_for is case-insensitive and returns a wrapped match as several
-    unrelated rects, so the page characters are searched directly.
-    """
-    chars = []   # (c, bbox | None, origin, span, line_no); bbox None = line break
-    raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_MEDIABOX_CLIP)
-    line_no = 0
-    for block in raw.get("blocks", []):
-        for line in block.get("lines", []):
-            if chars and not chars[-1][0].isspace():
-                chars.append((" ", None, None, None, line_no))
-            for span in line["spans"]:
-                for ch in span["chars"]:
-                    chars.append((ch["c"], fitz.Rect(ch["bbox"]), ch["origin"], span, line_no))
-            line_no += 1
-    text = "".join(c[0] for c in chars)
-    matches = []
-    i = text.find(needle)
-    while i >= 0 and needle:
-        part = [c for c in chars[i:i + len(needle)] if c[1] is not None]
-        by_line: dict[int, fitz.Rect] = {}
-        for _, bbox, _, _, ln in part:
-            by_line[ln] = by_line[ln] | bbox if ln in by_line else fitz.Rect(bbox)
-        matches.append({"rects": list(by_line.values()),
-                        "origin": fitz.Point(part[0][2]), "span": part[0][3]})
-        i = text.find(needle, i + len(needle))
-    return matches
-
-
-def _unicode_font(text: str):
-    """A built-in font with a glyph for every character of *text*, or None."""
-    for name in ("helv", "cjk"):
-        font = fitz.Font(name)
-        if all(font.has_glyph(ord(c)) for c in text if not c.isspace()):
-            return font
-    return None
+from ..core import text as core_text
+from ..core.text import (  # noqa: F401  (old names)
+    find_matches as _find_matches, unicode_font as _unicode_font)
 
 
 @register
@@ -198,7 +157,7 @@ class FindReplaceTool(PageCanvasTool):
             self._push_undo()
             state["snapshot"] = True
             try:
-                self._replace(found, repl, font, stop)
+                core_text.replace_matches(self._doc, found, repl, font, stop)
             except Exception as e:
                 raise RuntimeError(f"Nothing was replaced:\n{e}") from e
             state["count"] = sum(len(ms) for _, ms in found)
@@ -217,27 +176,6 @@ class FindReplaceTool(PageCanvasTool):
                 f"✓  Replaced {count} occurrence(s) · Save to write to disk", SUCCESS)
 
         self._run_on_doc(work, f"Replacing '{needle}'…", done, settle)
-
-    def _replace(self, found: list, repl: str, font, stop=None):
-        app, n = self.app, len(found)
-        for i, (pg_num, matches) in enumerate(found):
-            if stop is not None and stop.is_set():
-                return                  # the job reports a cancel; settle() undoes
-            if stop is not None:
-                app.after(0, lambda v=0.5 + (i + 1) / n * 0.5: app._prog_update(v))
-            page = self._doc[pg_num]
-            for m in matches:
-                for r in m["rects"]:
-                    page.add_redact_annot(r)
-            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
-                                  graphics=fitz.PDF_REDACT_LINE_ART_NONE)
-            for m in matches:
-                if not repl:
-                    continue
-                tw = fitz.TextWriter(page.rect, color=span_rgb(m["span"]["color"]))
-                tw.append(textwriter_point(page, m["origin"]), repl,
-                          font=font, fontsize=m["span"]["size"])
-                tw.write_text(page)
 
     # ── render ────────────────────────────────────────────────────────────────
     def _draw_overlay(self, page):

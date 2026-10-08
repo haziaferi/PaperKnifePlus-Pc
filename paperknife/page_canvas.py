@@ -23,6 +23,7 @@ from PIL import Image, ImageTk
 from .pages import render
 from .theme import CANVAS_BG, SUCCESS, TEXT, _tk_color
 from .tool_base import ToolBase
+from .core.text import span_rgb  # noqa: F401  (tools import it from here)
 
 
 class PageCanvasTool(ToolBase):
@@ -180,8 +181,3 @@ class PageCanvasTool(ToolBase):
     def _after_job(self, kind):
         # A save over the open file goes on from an in-memory copy of it.
         self._render()
-
-
-def span_rgb(color: int) -> tuple[float, float, float]:
-    """A get_text span colour (0xRRGGBB) as an RGB tuple of 0-1 floats."""
-    return ((color >> 16) / 255, ((color >> 8) & 0xFF) / 255, (color & 0xFF) / 255)

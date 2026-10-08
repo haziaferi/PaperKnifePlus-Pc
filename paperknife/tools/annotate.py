@@ -2,7 +2,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import colorchooser
 import customtkinter as ctk
-import pymupdf as fitz
+from ..core import annotate as core_annotate
 from ..page_canvas import PageCanvasTool
 from ..tool_base import register
 from ..theme import ACCENT, ACCENT_H, CARD, CARD2, TEXT, WARN, DANGER, ON_ACCENT, _tk_color
@@ -177,51 +177,10 @@ class AnnotateTool(PageCanvasTool):
             cx, cy = x0 + 60, y0 + 16
         px0, py0 = self._screen_to_page((x0, y0))
         px1, py1 = self._screen_to_page((cx, cy))
-        rect     = fitz.Rect(px0, py0, px1, py1).normalize()
-        opacity  = self._opacity.get() / 100.0
-        color    = self._color
-        tool     = self._tool
-        ann      = None
-
+        ann = None
         try:
-            if tool == "highlight":
-                ann = page.add_highlight_annot(rect)
-                ann.set_colors(stroke=color)
-                ann.set_opacity(opacity)
-                ann.update()
-            elif tool == "underline":
-                ann = page.add_underline_annot(rect)
-                ann.set_colors(stroke=color)
-                ann.set_opacity(opacity)
-                ann.update()
-            elif tool == "strikeout":
-                ann = page.add_strikeout_annot(rect)
-                ann.set_colors(stroke=color)
-                ann.set_opacity(opacity)
-                ann.update()
-            elif tool == "rect":
-                ann = page.add_rect_annot(rect)
-                # A 4-number colour is CMYK; transparency comes from set_opacity.
-                ann.set_colors(stroke=color, fill=color)
-                ann.set_opacity(opacity)
-                ann.update()
-            elif tool == "line":
-                ann = page.add_line_annot(fitz.Point(px0, py0), fitz.Point(px1, py1))
-                ann.set_colors(stroke=color)
-                ann.set_opacity(opacity)
-                ann.update()
-            elif tool == "note":
-                ann = page.add_text_annot(fitz.Point(px0, py0),
-                                          self._ft_var.get() or "Note")
-                ann.set_colors(stroke=color)
-                ann.update()
-            elif tool == "freetext":
-                ann = page.add_freetext_annot(
-                    rect,
-                    self._ft_var.get() or "Text",
-                    fontsize=11, fill_color=(1, 1, 1),
-                    text_color=color)
-                ann.update()
+            ann = core_annotate.add(page, self._tool, (px0, py0), (px1, py1), self._color,
+                                    self._opacity.get() / 100.0, self._ft_var.get())
         except Exception as ex:
             self.app._set_status(f"Annotation error: {ex}", WARN)
         if ann is not None:
@@ -231,7 +190,7 @@ class AnnotateTool(PageCanvasTool):
     # ── undo / remove ─────────────────────────────────────────────────────────
     @staticmethod
     def _annot_by_xref(page, xref):
-        return next((a for a in page.annots() if a.xref == xref), None)
+        return core_annotate.by_xref(page, xref)
 
     def _undo(self):
         if not self._doc:
