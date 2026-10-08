@@ -18,6 +18,7 @@ _DEFAULTS: dict = {
     "ocr_lang":        "eng",     # Tesseract language code
     "max_recent":      12,        # max recent-file cards on home screen
     "window_geometry": "",        # last window geometry string (WxH+X+Y)
+    "qt_window_geometry": "",     # the Qt window's saveGeometry(), base64
     "appearance":      "light",   # light / dark / system
 }
 

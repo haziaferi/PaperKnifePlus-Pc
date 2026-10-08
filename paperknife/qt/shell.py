@@ -70,25 +70,6 @@ SEARCH_GLYPH = 0xE721
 _TEXT_INPUTS = (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
 
 
-def _ensure_geometry_pref() -> None:
-    """prefs.Prefs only loads keys it has a default for, and qt_window_geometry
-    is new; register it and read the stored value once.
-    TODO(main session): add "qt_window_geometry": "" to prefs._DEFAULTS."""
-    from .. import prefs as _prefs
-    if GEOMETRY_KEY in _prefs._DEFAULTS:
-        return
-    _prefs._DEFAULTS[GEOMETRY_KEY] = ""
-    stored = ""
-    try:
-        import json
-        data = json.loads(_prefs.PREFS_PATH.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and isinstance(data.get(GEOMETRY_KEY), str):
-            stored = data[GEOMETRY_KEY]
-    except (OSError, ValueError):
-        pass
-    _prefs.PREFS._data.setdefault(GEOMETRY_KEY, stored)
-
-
 # ── Navigation search box ─────────────────────────────────────────────────────
 class NavSearch(NavigationWidget):
     """A search field in the navigation; a search icon when it is collapsed."""
@@ -133,7 +114,6 @@ class MainWindow(FluentWindow):
     def __init__(self, tools=None):
         super().__init__()
         bridge.install()
-        _ensure_geometry_pref()
         from ..theme import __version__
         self.setWindowTitle(f"PaperKnife+ PC  v{__version__}")
         icon = Path(__file__).resolve().parents[2] / "assets" / "icon.ico"
