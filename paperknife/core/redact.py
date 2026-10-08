@@ -75,6 +75,70 @@ def _page_to_image(doc: fitz.Document, pno: int, dpi: int = 200) -> None:
     page.set_rotation(rotation)
 
 
+FILLS = {"Black": (0, 0, 0), "White": (1, 1, 1)}
+
+
+def find_phrase(doc: fitz.Document, needle: str, stop=None, progress=None):
+    """Every match of *needle* on every page, as (page number, rect, needle) boxes
+    to redact; None when *stop* was set (a cancelled search marks nothing: half
+    the matches would look like all of them).  progress(fraction) after each page."""
+    found, total = [], len(doc)
+    for pno in range(total):
+        if stop is not None and stop.is_set():
+            return None
+        # search_for ignores case; for redaction over-marking is the safe side
+        # (Find & Replace needs exact case and searches the characters itself).
+        found += [(pno, rect, needle) for rect in doc[pno].search_for(needle)]
+        if progress is not None:
+            progress((pno + 1) / total)
+    return found
+
+
+def apply_boxes(doc: fitz.Document, pending, fill, stop=None, progress=None,
+                modes: dict | None = None, secrets: dict | None = None):
+    """Redact the pending boxes, (page number, rect in unrotated page space,
+    search phrase or None), one page at a time through redact_page.
+
+    *modes* (page number -> how its line art went) and *secrets* (phrase ->
+    match whole words only, True for text taken from under a drawn box) are
+    filled as each page is done, so a caller whose *stop* was set part-way knows
+    which pages are redacted; the boxes of the pages not done stay to be applied.
+    Returns (modes, secrets)."""
+    modes = {} if modes is None else modes
+    secrets = {} if secrets is None else secrets
+    by_page: dict[int, list[fitz.Rect]] = {}
+    for pno, r, _ in pending:
+        by_page.setdefault(pno, []).append(r)
+    pages = len(by_page)
+    for i, (pno, rects) in enumerate(by_page.items()):
+        if stop is not None and stop.is_set():
+            break
+        for pg, r, phrase in pending:
+            if pg != pno:
+                continue
+            if phrase:
+                secrets[phrase] = False
+            else:
+                # What a drawn box covered, so scrub_secrets can find it outside the page.
+                for ln in doc[pno].get_textbox(r).splitlines():
+                    if len(ln.strip()) >= _MIN_BOX_PHRASE:
+                        secrets.setdefault(ln.strip(), True)
+        modes[pno] = redact_page(doc, pno, rects, fill)
+        if progress is not None:
+            progress((i + 1) / pages)
+    return modes, secrets
+
+
+def merge_secrets(into: dict[str, bool], found: dict[str, bool]) -> None:
+    """Add the phrases of one apply_boxes run to those kept for the save: a
+    phrase searched for (match anywhere) wins over the same text under a box."""
+    for phrase, whole_words in found.items():
+        if not whole_words:
+            into[phrase] = False
+        else:
+            into.setdefault(phrase, True)
+
+
 def scrub_secrets(doc, secrets: dict[str, bool]) -> list[str]:
     """Remove every redacted phrase from the places apply_redactions does not touch.
 

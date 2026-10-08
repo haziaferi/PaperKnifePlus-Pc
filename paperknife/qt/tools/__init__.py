@@ -22,3 +22,4 @@ from . import metadata  # noqa: F401
 from . import settings  # noqa: F401
 from . import edit_text  # noqa: F401
 from . import find_replace  # noqa: F401
+from . import redact  # noqa: F401
