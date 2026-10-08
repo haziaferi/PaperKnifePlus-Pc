@@ -113,13 +113,18 @@ def group_title(text: str) -> StrongBodyLabel:
     return lbl
 
 
-def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
+def setting_row(group: QWidget, title: str, desc: str = "",
+                label_width: int | None = None) -> QWidget:
     """Add a Windows 11 settings row to *group* (a card()) and return the
     container for its control: the name and description sit in a fixed-width
     column on the left, the control right-aligned, rows split by thin lines.
 
         row = setting_row(level_card, "Level", "How hard to compress")
         row.layout().addWidget(combo)
+
+    label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
+    take the room the control leaves, for a narrow column such as a
+    CollectionPage's settings.
     """
     lay = group.layout()
     rows = int(group.property("pk_rows") or 0)
@@ -135,7 +140,9 @@ def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
     h.setContentsMargins(16, 10, 16, 10)
     h.setSpacing(16)
     texts = QWidget(row)
-    texts.setFixedWidth(LABEL_COLUMN)
+    lw = LABEL_COLUMN if label_width is None else label_width
+    if lw:
+        texts.setFixedWidth(lw)
     tv = QVBoxLayout(texts)
     tv.setContentsMargins(0, 0, 0, 0)
     tv.setSpacing(2)
@@ -147,8 +154,9 @@ def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
         d.setWordWrap(True)
         tv.addWidget(d)
     tv.addStretch(1)
-    h.addWidget(texts)
-    h.addStretch(1)
+    h.addWidget(texts, 0 if lw else 1)
+    if lw:
+        h.addStretch(1)
     control = QWidget(row)
     control.setObjectName("settingControl")
     ch = QHBoxLayout(control)
@@ -736,13 +744,281 @@ def _clear_layout(layout):
             _clear_layout(item.layout())
 
 
-class CollectionPage(ToolPage):
-    """TODO(phase 3): group D, collection (Merge, Image -> PDF, Batch).
+SETTINGS_W = 360            # collection: width of the settings column
 
-    Several files in a chosen order: a list with a toolbar (Add, Up, Down,
-    Remove) in the centre, the settings beside it, the main action fixed.
-    accept_drop takes every dropped file of the accepted types and appends
-    it; delete() removes the selected entry."""
+
+class CollectionRow(QWidget):
+    """One entry of a CollectionPage list: its number, the file's name and
+    folder, an optional control of its own (row.extra, e.g. a page range)
+    and a note at the right (row.set_note, e.g. a batch result)."""
+
+    def __init__(self, page, path: str, extra: QWidget | None = None):
+        super().__init__()
+        self.setObjectName("collectionRow")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.page, self.path, self.extra = page, str(path), extra
+        self.setMinimumHeight(52)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(12, 6, 12, 6)
+        h.setSpacing(12)
+        self.num = muted_caption("")
+        self.num.setFixedWidth(24)
+        self.num.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        h.addWidget(self.num)
+        texts = QVBoxLayout()
+        texts.setSpacing(0)
+        p = Path(path)
+        self.name_label = BodyLabel(p.name)
+        self.name_label.setToolTip(str(p))
+        self.folder_label = muted_caption(str(p.parent))
+        texts.addWidget(self.name_label)
+        texts.addWidget(self.folder_label)
+        h.addLayout(texts, 1)
+        self.note = muted_caption("")
+        self.note.hide()
+        h.addWidget(self.note, 0, Qt.AlignVCenter)
+        if extra is not None:
+            h.addWidget(extra, 0, Qt.AlignVCenter)
+        self.set_selected(False)
+
+    def set_number(self, n: int):
+        self.num.setText(f"{n}.")
+
+    def set_note(self, text: str, role: str = "muted"):
+        self.note.setText(text)
+        self.note.setTextColor(*theme.pair(role))
+        self.note.setVisible(bool(text))
+
+    def set_selected(self, on: bool):
+        self.selected = on
+        if on:
+            a = theme.color("accent")
+            bg = f"rgba({a.red()},{a.green()},{a.blue()},40)"
+            self.setStyleSheet(f"QWidget#collectionRow {{ background: {bg}; border-radius: 4px; }}")
+        else:
+            self.setStyleSheet("QWidget#collectionRow { background: transparent; }")
+
+    def mousePressEvent(self, e):
+        self.page.select(self.page.rows.index(self))
+        super().mousePressEvent(e)
+
+
+class CollectionPage(ToolPage):
+    """Group D, collection (Merge, Image -> PDF, Batch): several files in a
+    chosen order.  A list card fills the centre with its toolbar on top
+    (Add, Up, Down, Remove, plus any add_tool() buttons) and an empty-state
+    line that says what to drop; a settings column of fixed width
+    (SETTINGS_W) sits at the right when settings=True, filled through
+    self.settings (a QVBoxLayout: group_title + card + setting_row, as in
+    group C).  The main action stays where ToolPage puts it.
+
+    accept_drop / open() add files of *exts*; delete() removes the selected
+    entry; Alt+Up / Alt+Down move it.  make_extra(path) -> QWidget | None
+    gives each new row its own control (Merge's page range).
+
+        rows / paths() / selected_index() / select(i) / add_paths(paths)
+        move(d) / remove_selected() / clear_rows()
+        setting_row(card, name, desc): a setting row sized for the column"""
+
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
+                 exts=(".pdf",), add_text: str = "Add PDFs", empty_text: str = "",
+                 settings: bool = True, toolbar: bool = True, parent=None):
+        from PySide6.QtGui import QKeySequence, QShortcut
+        from qfluentwidgets import FluentIcon as FIF
+        from qfluentwidgets import TransparentPushButton
+        super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
+                         parent=parent)
+        self.exts = tuple(e.lower() for e in (exts or ()))
+        self.add_text = add_text
+        self.rows: list[CollectionRow] = []
+        self._sel: int | None = None
+
+        cols = QHBoxLayout()
+        cols.setSpacing(16)
+        # list card
+        self.list_card = SimpleCardWidget()
+        lv = QVBoxLayout(self.list_card)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(0)
+        bar = QWidget(self.list_card)
+        bar.setObjectName("collectionToolbar")
+        self.toolbar = QHBoxLayout(bar)
+        self.toolbar.setContentsMargins(8, 6, 8, 6)
+        self.toolbar.setSpacing(4)
+        self.add_btn = self.up_btn = self.down_btn = self.remove_btn = None
+        if toolbar:
+            def tb(text, icon, slot):
+                b = TransparentPushButton(icon, text, bar)
+                b.clicked.connect(slot)
+                self.toolbar.addWidget(b)
+                return b
+            self.add_btn = tb(add_text, FIF.ADD, self.open)
+            self.up_btn = tb("Up", FIF.UP, lambda: self.move(-1))
+            self.down_btn = tb("Down", FIF.DOWN, lambda: self.move(1))
+            self.remove_btn = tb("Remove", FIF.DELETE, self.remove_selected)
+        self.toolbar.addStretch(1)
+        self.count_label = muted_caption("")
+        self.toolbar.addWidget(self.count_label)
+        lv.addWidget(bar)
+        lv.addWidget(Divider())
+        area = SingleDirectionScrollArea(self.list_card, Qt.Vertical)
+        area.setWidgetResizable(True)
+        area.enableTransparentBackground()
+        area.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner.setObjectName("collectionList")
+        inner.setStyleSheet("QWidget#collectionList { background: transparent; }")
+        self.list_v = QVBoxLayout(inner)
+        self.list_v.setContentsMargins(4, 4, 4, 4)
+        self.list_v.setSpacing(2)
+        self.empty_label = muted_caption(empty_text or self._default_empty())
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setContentsMargins(24, 48, 24, 48)
+        self.list_v.addWidget(self.empty_label)
+        self.list_v.addStretch(1)
+        area.setWidget(inner)
+        self.list_area = area
+        lv.addWidget(area, 1)
+        cols.addWidget(self.list_card, 1)
+        # settings column
+        self.settings_area = None
+        self.settings = None
+        if settings:
+            sa = SingleDirectionScrollArea(self, Qt.Vertical)
+            sa.setWidgetResizable(True)
+            sa.enableTransparentBackground()
+            sa.setFrameShape(QFrame.NoFrame)
+            sa.setFixedWidth(SETTINGS_W)
+            sw = QWidget()
+            sw.setObjectName("collectionSettings")
+            sw.setStyleSheet("QWidget#collectionSettings { background: transparent; }")
+            self.settings = QVBoxLayout(sw)
+            self.settings.setContentsMargins(0, 0, 0, 0)
+            self.settings.setSpacing(8)
+            sa.setWidget(sw)
+            self.settings_area = sa
+            cols.addWidget(sa)
+        self.body.addLayout(cols, 1)
+
+        for keys, d in (("Alt+Up", -1), ("Alt+Down", 1)):
+            sc = QShortcut(QKeySequence(keys), self)
+            sc.activated.connect(lambda d=d: self.move(d))
+        self._refresh()
+
+    def _default_empty(self) -> str:
+        what = "PDFs" if self.exts == (".pdf",) else "files"
+        return f"Drop {what} here, or use {self.add_text}."
+
+    @staticmethod
+    def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
+        return setting_row(group, title, desc, label_width=0)
+
+    # ── hooks a tool may override ──
+    def make_extra(self, path: str) -> QWidget | None:
+        return None
+
+    def add_tool(self, text: str, icon, slot):
+        """Another toolbar button (after Remove)."""
+        from qfluentwidgets import TransparentPushButton
+        b = TransparentPushButton(icon, text)
+        b.clicked.connect(slot)
+        self.toolbar.insertWidget(self.toolbar.count() - 2, b)
+        return b
+
+    # ── entries ──
+    def paths(self) -> list[str]:
+        return [r.path for r in self.rows]
+
+    def selected_index(self) -> int | None:
+        return self._sel
+
+    def accepts(self, path: str) -> bool:
+        return os.path.isfile(path) and (not self.exts or Path(path).suffix.lower() in self.exts)
+
+    def add_paths(self, paths) -> int:
+        n = 0
+        for p in paths:
+            row = CollectionRow(self, str(p), self.make_extra(str(p)))
+            self.rows.append(row)
+            self.list_v.insertWidget(self.list_v.count() - 1, row)
+            n += 1
+        self._refresh()
+        return n
+
+    def clear_rows(self):
+        for r in self.rows:
+            r.hide()
+            self.list_v.removeWidget(r)
+            r.setParent(None)
+            r.deleteLater()
+        self.rows = []
+        self._sel = None
+        self._refresh()
+
+    def select(self, i: int | None):
+        self._sel = i if i is not None and 0 <= i < len(self.rows) else None
+        for j, r in enumerate(self.rows):
+            r.set_selected(j == self._sel)
+        self._refresh()
+
+    def move(self, d: int):
+        i = self._sel
+        if i is None:
+            return
+        j = i + d
+        if not 0 <= j < len(self.rows):
+            return
+        self.rows[i], self.rows[j] = self.rows[j], self.rows[i]
+        for r in self.rows:
+            self.list_v.removeWidget(r)
+        for k, r in enumerate(self.rows):
+            self.list_v.insertWidget(1 + k, r)      # after the empty-state label
+        self.select(j)
+
+    def remove_selected(self):
+        i = self._sel
+        if i is None or i >= len(self.rows):
+            return
+        r = self.rows.pop(i)
+        r.hide()
+        self.list_v.removeWidget(r)
+        r.setParent(None)
+        r.deleteLater()
+        self._sel = None
+        self.select(min(i, len(self.rows) - 1) if self.rows else None)
+
+    def _refresh(self):
+        for k, r in enumerate(self.rows):
+            r.set_number(k + 1)
+        self.empty_label.setVisible(not self.rows)
+        n = len(self.rows)
+        self.count_label.setText(f"{n} file{'s' if n != 1 else ''}" if n else "")
+        has = self._sel is not None
+        for b, ok in ((self.up_btn, has and self._sel > 0),
+                      (self.down_btn, has and self._sel < n - 1),
+                      (self.remove_btn, has)):
+            if b is not None:
+                b.setEnabled(bool(ok))
+
+    # ── shell hooks ──
+    def open(self):
+        if self.exts:
+            pats = " ".join(f"*{e}" for e in self.exts)
+            label = "PDF" if self.exts == (".pdf",) else "Supported files"
+            filters = [(label, pats), ("All", "*.*")]
+        else:
+            filters = None
+        self.add_paths(dialogs.ask_open_many(self.add_text, filters))
+
+    def delete(self):
+        self.remove_selected()
+
+    def accept_drop(self, path: str) -> bool:
+        if self.accepts(path):
+            self.add_paths([path])
+            return True
+        return super().accept_drop(path)        # a file card in the settings
 
 
 class OrganiserPage(ToolPage):
