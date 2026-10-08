@@ -44,6 +44,19 @@ def find_matches(page, needle: str) -> list[dict]:
     return matches
 
 
+def find_all(doc, needle: str, stop=None, progress=lambda v: None) -> list | None:
+    """[(page number, find_matches of that page)] for every page with a match,
+    or None when *stop* was set.  progress(fraction) after each page."""
+    found, total = [], len(doc)
+    for pg_num in range(total):
+        if stop is not None and stop.is_set():
+            return None
+        if ms := find_matches(doc[pg_num], needle):
+            found.append((pg_num, ms))
+        progress((pg_num + 1) / total)
+    return found
+
+
 def unicode_font(text: str):
     """A built-in font with a glyph for every character of *text*, or None."""
     for name in ("helv", "cjk"):
