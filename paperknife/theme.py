@@ -13,7 +13,7 @@ the first window is created.
 """
 import customtkinter as ctk
 
-__version__ = "3.2.2"
+from ._version import __version__  # noqa: F401  (app.py imports it here)
 
 ctk.set_default_color_theme("blue")
 

@@ -7,7 +7,6 @@ import json, os, threading
 from pathlib import Path
 from datetime import datetime
 
-import customtkinter as ctk
 from PIL import Image
 import pymupdf as fitz
 
@@ -106,9 +105,12 @@ class RecentFiles:
 RECENT = RecentFiles()
 
 # ── Thumbnail cache ────────────────────────────────────────────────────────────
-_THUMB_CACHE: dict[tuple, ctk.CTkImage | None] = {}
+_THUMB_CACHE: dict[tuple, tuple[Image.Image, tuple[int, int]] | None] = {}
 
-def get_thumb(path: str, size=(100, 130)) -> ctk.CTkImage | None:
+def thumb_image(path: str, size=(100, 130)) -> tuple[Image.Image, tuple[int, int]] | None:
+    """The first page of *path* rendered at twice *size* (sharp at 200 % scaling),
+    with the size to show it at; cached by path, size and modification time.
+    Each user interface wraps the image in its own image type."""
     try:
         mtime = os.stat(path).st_mtime_ns
     except OSError:
@@ -126,7 +128,7 @@ def get_thumb(path: str, size=(100, 130)) -> ctk.CTkImage | None:
                 pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             fit = (max(1, round(pix.width / 2)), max(1, round(pix.height / 2)))
-            _THUMB_CACHE[key] = ctk.CTkImage(img, size=fit)
+            _THUMB_CACHE[key] = (img, fit)
         except Exception:
             _THUMB_CACHE[key] = None
     return _THUMB_CACHE[key]

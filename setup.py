@@ -8,7 +8,7 @@ from setuptools import setup, find_packages
 # Read as text: importing paperknife needs customtkinter, which pip may not
 # have installed yet when it runs this file.
 VERSION = re.search(r'^__version__\s*=\s*"([^"]+)"',
-                    (Path(__file__).parent / "paperknife" / "theme.py")
+                    (Path(__file__).parent / "paperknife" / "_version.py")
                     .read_text(encoding="utf-8"), re.M).group(1)
 
 setup(

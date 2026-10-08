@@ -32,10 +32,10 @@ def test_build_script_runs_from_its_own_folder():
 def test_every_copy_of_the_version_agrees():
     src = Path(SRC)
     version = re.search(r'__version__\s*=\s*"([^"]+)"',
-                        (src / "paperknife" / "theme.py").read_text(encoding="utf-8"))[1]
+                        (src / "paperknife" / "_version.py").read_text(encoding="utf-8"))[1]
     dotted4 = version + ".0"
     tuple4 = "(" + ", ".join(dotted4.split(".")) + ")"
-    copies = {                      # setup.py reads theme.py itself
+    copies = {                      # setup.py reads _version.py itself
         "installer.nsi": f'!define APP_VERSION     "{version}"',
         "build_windows.bat": f"set APP_VERSION={version}",
         "setup.bat": f"v{version} ",

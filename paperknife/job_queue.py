@@ -24,10 +24,16 @@ from __future__ import annotations
 import contextlib
 import os
 import tempfile
+import sys
 import threading
-import tkinter as tk
 from pathlib import Path
 from typing import Callable, Iterator
+
+
+def _GONE_ERRORS() -> tuple[type[BaseException], ...]:
+    """The errors a scheduler raises once its window is gone."""
+    tk = sys.modules.get("tkinter")
+    return (RuntimeError, tk.TclError) if tk is not None else (RuntimeError,)
 
 
 @contextlib.contextmanager
@@ -98,10 +104,11 @@ class CancellableJob:
     # ── Internal ───────────────────────────────────────────────────────────────
     def _post(self, callback):
         # after() from this thread raises once the window has been destroyed
-        # (RuntimeError "main thread is not in main loop", or TclError).
+        # (RuntimeError "main thread is not in main loop", or Tk's TclError).
+        # tkinter is not imported here: a Qt build ships without it.
         try:
             self._after(0, callback)
-        except (RuntimeError, tk.TclError):
+        except _GONE_ERRORS():
             pass
 
     def _run(self):

@@ -37,7 +37,16 @@ except Exception:
 from .theme import (ACCENT, ACCENT_H, BG, SIDEBAR, CARD, CARD2,
                     TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN, ON_ACCENT,
                     LB_BG, _tk_color, __version__)
-from .recent import RECENT, get_thumb, time_ago
+from .recent import RECENT, thumb_image, time_ago
+
+
+def get_thumb(path: str, size=(100, 130)):
+    """A recent file's first page as a CTkImage (None if it cannot be read)."""
+    found = thumb_image(path, size)
+    if found is None:
+        return None
+    img, fit = found
+    return ctk.CTkImage(img, size=fit)
 from .prefs  import PREFS
 from .job_queue import CancellableJob
 
