@@ -25,11 +25,11 @@ from PIL import Image, ImageTk
 
 from ..tool_base import ToolBase, register
 from ..theme import TEXT, MUTED, CARD2, WARN, CANVAS_BG, _tk_color
-from ..pages import render
+from ..core import reader as core_reader
 
-_PRELOAD   = 2     # extra pages rendered beyond the visible window, each side
-_CACHE_MAX = 16     # bounded PhotoImage cache (pages currently displayed are exempt)
-_GAP       = 10     # px between pages
+_PRELOAD   = core_reader.PRELOAD     # extra pages rendered beyond the visible window, each side
+_CACHE_MAX = core_reader.CACHE_MAX   # bounded PhotoImage cache (pages currently displayed are exempt)
+_GAP       = core_reader.GAP         # px between pages
 
 
 @register
@@ -151,22 +151,12 @@ class ReaderTool(ToolBase):
     def _close_off_thread(doc, lock):
         # Holding the document's lock, so a render already in flight against
         # it finishes before close() runs.
-        def _close_when_idle():
-            with lock:
-                doc.close()
-        threading.Thread(target=_close_when_idle, daemon=True).start()
+        core_reader.close_when_idle(doc, lock)
 
     # ── layout: page geometry only — no rasterising ──────────────────────────
     def _layout_pages(self):
-        self._page_tops, self._page_px = [], []
-        y, max_w = _GAP, 0
-        for rect in self._page_rects:
-            w = int(rect.width  * self._zoom)
-            h = int(rect.height * self._zoom)
-            self._page_tops.append(y)
-            self._page_px.append((w, h))
-            y += h + _GAP
-            max_w = max(max_w, w)
+        self._page_tops, self._page_px, y, max_w = core_reader.layout(
+            self._page_rects, self._zoom, _GAP)
         self._total_h = y
         self._canvas.configure(scrollregion=(0, 0, max_w + 2 * _GAP, y))
 
@@ -203,18 +193,11 @@ class ReaderTool(ToolBase):
             return
         top    = self._canvas.canvasy(0)
         bottom = top + self._canvas.winfo_height()
-        first = last = None
-        for i, (y0, (_, h)) in enumerate(zip(self._page_tops, self._page_px, strict=True)):
-            y1 = y0 + h
-            if y1 < top or y0 > bottom:
-                continue
-            first = i if first is None else first
-            last  = i
-        if first is None:
+        seen = core_reader.visible_range(self._page_tops, self._page_px, top, bottom)
+        if seen is None:
             return
-
-        lo = max(0, first - _PRELOAD)
-        hi = min(len(self._page_rects) - 1, last + _PRELOAD)
+        first, last = seen
+        lo, hi = core_reader.preload_window(first, last, len(self._page_rects), _PRELOAD)
         self._window = (lo, hi)
         for i in range(lo, hi + 1):
             self._request_page(i)
@@ -263,9 +246,8 @@ class ReaderTool(ToolBase):
                 self.app.after(0, lambda f=flight: self._inflight.discard(f))
                 continue
             try:
-                with lock:
-                    pix = render(doc[idx], zoom, shrink=True)
-                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                pix = core_reader.rasterise(doc, lock, idx, zoom)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             except Exception as e:
                 self.app.after(0, lambda f=flight, i=idx, ex=e: self._on_failed(f, i, ex))
                 continue
