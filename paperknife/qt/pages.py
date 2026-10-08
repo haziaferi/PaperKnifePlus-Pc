@@ -650,7 +650,7 @@ class WorkspacePage(ToolPage):
         """A small label above its control, as a narrow panel stacks them."""
         self.panel_body.addSpacing(12)
         self.panel_body.addWidget(muted_caption(label))
-        row = QHBoxLayout()
+        row = FieldRow()
         row.setSpacing(8)
         self.panel_body.addLayout(row)
         return row
@@ -733,6 +733,17 @@ class WorkspacePage(ToolPage):
 
     def draw_overlay(self, page):
         pass
+
+
+class FieldRow(QHBoxLayout):
+    """A field's row under its small label: a control of fixed width sits at
+    the left edge instead of centred in the row."""
+
+    def addWidget(self, w, stretch=0, alignment=None):
+        if alignment is None:
+            fixed = w.maximumWidth() < 16777215
+            alignment = (Qt.AlignLeft | Qt.AlignVCenter) if fixed else Qt.AlignmentFlag(0)
+        super().addWidget(w, stretch, alignment)
 
 
 def _clear_layout(layout):
@@ -1312,7 +1323,160 @@ class OrganiserPage(ToolPage):
 
 
 class MasterDetailPage(ToolPage):
-    """TODO(phase 3): group E, structured editor (Bookmarks / TOC, Metadata).
+    """Group E, structured editor (Bookmarks / TOC): the file card on top, then
+    the list of entries in a card with its toolbar (add_tool; buttons made
+    with needs_selection=True are enabled only while an entry is selected)
+    and, at the right, a detail column of fixed width (SETTINGS_W) with the
+    selected entry's fields: detail_begin(title) empties it, detail_field(label)
+    gives a row for a control under a small label (as a context panel stacks
+    them).  A tool with fields but no list (Metadata) uses the group C form
+    instead.
 
-    A list on the left (outline entries or field names), the selected item's
-    fields on the right, the main action fixed."""
+    The file card's on_change calls self.load(path).
+
+        set_items(texts, keep=None)  keep = the index to select afterwards
+        current() -> index | None; select(i); on_select(i) (override)
+        count()"""
+
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
+                 empty_text: str = "Open a PDF to see its entries", parent=None):
+        from qfluentwidgets import ListWidget, SubtitleLabel
+        super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
+                         parent=parent)
+        self._SubtitleLabel = SubtitleLabel
+        self.file = file_card(self.load)
+        self.body.addWidget(self.file)
+        self.body.addSpacing(8)
+        cols = QHBoxLayout()
+        cols.setSpacing(16)
+
+        self.list_card = SimpleCardWidget()
+        lv = QVBoxLayout(self.list_card)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(0)
+        bar = QWidget(self.list_card)
+        self.toolbar = QHBoxLayout(bar)
+        self.toolbar.setContentsMargins(8, 6, 8, 6)
+        self.toolbar.setSpacing(4)
+        self.toolbar.addStretch(1)
+        self.count_label = muted_caption("")
+        self.toolbar.addWidget(self.count_label)
+        self._tools: list = []
+        lv.addWidget(bar)
+        lv.addWidget(Divider())
+        self.list = ListWidget(self.list_card)
+        self.list.setFrameShape(QFrame.NoFrame)
+        self.list.currentRowChanged.connect(self._row_changed)
+        lv.addWidget(self.list, 1)
+        self.empty_label = muted_caption(empty_text)
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setContentsMargins(24, 48, 24, 48)
+        lv.addWidget(self.empty_label)
+        lv.addStretch(0)
+        cols.addWidget(self.list_card, 1)
+
+        detail = QWidget()
+        detail.setFixedWidth(SETTINGS_W)
+        self._detail_v = QVBoxLayout(detail)
+        self._detail_v.setContentsMargins(0, 0, 0, 0)
+        self._detail_v.setSpacing(0)
+        self._detail_box = None
+        self.detail = None
+        self.detail_panel = detail
+        cols.addWidget(detail)
+        self.body.addLayout(cols, 1)
+        self._refresh()
+
+    # ── what a subclass fills ──
+    def load(self, path: str):
+        """The file card changed; open *path* and call set_items()."""
+
+    def on_select(self, i: int | None):
+        """The selection changed (None = nothing selected)."""
+
+    def add_tool(self, text: str, icon, slot, needs_selection: bool = False):
+        from qfluentwidgets import TransparentPushButton
+        b = TransparentPushButton(icon, text) if icon is not None else TransparentPushButton(text)
+        b.clicked.connect(slot)
+        b.pk_needs_selection = needs_selection
+        self.toolbar.insertWidget(len(self._tools), b)
+        self._tools.append(b)
+        self._refresh()
+        return b
+
+    def detail_begin(self, title: str, desc: str = "") -> QVBoxLayout:
+        """Empty the detail column (at once, as WorkspacePage.panel_begin)."""
+        old = self._detail_box
+        if old is not None:
+            old.hide()
+            self._detail_v.removeWidget(old)
+            old.setParent(None)
+            old.deleteLater()
+        while self._detail_v.count():
+            self._detail_v.takeAt(0)
+        box = card(padding=16)
+        self._detail_box = box
+        bv = box.layout()
+        bv.setSpacing(4)
+        bv.addWidget(self._SubtitleLabel(title))
+        if desc:
+            d = muted_caption(desc)
+            d.setWordWrap(True)
+            bv.addWidget(d)
+        self.detail = QVBoxLayout()
+        self.detail.setContentsMargins(0, 4, 0, 0)
+        self.detail.setSpacing(4)
+        bv.addLayout(self.detail)
+        self._detail_v.addWidget(box)
+        self._detail_v.addStretch(1)
+        return self.detail
+
+    def detail_field(self, label: str) -> QHBoxLayout:
+        self.detail.addSpacing(12)
+        self.detail.addWidget(muted_caption(label))
+        row = FieldRow()
+        row.setSpacing(8)
+        self.detail.addLayout(row)
+        return row
+
+    # ── entries ──
+    def count(self) -> int:
+        return self.list.count()
+
+    def set_items(self, texts, keep: int | None = None):
+        self.list.blockSignals(True)
+        self.list.clear()
+        self.list.addItems([str(t) for t in texts])
+        self.list.blockSignals(False)
+        self._refresh()
+        self.select(keep)
+
+    def current(self) -> int | None:
+        r = self.list.currentRow()
+        return r if 0 <= r < self.list.count() and self.list.currentItem().isSelected() else None
+
+    def select(self, i: int | None):
+        if i is not None and 0 <= i < self.list.count():
+            self.list.setCurrentRow(i)
+            self.list.item(i).setSelected(True)
+        else:
+            self.list.clearSelection()
+            self.list.setCurrentRow(-1)
+            self._row_changed(-1)
+
+    def _row_changed(self, r: int):
+        self._refresh()
+        self.on_select(r if 0 <= r < self.list.count() else None)
+
+    def _refresh(self):
+        n = self.list.count()
+        self.list.setVisible(bool(n))
+        self.empty_label.setVisible(not n)
+        self.count_label.setText(f"{n} entr{'ies' if n != 1 else 'y'}" if n else "")
+        has = 0 <= self.list.currentRow() < n
+        for b in self._tools:
+            if getattr(b, "pk_needs_selection", False):
+                b.setEnabled(has)
+
+    def accept_drop(self, path: str) -> bool:
+        return self.file.accept_drop(path)

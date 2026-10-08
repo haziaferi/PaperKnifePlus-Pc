@@ -161,3 +161,48 @@ def test_organiser_drop_goes_to_the_file_card(qapp, tmp_path):
     assert page.accept_drop(str(other)) is False
     assert page.accept_drop(str(pdf)) is True and loaded == [str(pdf)]
     page.close()
+
+
+def test_master_detail_selection_drives_tools_and_detail(qapp, tmp_path):
+    from qfluentwidgets import LineEdit
+    from paperknife.qt.pages import MasterDetailPage
+    seen = []
+
+    class P(MasterDetailPage):
+        def on_select(self, i):
+            seen.append(i)
+            if i is not None:
+                self.detail_begin("Selected bookmark")
+                self.detail_field("Title").addWidget(LineEdit())
+    page = P("Bookmarks / TOC", "")
+    page.resize(1000, 700)
+    page.show()
+    add = page.add_tool("Add below", None, lambda: None)
+    rm = page.add_tool("Delete", None, lambda: None, needs_selection=True)
+    assert page.empty_label.isVisibleTo(page) and add.isEnabled() and not rm.isEnabled()
+    page.set_items(["Intro (p.1)", "  Part (p.3)"])
+    assert page.count() == 2 and page.current() is None and not rm.isEnabled()
+    page.select(1)
+    assert page.current() == 1 and rm.isEnabled() and seen[-1] == 1
+    assert page.detail is not None and page.findChildren(LineEdit)
+    page.set_items(["A", "B", "C"], keep=2)
+    assert page.current() == 2 and page.count_label.text() == "3 entries"
+    page.select(None)
+    assert page.current() is None and seen[-1] is None and not rm.isEnabled()
+    page.close()
+
+
+def test_a_fixed_width_field_sits_at_the_left(qapp):
+    from qfluentwidgets import LineEdit
+    from paperknife.qt.pages import MasterDetailPage
+    page = MasterDetailPage("TOC", "")
+    page.resize(1000, 700)
+    page.show()
+    page.detail_begin("Selected bookmark")
+    wide, narrow = LineEdit(), LineEdit()
+    narrow.setFixedWidth(90)
+    page.detail_field("Title").addWidget(wide)
+    page.detail_field("Page").addWidget(narrow)
+    pump(0.1)
+    assert narrow.x() == wide.x() and wide.width() > 200
+    page.close()
