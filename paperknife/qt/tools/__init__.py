@@ -3,3 +3,4 @@ from . import annotate, compress  # noqa: F401
 from . import split  # noqa: F401
 from . import password  # noqa: F401
 from . import pdftools  # noqa: F401
+from . import crop  # noqa: F401
