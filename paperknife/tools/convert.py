@@ -56,9 +56,8 @@ class Img2PdfTool(ToolBase):
         app._cur_del_fn  = lambda: app._list_remove(self._lb)
 
     def _on_drop(self, event):
-        IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif"}
         for p in self.app._parse_drop(event.data):
-            if Path(p).suffix.lower() in IMG_EXT:
+            if Path(p).suffix.lower() in core.IMAGE_EXTS:
                 self._lb.insert("end", p)
 
     def _add(self):
@@ -78,14 +77,10 @@ class Img2PdfTool(ToolBase):
         app = self.app
 
         def work(stop):
-            n = len(paths)
-            with atomic_output(out) as tmp, fitz.open() as doc:
-                for i, p in enumerate(paths):
-                    if stop.is_set():
-                        return
-                    _image_page(doc, p)
-                    app.after(0, lambda v=(i + 1) / n: app._prog_update(v))
-                doc.save(tmp, deflate=True)
+            if not core.images_to_pdf(
+                    paths, out, stop,
+                    lambda v: app.after(0, lambda v=v: app._prog_update(v))):
+                return
 
             def done():
                 app._set_status(
