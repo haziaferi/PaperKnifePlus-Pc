@@ -19,6 +19,7 @@ def main(argv=None) -> int:
 
     # Registry first, then the appearance BEFORE any widget is built.
     import paperknife.tools  # noqa: F401  (fills tool_base.TOOLS)
+    import paperknife.qt.tools  # noqa: F401  (registers the Qt pages)
     from . import bridge, theme
     bridge.install()
     theme.setup_fonts(app)

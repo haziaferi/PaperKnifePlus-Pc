@@ -455,18 +455,249 @@ class PlaceholderPage(ToolPage):
 
 
 # ── Group templates: phase 3 ──────────────────────────────────────────────────
-class WorkspacePage(ToolPage):
-    """TODO(phase 3): group A, document workspace (Annotate, Redact, Edit Text,
-    Find & Replace, Reader).
+PANEL_W, PANEL_MIN, PANEL_MAX, SLIDE_MS = 280, 220, 480, 250
 
-    The page in the centre on a page-coloured canvas, a slim tool rail at the
-    left, a contextual panel at the right (QSplitter, 220-480 px, collapses
-    below 220, double-click the handle to toggle, animated SLIDE_MS) that
-    changes with the selection or tool, and page navigation and zoom in a
-    fixed strip under the canvas.  Implements has_context / context_shown /
-    context_width / show_context so Compact Mode can hide the panel and the
-    right edge can bring it back.  scroll=False.  Reader is exempt from the
-    main-action rule."""
+
+class WorkspacePage(ToolPage):
+    """Group A, document workspace (Annotate, Redact, Edit Text, Find & Replace,
+    Reader): a slim tool rail at the left, the page in the centre (PageView),
+    a contextual panel at the right that a tool refills for its tool or
+    selection (QSplitter: 220-480 px, collapses below 220, double-click the
+    handle to toggle, animated SLIDE_MS), and page navigation and zoom in a
+    fixed strip under the page.  Compact Mode hides the panel; the right edge
+    brings it back.
+
+    Subclasses: add_rail(key, glyph, tip, slot), panel_begin(title, desc) then
+    add widgets to self.panel_body, set_doc / show_current for the document."""
+
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None):
+        from PySide6.QtCore import QEasingCurve, QVariantAnimation
+        from PySide6.QtWidgets import QSplitter
+        from qfluentwidgets import Slider, SubtitleLabel, TransparentToolButton
+        from qfluentwidgets import FluentIcon as FIF
+        from .pageview import PageView
+        super().__init__(title, subtitle, tool=tool, window=window, scroll=False)
+        self._QEasingCurve, self._QVariantAnimation = QEasingCurve, QVariantAnimation
+        self._TransparentToolButton = TransparentToolButton
+        self._SubtitleLabel = SubtitleLabel
+
+        frame = SimpleCardWidget()
+        h = QHBoxLayout(frame)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        rail_w = QWidget()
+        self.rail = QVBoxLayout(rail_w)
+        self.rail.setContentsMargins(4, 8, 4, 8)
+        self.rail.setSpacing(4)
+        self.rail.addStretch(1)
+        h.addWidget(rail_w)
+        h.addWidget(Divider(vertical=True))
+
+        self.split = QSplitter(Qt.Horizontal)
+        self.split.setHandleWidth(6)
+        self.split.setChildrenCollapsible(True)
+        mid = QWidget()
+        mv = QVBoxLayout(mid)
+        mv.setContentsMargins(0, 0, 0, 0)
+        mv.setSpacing(0)
+        self.view = PageView(theme.hex_color("page_bg"))
+        mv.addWidget(self.view, 1)
+        mv.addWidget(Divider())
+        strip = QHBoxLayout()
+        strip.setContentsMargins(8, 4, 12, 4)
+        self.prev_btn = TransparentToolButton(FIF.LEFT_ARROW)
+        self.next_btn = TransparentToolButton(FIF.RIGHT_ARROW)
+        self.page_label = BodyLabel("–")
+        self.prev_btn.clicked.connect(lambda: self.go(-1))
+        self.next_btn.clicked.connect(lambda: self.go(1))
+        strip.addWidget(self.prev_btn)
+        strip.addWidget(self.page_label)
+        strip.addWidget(self.next_btn)
+        strip.addStretch(1)
+        strip.addWidget(muted_caption("Zoom"))
+        self.zoom_slider = Slider(Qt.Horizontal)
+        self.zoom_slider.setRange(50, 300)
+        self.zoom_slider.setValue(int(self.view.zoom * 100))
+        self.zoom_slider.setFixedWidth(140)
+        self.zoom_slider.valueChanged.connect(self._zoom_changed)
+        self.view.zoomed.connect(lambda z: self.zoom_slider.setValue(int(z * 100)))
+        strip.addWidget(self.zoom_slider)
+        self.reopen_btn = TransparentToolButton(theme.glyph_icon(0xE76B, 14))
+        self.reopen_btn.setToolTip("Show panel")
+        self.reopen_btn.clicked.connect(lambda: self.show_context(True))
+        self.reopen_btn.hide()
+        strip.addWidget(self.reopen_btn)
+        mv.addLayout(strip)
+
+        panel = QWidget()
+        self._panel_v = QVBoxLayout(panel)
+        self._panel_v.setContentsMargins(16, 12, 12, 16)
+        self._panel_v.setSpacing(4)
+        self.panel = panel
+        self.split.addWidget(mid)
+        self.split.addWidget(panel)
+        self.split.setStretchFactor(0, 1)
+        self.split.setSizes([700, PANEL_W])
+        panel.setMinimumWidth(PANEL_MIN)   # below it the splitter collapses the panel
+        panel.setMaximumWidth(PANEL_MAX)
+        self.split.splitterMoved.connect(self._clamp)
+        self.split.handle(1).installEventFilter(self)
+        h.addWidget(self.split, 1)
+        self.body.addWidget(frame, 1)
+        self._panel_w = PANEL_W
+        self._zoom_timer = None
+        self.panel_body = None
+
+    # ── rail ──
+    def add_rail(self, key: str, glyph: int, tip: str, slot):
+        btn = self._TransparentToolButton(theme.glyph_icon(glyph, 18))
+        btn.setFixedSize(40, 40)
+        btn.setToolTip(tip)
+        btn.pk_key, btn.pk_glyph = key, glyph
+        btn.clicked.connect(slot)
+        self.rail.insertWidget(self.rail.count() - 1, btn)
+        return btn
+
+    def add_rail_gap(self):
+        self.rail.insertSpacing(self.rail.count() - 1, 12)
+
+    def mark_rail(self, key: str):
+        """Mark the chosen tool: accent icon on a subtle fill."""
+        for i in range(self.rail.count()):
+            w = self.rail.itemAt(i).widget()
+            if w is not None and hasattr(w, "pk_key"):
+                on = w.pk_key == key
+                w.setIcon(theme.glyph_icon(w.pk_glyph, 18, "accent" if on else None))
+                w.setProperty("pk_on", on)
+                w.setStyleSheet("background: rgba(0,0,0,0.06); border-radius: 4px;" if on
+                                else "")
+
+    # ── context panel ──
+    def panel_begin(self, title: str, desc: str = ""):
+        """Empty the panel and give it a title; widgets go into self.panel_body."""
+        while self._panel_v.count():
+            item = self._panel_v.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            elif item.layout() is not None:
+                _clear_layout(item.layout())
+        top = QHBoxLayout()
+        top.addWidget(self._SubtitleLabel(title))
+        top.addStretch(1)
+        hide = self._TransparentToolButton(theme.glyph_icon(0xE76C, 14))
+        hide.setToolTip("Hide panel")
+        hide.clicked.connect(lambda: self.show_context(False))
+        top.addWidget(hide)
+        self._panel_v.addLayout(top)
+        if desc:
+            d = muted_caption(desc)
+            d.setWordWrap(True)
+            self._panel_v.addWidget(d)
+        holder = QWidget()
+        self.panel_body = QVBoxLayout(holder)
+        self.panel_body.setContentsMargins(0, 8, 0, 0)
+        self.panel_body.setSpacing(4)
+        self._panel_v.addWidget(holder)
+        self._panel_v.addStretch(1)
+        return self.panel_body
+
+    def panel_field(self, label: str) -> QHBoxLayout:
+        """A small label above its control, as a narrow panel stacks them."""
+        self.panel_body.addSpacing(12)
+        self.panel_body.addWidget(muted_caption(label))
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.panel_body.addLayout(row)
+        return row
+
+    def _clamp(self, *_):
+        w = self.split.sizes()[1]
+        if 0 < w < PANEL_MIN:
+            self.show_context(False)
+        elif w:
+            self._panel_w = min(PANEL_MAX, w)
+        self.reopen_btn.setVisible(self.split.sizes()[1] == 0)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == ev.Type.MouseButtonDblClick:
+            self.show_context(not self.context_shown())
+            return True
+        return False
+
+    def has_context(self) -> bool:
+        return True
+
+    def context_shown(self) -> bool:
+        return self.split.sizes()[1] > 0
+
+    def context_width(self) -> int:
+        return self.split.sizes()[1]
+
+    def show_context(self, on: bool):
+        target = self._panel_w if on else 0
+        total = sum(self.split.sizes())
+        start = self.split.sizes()[1]
+        if start == target:
+            return
+        a = self._QVariantAnimation(self)
+        a.setDuration(SLIDE_MS)
+        a.setStartValue(start)
+        a.setEndValue(target)
+        a.setEasingCurve(self._QEasingCurve.OutCubic)
+        a.valueChanged.connect(lambda w: self.split.setSizes([total - int(w), int(w)]))
+        a.finished.connect(lambda: self.reopen_btn.setVisible(target == 0))
+        a.start()
+        self._panel_anim = a
+
+    # ── pages ──
+    def page_count(self) -> int:
+        doc = getattr(self, "_doc", None)
+        return len(doc) if doc is not None else 0
+
+    def go(self, d: int):
+        n = self.page_count()
+        if n and 0 <= self._pg + d < n:
+            self._pg += d
+            self.on_page()
+            self.show_current()
+
+    def show_current(self):
+        """Render the current page and the tool's overlay; update the page label."""
+        doc = getattr(self, "_doc", None)
+        if doc is None:
+            self.view.show_page(None)
+            self.page_label.setText("–")
+            return
+        self.view.show_page(doc[self._pg])
+        self.page_label.setText(f"{self._pg + 1} / {len(doc)}")
+        self.draw_overlay(doc[self._pg])
+
+    def _zoom_changed(self, v: int):
+        # Render once the slider rests: a render costs ~30 ms.
+        from PySide6.QtCore import QTimer
+        if self._zoom_timer is None:
+            self._zoom_timer = QTimer(self, singleShot=True, interval=120)
+            self._zoom_timer.timeout.connect(
+                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100),
+                         self.show_current()))
+        self._zoom_timer.start()
+
+    # hooks for subclasses
+    def on_page(self):
+        pass
+
+    def draw_overlay(self, page):
+        pass
+
+
+def _clear_layout(layout):
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget() is not None:
+            item.widget().deleteLater()
+        elif item.layout() is not None:
+            _clear_layout(item.layout())
 
 
 class CollectionPage(ToolPage):
