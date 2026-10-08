@@ -11,7 +11,7 @@ TOOLKIT_FREE = ["paperknife", "paperknife.core", "paperknife.core.convert",
                 "paperknife.core.enhance", "paperknife.core.headerfooter",
                 "paperknife.core.crop", "paperknife.core.pdftools",
                 "paperknife.core.password", "paperknife.core.metadata",
-                "paperknife.core.ocr",
+                "paperknife.core.ocr", "paperknife.core.batch",
                 "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
                 "paperknife.pages", "paperknife.lineart", "paperknife.tool_base"]
 
