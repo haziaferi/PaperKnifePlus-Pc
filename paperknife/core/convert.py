@@ -87,6 +87,24 @@ def image_page(doc, path) -> None:
     page.insert_image(page.rect, stream=data)
 
 
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif")
+
+
+def images_to_pdf(paths, out: str, stop, progress=None) -> bool:
+    """Write one page per image in *paths*, in order, to a PDF at *out*.
+    Returns False (and leaves *out* untouched) if *stop* was set."""
+    n = len(paths)
+    with atomic_output(out) as tmp, fitz.open() as doc:
+        for i, p in enumerate(paths):
+            if stop.is_set():
+                return False
+            image_page(doc, p)
+            if progress:
+                progress((i + 1) / n)
+        doc.save(tmp, deflate=True)
+    return True
+
+
 def text_story(text: str):
     return fitz.Story(html=f"<pre>{html.escape(text)}</pre>", user_css=_STORY_CSS)
 
