@@ -2,7 +2,6 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
-import pymupdf as fitz
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
 from ..theme import (ACCENT, ACCENT_H, CARD, TEXT, MUTED, DANGER, DANGER_H, SUCCESS, WARN,
