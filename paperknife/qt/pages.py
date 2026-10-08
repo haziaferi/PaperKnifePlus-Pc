@@ -473,12 +473,14 @@ class WorkspacePage(ToolPage):
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None):
         from PySide6.QtCore import QEasingCurve, QVariantAnimation
         from PySide6.QtWidgets import QSplitter
-        from qfluentwidgets import Slider, SubtitleLabel, TransparentToolButton
+        from qfluentwidgets import (Slider, SubtitleLabel, TransparentToggleToolButton,
+                                    TransparentToolButton)
         from qfluentwidgets import FluentIcon as FIF
         from .pageview import PageView
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False)
         self._QEasingCurve, self._QVariantAnimation = QEasingCurve, QVariantAnimation
         self._TransparentToolButton = TransparentToolButton
+        self._ToggleButton = TransparentToggleToolButton
         self._SubtitleLabel = SubtitleLabel
 
         frame = SimpleCardWidget()
@@ -495,6 +497,9 @@ class WorkspacePage(ToolPage):
 
         self.split = QSplitter(Qt.Horizontal)
         self.split.setHandleWidth(6)
+        accent = theme.hex_color("accent")
+        self.split.setStyleSheet("QSplitter::handle { background: transparent; }"
+                                 f"QSplitter::handle:hover {{ background: {accent}; }}")
         self.split.setChildrenCollapsible(True)
         mid = QWidget()
         mv = QVBoxLayout(mid)
@@ -532,7 +537,8 @@ class WorkspacePage(ToolPage):
         panel = QWidget()
         self._panel_v = QVBoxLayout(panel)
         self._panel_v.setContentsMargins(16, 12, 12, 16)
-        self._panel_v.setSpacing(4)
+        self._panel_v.setSpacing(0)
+        self._panel_box = None
         self.panel = panel
         self.split.addWidget(mid)
         self.split.addWidget(panel)
@@ -549,8 +555,9 @@ class WorkspacePage(ToolPage):
         self.panel_body = None
 
     # ── rail ──
-    def add_rail(self, key: str, glyph: int, tip: str, slot):
-        btn = self._TransparentToolButton(theme.glyph_icon(glyph, 18))
+    def add_rail(self, key: str, glyph: int, tip: str, slot, toggle: bool = True):
+        cls = self._ToggleButton if toggle else self._TransparentToolButton
+        btn = cls(theme.glyph_icon(glyph, 18))
         btn.setFixedSize(40, 40)
         btn.setToolTip(tip)
         btn.pk_key, btn.pk_glyph = key, glyph
@@ -562,26 +569,30 @@ class WorkspacePage(ToolPage):
         self.rail.insertSpacing(self.rail.count() - 1, 12)
 
     def mark_rail(self, key: str):
-        """Mark the chosen tool: accent icon on a subtle fill."""
+        """Mark the chosen tool: its toggle button checked (Fluent draws it)."""
         for i in range(self.rail.count()):
             w = self.rail.itemAt(i).widget()
-            if w is not None and hasattr(w, "pk_key"):
-                on = w.pk_key == key
-                w.setIcon(theme.glyph_icon(w.pk_glyph, 18, "accent" if on else None))
-                w.setProperty("pk_on", on)
-                w.setStyleSheet("background: rgba(0,0,0,0.06); border-radius: 4px;" if on
-                                else "")
+            if w is not None and hasattr(w, "pk_key") and w.isCheckable():
+                w.setChecked(w.pk_key == key)
 
     # ── context panel ──
     def panel_begin(self, title: str, desc: str = ""):
-        """Empty the panel and give it a title; widgets go into self.panel_body."""
-        while self._panel_v.count():
-            item = self._panel_v.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-            elif item.layout() is not None:
-                _clear_layout(item.layout())
+        """Empty the panel and give it a title; widgets go into self.panel_body.
+        The old contents go at once (hidden and detached), not at the next
+        event-loop turn, so they are never drawn under the new ones."""
+        old = self._panel_box
+        if old is not None:
+            old.hide()
+            self._panel_v.removeWidget(old)
+            old.setParent(None)
+            old.deleteLater()
+        while self._panel_v.count():          # the trailing stretch
+            self._panel_v.takeAt(0)
+        box = QWidget(self.panel)
+        self._panel_box = box
+        bv = QVBoxLayout(box)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(4)
         top = QHBoxLayout()
         top.addWidget(self._SubtitleLabel(title))
         top.addStretch(1)
@@ -589,17 +600,18 @@ class WorkspacePage(ToolPage):
         hide.setToolTip("Hide panel")
         hide.clicked.connect(lambda: self.show_context(False))
         top.addWidget(hide)
-        self._panel_v.addLayout(top)
+        bv.addLayout(top)
         if desc:
             d = muted_caption(desc)
             d.setWordWrap(True)
-            self._panel_v.addWidget(d)
-        holder = QWidget()
-        self.panel_body = QVBoxLayout(holder)
+            bv.addWidget(d)
+        self.panel_body = QVBoxLayout()
         self.panel_body.setContentsMargins(0, 8, 0, 0)
         self.panel_body.setSpacing(4)
-        self._panel_v.addWidget(holder)
+        bv.addLayout(self.panel_body)
+        self._panel_v.addWidget(box)
         self._panel_v.addStretch(1)
+        box.show()
         return self.panel_body
 
     def panel_field(self, label: str) -> QHBoxLayout:
