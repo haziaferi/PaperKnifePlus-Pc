@@ -1,0 +1,221 @@
+"""Find & Replace — a document workspace (group A): the find / replace fields
+and the hit count in the context panel, the hits drawn over the page."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from qfluentwidgets import BodyLabel, LineEdit, PushButton
+
+from ...core import text as core_text
+from ...core.doc_state import DocHolder
+from .. import bridge, dialogs, theme
+from ..pages import WorkspacePage, register_page
+
+GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
+# The CTk tool's HIT_CUR / HIT / HIT_EDGE; the fills are see-through so the
+# text under a hit stays readable (the Tk canvas stippled the other hits).
+HIT_CUR, HIT, HIT_EDGE = "#80FFD700", "#80FFFACD", "#CCCCCC"
+
+
+@register_page("FindReplaceTool")
+class FindReplacePage(DocHolder, WorkspacePage):
+    save_name = "replaced.pdf"
+    saved_what = "PDF"
+
+    def __init__(self, tool=None, window=None):
+        super().__init__("Find & Replace", "Open a PDF to start", tool=tool, window=window)
+        self._undo_stack: list = []
+        self._hits: list = []           # (page_num, [rect per line of the match])
+        self._hit_idx = -1
+        self.add_rail("undo", GLYPH_UNDO, "Undo (Ctrl+Z)", self.undo, toggle=False)
+        self.secondary("Open", self.open)
+        self.secondary("Find All", self.find_all)
+        self.secondary("Replace All", self.replace_all)
+        self.primary("Save", self.save)
+        self.build_panel()
+        self.show_current()
+
+    # ── panel ────────────────────────────────────────────────────────────────
+    def build_panel(self):
+        self.panel_begin("Find & Replace",
+                         "Search PDF text and replace across all pages · Ctrl+S to save")
+        row = self.panel_field("Find")
+        self.find_edit = LineEdit()
+        self.find_edit.setPlaceholderText("Search text…")
+        self.find_edit.returnPressed.connect(self.find_all)
+        row.addWidget(self.find_edit, 1)
+        row = self.panel_field("Replace")
+        self.repl_edit = LineEdit()
+        self.repl_edit.setPlaceholderText("Replacement text…")
+        row.addWidget(self.repl_edit, 1)
+        row = self.panel_field("Hits")
+        self.prev_hit = PushButton("◀ Prev")
+        self.next_hit = PushButton("Next ▶")
+        self.prev_hit.clicked.connect(lambda: self.jump(-1))
+        self.next_hit.clicked.connect(lambda: self.jump(1))
+        row.addWidget(self.prev_hit)
+        row.addWidget(self.next_hit)
+        row.addStretch(1)
+        self.hit_label = BodyLabel("")
+        self.hit_label.setWordWrap(True)
+        self.panel_body.addSpacing(8)
+        self.panel_body.addWidget(self.hit_label)
+
+    # ── document ─────────────────────────────────────────────────────────────
+    def open(self):
+        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
+        if path:
+            self.open_path(path)
+
+    def open_path(self, path: str):
+        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        if doc is None:
+            return
+        self._close_doc()
+        self._doc, self._pg, self._undo_stack = doc, 0, []
+        self._hits, self._hit_idx = [], -1
+        self.hit_label.setText("")
+        self.set_title("Find & Replace", Path(path).name)
+        self.show_current()
+
+    def accept_drop(self, path: str) -> bool:
+        if not str(path).lower().endswith(".pdf"):
+            return False
+        self.open_path(path)
+        return True
+
+    def deactivate(self):
+        self._close_doc()
+        self._undo_stack, self._hits, self._hit_idx = [], [], -1
+        self.hit_label.setText("")
+        self.set_title("Find & Replace", "Open a PDF to start")
+        self.show_current()
+
+    def _progress(self, scale: float = 1.0):
+        win = self.window_
+        return lambda v: bridge.post(win.set_progress, v * scale)
+
+    # ── search ───────────────────────────────────────────────────────────────
+    def find_all(self):
+        if self._doc is None:
+            return dialogs.warning("Find", "Open a PDF first.")
+        needle = self.find_edit.text().strip()
+        if not needle:
+            return
+        progress = self._progress()
+
+        def work(stop):
+            found = core_text.find_all(self._doc, needle, stop, progress)
+            if found is None:
+                return None
+            return [(pg_num, m["rects"]) for pg_num, ms in found for m in ms]
+
+        def then(kind, hits):
+            if kind == "done" and hits is not None:
+                self._hits = hits
+                if hits:
+                    self._hit_idx = 0
+                    self._pg = hits[0][0]
+                    self.hit_label.setText(f"Found {len(hits)} hit(s)")
+                else:
+                    self._hit_idx = -1
+                    self.hit_label.setText("Not found")
+                    dialogs.info("Find", f"'{needle}' not found.")
+            self.show_current()
+
+        self.window_.run_job(work, f"Searching for '{needle}'…", lock=True, then=then)
+
+    def jump(self, d: int):
+        if not self._hits:
+            return
+        self._hit_idx = (self._hit_idx + d) % len(self._hits)
+        self._pg = self._hits[self._hit_idx][0]
+        self.show_current()
+        self.hit_label.setText(f"Hit {self._hit_idx + 1} / {len(self._hits)}")
+
+    # ── replace ──────────────────────────────────────────────────────────────
+    def replace_all(self):
+        if self._doc is None:
+            return dialogs.warning("Replace", "Open a PDF first.")
+        needle = self.find_edit.text().strip()
+        repl = self.repl_edit.text()
+        if not needle:
+            return dialogs.warning("Replace", "Enter search text.")
+        if not dialogs.ask_yes_no(
+                "Confirm Replace",
+                f"Replace ALL occurrences of:\n  '{needle}'\nwith:\n  '{repl}'\n\n"
+                "This modifies the PDF in memory (save to keep changes)."):
+            return
+        # insert_text(fontname="helv") encodes Latin-1 only and turns anything else
+        # into "·"; an embedded built-in font keeps the characters.
+        font = core_text.unicode_font(repl)
+        if font is None:
+            return dialogs.error(
+                "Replace", "The replacement contains characters no built-in font can draw.")
+        win = self.window_
+        state = {"count": 0, "snapshot": False}
+        first_half, second_half = self._progress(0.5), self._progress()
+
+        def work(stop):
+            found = core_text.find_all(self._doc, needle, stop, first_half)
+            if not found or stop.is_set():
+                return
+            self._push_undo()
+            state["snapshot"] = True
+            try:
+                core_text.replace_matches(self._doc, found, repl, font, stop, second_half)
+            except Exception as e:
+                raise RuntimeError(f"Nothing was replaced:\n{e}") from e
+            state["count"] = sum(len(ms) for _, ms in found)
+
+        def then(kind, _value):
+            # All or nothing: pages already done would keep their text removed.
+            if kind != "done" and state["snapshot"]:
+                self._pop_undo()
+            if kind == "done":
+                count = state["count"]
+                self._hits, self._hit_idx = [], -1
+                self.hit_label.setText(f"Replaced {count} occurrence(s)")
+                win.set_status(f"✓  Replaced {count} occurrence(s) · Save to write to disk",
+                               "success")
+            self.show_current()
+
+        win.run_job(work, f"Replacing '{needle}'…", lock=True, then=then)
+
+    # ── render ───────────────────────────────────────────────────────────────
+    def draw_overlay(self, page):
+        accent = theme.hex_color("accent")
+        for hi, (pg_num, rects) in enumerate(self._hits):
+            if pg_num != self._pg:
+                continue
+            cur = hi == self._hit_idx
+            for rect in rects:
+                self.view.add_rect(rect, accent if cur else HIT_EDGE,
+                                   fill=HIT_CUR if cur else HIT)
+
+    # ── undo / save ──────────────────────────────────────────────────────────
+    def undo(self):
+        """Restores the whole document as it was before the last Replace All."""
+        if not self._undo_stack or self._doc is None:
+            return
+        self._pop_undo()
+        self._hits, self._hit_idx = [], -1
+        self.hit_label.setText("Replace undone")
+        self.show_current()
+
+    def save(self):
+        if self._doc is None:
+            return dialogs.warning("Save", "Open a PDF first.")
+        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
+        if not out:
+            return
+        win = self.window_
+
+        def then(kind, _value):
+            self.show_current()      # a save over the open file goes on from a copy
+            if kind == "done":
+                win.set_status(f"✓  Saved → {Path(out).name}", "success")
+                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
+
+        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
+                    lock=True, then=then)

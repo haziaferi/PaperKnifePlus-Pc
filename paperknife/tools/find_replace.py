@@ -90,13 +90,12 @@ class FindReplaceTool(PageCanvasTool):
         app = self.app
 
         def work(stop):
-            hits, total = [], len(self._doc)
-            for pg_num in range(total):
-                if stop.is_set():
-                    return None
-                hits += [(pg_num, m["rects"]) for m in _find_matches(self._doc[pg_num], needle)]
-                app.after(0, lambda v=(pg_num + 1) / total: app._prog_update(v))
-            return hits
+            found = core_text.find_all(
+                self._doc, needle, stop,
+                lambda v: app.after(0, lambda: app._prog_update(v)))
+            if found is None:
+                return None
+            return [(pg_num, m["rects"]) for pg_num, ms in found for m in ms]
 
         def done(hits):
             if hits is None:            # cancelled: keep what was shown before
@@ -145,13 +144,9 @@ class FindReplaceTool(PageCanvasTool):
         state = {"count": 0, "snapshot": False}
 
         def work(stop):
-            found, total = [], len(self._doc)
-            for pg_num in range(total):
-                if stop.is_set():
-                    return
-                if ms := _find_matches(self._doc[pg_num], needle):
-                    found.append((pg_num, ms))
-                app.after(0, lambda v=(pg_num + 1) / total * 0.5: app._prog_update(v))
+            found = core_text.find_all(
+                self._doc, needle, stop,
+                lambda v: app.after(0, lambda: app._prog_update(v * 0.5)))
             if not found or stop.is_set():
                 return
             self._push_undo()
