@@ -4,7 +4,7 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 import customtkinter as ctk
 from ..tool_base import ToolBase, register
-from ..job_queue import atomic_output
+from ..core import pdftools as core
 from ..theme import CARD, TEXT, MUTED, SUCCESS
 
 
@@ -49,10 +49,7 @@ class PdfToolsTool(ToolBase):
         if not out:
             return doc.close()
         def work(stop):
-            with atomic_output(out) as tmp, doc:
-                repaired = doc.is_repaired
-                doc.save(tmp, deflate=True, garbage=4, clean=True)
-            return repaired
+            return core.repair_pdf(doc, out)
 
         def done(repaired):
             msg = ("Repaired PDF saved" if repaired
