@@ -162,6 +162,30 @@ def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
     return control
 
 
+def spin_box(lo: int, hi: int, value: int, width: int = 160):
+    """A Fluent SpinBox that shows its number.
+
+    With PySide6 6.12 and PySide6-Fluent-Widgets 1.11.3 the SpinBox's inner
+    line edit is laid out 1 px wide, so the value is invisible; this subclass
+    gives it the space left of the buttons on every resize.  Use this, not
+    qfluentwidgets.SpinBox, in every page."""
+    from qfluentwidgets import SpinBox
+
+    class _SpinBox(SpinBox):
+        def resizeEvent(self, e):
+            super().resizeEvent(e)
+            buttons = [w for w in self.children()
+                       if isinstance(w, QWidget) and w is not self.lineEdit() and w.isVisible()]
+            right = min((b.x() for b in buttons if b.x() > 0), default=self.width())
+            self.lineEdit().setGeometry(10, 1, max(20, right - 12), self.height() - 2)
+
+    sb = _SpinBox()
+    sb.setRange(lo, hi)
+    sb.setValue(value)
+    sb.setMinimumWidth(width)
+    return sb
+
+
 def _fmt_size(n: int) -> str:
     if n < 1024:
         return f"{n} B"

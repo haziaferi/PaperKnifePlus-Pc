@@ -1,11 +1,11 @@
 """Extract Images — every embedded image of a PDF into a folder (group C)."""
 from __future__ import annotations
 
-from qfluentwidgets import ComboBox, SpinBox
+from qfluentwidgets import ComboBox
 
 from ...core import convert as core_convert
 from .. import bridge, dialogs
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
+from ..pages import (spin_box, ToolPage, card, file_card, group_title, muted_caption, register_page,
                      setting_row)
 
 FORMATS = ["Keep original", "PNG", "JPEG"]
@@ -25,9 +25,7 @@ class ExtractPage(ToolPage):
         group = card(padding=0)
         self.body.addWidget(group)
         row = setting_row(group, "Minimum dimension", "px  (skip smaller images)")
-        self.min_px = SpinBox()
-        self.min_px.setRange(0, 100000)
-        self.min_px.setValue(DEFAULT_MIN_PX)
+        self.min_px = spin_box(0, 100000, DEFAULT_MIN_PX)
         row.layout().addWidget(self.min_px)
         row = setting_row(group, "Output format")
         self.fmt = ComboBox()
