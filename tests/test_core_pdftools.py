@@ -2,20 +2,20 @@
 import pymupdf as fitz
 
 from conftest import make_pdf
+from pdf_builders import truncated_pdf
 from paperknife.core import pdftools as core
 
 
 def test_repair_recovers_a_truncated_file_and_says_so(tmp_path):
-    good = make_pdf(tmp_path / "good.pdf", pages=2)
-    data = open(good, "rb").read()
-    bad = tmp_path / "bad.pdf"
-    bad.write_bytes(data[: data.rfind(b"xref")])
+    # Cut before the xref table: table, trailer, startxref and %%EOF all gone.
+    bad = truncated_pdf(make_pdf(tmp_path / "good.pdf", pages=2), tmp_path / "bad.pdf")
     out = tmp_path / "out.pdf"
     doc = fitz.open(bad)
     assert core.repair_pdf(doc, str(out)) is True
     assert doc.is_closed
     with fitz.open(out) as d:
         assert not d.is_repaired and d.page_count == 2
+        assert [p.get_text().strip() for p in d] == ["Page 1", "Page 2"]
 
 
 def test_repair_of_a_sound_file_reports_no_damage(tmp_path):
