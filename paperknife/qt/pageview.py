@@ -40,6 +40,7 @@ class PageView(QGraphicsView):
         self.setDragMode(QGraphicsView.NoDrag)
         self._page: fitz.Page | None = None
         self._zoom = 1.5
+        self._scale = 1.0
         self._pix_item: QGraphicsPixmapItem | None = None
         self._overlays: list = []
         self._down = False
@@ -79,7 +80,7 @@ class PageView(QGraphicsView):
     # ── page <-> view ────────────────────────────────────────────────────────
     def screen_matrix(self) -> fitz.Matrix:
         """Page space -> scene: rotate as the page is shown, then zoom."""
-        z = self._zoom * getattr(self, "_scale", 1.0)
+        z = self._zoom * self._scale
         return self._page.rotation_matrix * fitz.Matrix(z, z)
 
     def page_to_scene(self, rect) -> QRectF:

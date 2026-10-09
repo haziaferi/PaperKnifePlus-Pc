@@ -74,8 +74,7 @@ def replace_matches(doc, found: list, repl: str, font, stop=None,
     for i, (pg_num, matches) in enumerate(found):
         if stop is not None and stop.is_set():
             return                  # the job reports a cancel; settle() undoes
-        if stop is not None:
-            progress(0.5 + (i + 1) / n * 0.5)
+        progress(0.5 + (i + 1) / n * 0.5)
         page = doc[pg_num]
         for m in matches:
             for r in m["rects"]:

@@ -25,12 +25,6 @@ from . import theme
 from .pages import ToolPage, group_title, muted_caption
 from ..recent import RECENT, time_ago
 
-try:
-    from shiboken6 import isValid as _is_valid
-except ImportError:                     # pragma: no cover
-    def _is_valid(obj) -> bool:
-        return True
-
 THUMB_BOX = (100, 130)
 QUICK_ACTIONS = ("ReaderTool", "MergeTool", "SplitTool", "PasswordTool", "CompressTool",
                  "AnnotateTool", "OCRTool")
@@ -122,7 +116,7 @@ def _thumb_worker(jobs, stop: threading.Event) -> None:
 
 def _show_thumb(stop, card, key, img, cached) -> None:
     """UI thread: put a worker's thumbnail on its card (if it still exists)."""
-    if stop.is_set() or not _is_valid(card):
+    if stop.is_set() or not bridge.is_valid(card):
         return
     if key is None:
         pm = None

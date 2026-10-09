@@ -21,12 +21,7 @@ from __future__ import annotations
 import threading
 
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QThread, Signal, Slot
-
-try:
-    from shiboken6 import isValid as _is_valid
-except ImportError:                     # pragma: no cover
-    def _is_valid(obj) -> bool:
-        return obj is not None
+from shiboken6 import isValid as is_valid
 
 
 class _Bridge(QObject):
@@ -81,7 +76,7 @@ def _get() -> _Bridge | None:
     if app is None:
         return None
     with _lock:
-        if _bridge is None or not _is_valid(_bridge):
+        if _bridge is None or not is_valid(_bridge):
             b = _Bridge()
             if QThread.currentThread() != app.thread():
                 # Created on a worker: push it to the main thread (a QObject

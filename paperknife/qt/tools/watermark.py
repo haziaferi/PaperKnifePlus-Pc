@@ -15,7 +15,7 @@ DEFAULT_COLOR = (128, 128, 128)          # the CTk tool's #808080 swatch
 
 
 def _hex(rgb) -> str:
-    return "#%02x%02x%02x" % tuple(int(v) for v in rgb)
+    return "#%02x%02x%02x" % rgb
 
 
 @register_page("WatermarkTool")
@@ -80,7 +80,7 @@ class WatermarkPage(ToolPage):
     def pick_color(self):
         rgb = dialogs.ask_color(self.color)
         if rgb:
-            self.color = tuple(int(v) for v in rgb[:3])
+            self.color = rgb
             self._show_color()
 
     # ── hooks ──

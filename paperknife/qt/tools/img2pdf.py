@@ -39,7 +39,7 @@ class Img2PdfPage(CollectionPage):
                 paths, out, stop, lambda v: bridge.post(win.set_progress, v))
 
         def then(kind, written):
-            if kind != "done" or not written:
+            if kind != "done":
                 return
             win.set_status(f"✓  Converted {len(paths)} image(s) → {Path(out).name}", "success")
             dialogs.info("Done", f"PDF saved:\n{out}")

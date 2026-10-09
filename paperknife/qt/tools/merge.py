@@ -72,7 +72,7 @@ class MergePage(CollectionPage):
                 close_all()
 
         def then(kind, pg_total):
-            if kind != "done" or pg_total is None:
+            if kind != "done":
                 return
             win.set_status(f"✓  Merged {n} file(s) · {pg_total} pages → "
                            f"{Path(out).name}", "success")

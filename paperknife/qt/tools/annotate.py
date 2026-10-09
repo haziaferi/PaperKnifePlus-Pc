@@ -112,7 +112,7 @@ class AnnotatePage(DocHolder, WorkspacePage):
             self.open_path(path)
 
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.window_.open_pdf_safe(path)
         if doc is None:
             return
         self._close_doc()
@@ -180,8 +180,7 @@ class AnnotatePage(DocHolder, WorkspacePage):
             ann = core_annotate.add(page, self.kind, (p0.x, p0.y), (p1.x, p1.y), self.color,
                                     self.opacity / 100.0, self.note_text)
         except Exception as ex:
-            if self.window_ is not None:
-                self.window_.set_status(f"Annotation error: {ex}", "warning")
+            self.window_.set_status(f"Annotation error: {ex}", "warning")
         if ann is not None:
             self._undo_stack.append((self._pg, ann.xref))
         self.show_current()

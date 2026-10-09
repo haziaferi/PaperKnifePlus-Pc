@@ -72,7 +72,7 @@ class EditTextPage(DocHolder, WorkspacePage):
             self.open_path(path)
 
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.window_.open_pdf_safe(path)
         if doc is None:
             return
         self._close_doc()
@@ -155,14 +155,13 @@ class EditTextPage(DocHolder, WorkspacePage):
 
         self._sel_bi = None
         self.build_panel()
-        if win is not None:
-            if own_font:
-                win.set_status("Edit applied — use Save to write to disk", "success")
-            else:
-                win.set_status(
-                    f"Edit applied in Helvetica: the block's font "
-                    f"'{core_text.block_style(block)[0]}' is not built in — use Save to write to disk",
-                    "warning")
+        if own_font:
+            win.set_status("Edit applied — use Save to write to disk", "success")
+        else:
+            win.set_status(
+                f"Edit applied in Helvetica: the block's font "
+                f"'{core_text.block_style(block)[0]}' is not built in — use Save to write to disk",
+                "warning")
         self.show_current()
 
     def undo(self):
@@ -172,8 +171,7 @@ class EditTextPage(DocHolder, WorkspacePage):
         self._sel_bi = None
         self.build_panel()
         self.show_current()
-        if self.window_ is not None:
-            self.window_.set_status("Undo applied", "success")
+        self.window_.set_status("Undo applied", "success")
 
     def save(self):
         if self._doc is None:

@@ -124,7 +124,7 @@ class RedactPage(DocHolder, WorkspacePage):
             self.open_path(path)
 
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.window_.open_pdf_safe(path)
         if doc is None:
             return
         self._close_doc()

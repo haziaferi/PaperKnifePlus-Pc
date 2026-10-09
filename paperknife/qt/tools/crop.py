@@ -103,7 +103,7 @@ class CropPage(ToolPage):
             return core.crop_pdf(doc, out, pages, margins, reset, stop)
 
         def then(kind, cropped):
-            if kind != "done" or cropped is None:
+            if kind != "done":
                 return
             role, status = crop_report(cropped, len(pages), out)
             win.set_status(status, role)

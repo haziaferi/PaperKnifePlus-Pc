@@ -1235,6 +1235,7 @@ class OrganiserPage(ToolPage):
             cols.addWidget(sa)
         self.body.addLayout(cols, 1)
 
+        self._centre: QWidget | None = None
         self._render = None
         self._label = None
         self._queue: list = []
@@ -1296,7 +1297,7 @@ class OrganiserPage(ToolPage):
         self._selection_changed()
 
     def _show_grid_state(self):
-        if getattr(self, "_centre", None) is not None:
+        if self._centre is not None:
             return
         empty = self.grid.count() == 0
         self.grid.setVisible(not empty)
@@ -1361,7 +1362,7 @@ class OrganiserPage(ToolPage):
     def _selection_changed(self):
         has = bool(self.grid.selectedItems())
         for b in self._actions:
-            if getattr(b, "pk_needs_selection", True):
+            if b.pk_needs_selection:
                 b.setEnabled(has)
         n = len(self.grid.selectedItems())
         self.hint_label.setText(self._hint if not n else
@@ -1536,7 +1537,7 @@ class MasterDetailPage(ToolPage):
         self.count_label.setText(f"{n} entr{'ies' if n != 1 else 'y'}" if n else "")
         has = self.current() is not None
         for b in self._tools:
-            if getattr(b, "pk_needs_selection", False):
+            if b.pk_needs_selection:
                 b.setEnabled(has)
 
     def accept_drop(self, path: str) -> bool:

@@ -144,8 +144,7 @@ class ReaderPage(WorkspacePage):
         return True
 
     def _load(self, path: str) -> bool:
-        win = self.window_
-        doc = win.open_pdf_safe(path) if win is not None else None
+        doc = self.window_.open_pdf_safe(path)
         if doc is None:
             return False
         old_doc, old_lock = self._doc, self._doc_lock
@@ -171,9 +170,8 @@ class ReaderPage(WorkspacePage):
             QTimer.singleShot(0, self._reopen)
 
     def _reopen(self):
-        win = self.window_
         if (self._doc is not None or not self._path or not os.path.exists(self._path)
-                or (win is not None and win.current_page() is not self)):
+                or self.window_.current_page() is not self):
             return
         frac = self._scroll_frac
         if self._load(self._path):
@@ -331,7 +329,7 @@ class ReaderPage(WorkspacePage):
 
     def _on_failed(self, flight, idx, exc):
         self._inflight.discard(flight)
-        if flight[0] == self._gen and self.window_ is not None:
+        if flight[0] == self._gen:
             self.window_.set_status(f"Page {idx + 1} could not be shown: {exc}", "warning")
 
     def _on_rendered(self, gen, idx, zoom, img: QImage):
