@@ -49,7 +49,10 @@ class PageView(QGraphicsView):
         return self._zoom
 
     def set_zoom(self, z: float):
-        self._zoom = max(ZOOM_MIN, min(ZOOM_MAX, float(z)))
+        z = max(ZOOM_MIN, min(ZOOM_MAX, float(z)))
+        if z == self._zoom:             # at a limit: the same image, no render
+            return
+        self._zoom = z
         self.show_page(self._page)
 
     def show_page(self, page: fitz.Page | None):
@@ -140,9 +143,14 @@ class PageView(QGraphicsView):
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.ControlModifier and self._page is not None:
-            step = 1.1 if event.angleDelta().y() > 0 else 1 / 1.1
-            self.set_zoom(self._zoom * step)
-            self.zoomed.emit(self._zoom)
+            dy = event.angleDelta().y()
+            if dy == 0:                 # sideways tilt / pan: scroll, never zoom
+                super().wheelEvent(event)
+                return
+            old = self._zoom
+            self.set_zoom(self._zoom * (1.1 if dy > 0 else 1 / 1.1))
+            if self._zoom != old:
+                self.zoomed.emit(self._zoom)
             event.accept()
             return
         super().wheelEvent(event)

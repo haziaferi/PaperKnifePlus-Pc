@@ -206,3 +206,48 @@ def test_a_fixed_width_field_sits_at_the_left(qapp):
     pump(0.1)
     assert narrow.x() == wide.x() and wide.width() > 200
     page.close()
+
+
+def _ctrl_wheel(view, dx: int, dy: int):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    ev = QWheelEvent(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(dx, dy),
+                     Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
+    view.wheelEvent(ev)
+
+
+def _page_view(qapp, tmp_path, monkeypatch):
+    import pymupdf as fitz
+    from qt_harness import make_pdf
+    from paperknife.qt import pageview
+    renders = []
+    real = pageview.render
+    monkeypatch.setattr(pageview, "render", lambda *a, **k: (renders.append(1), real(*a, **k))[1])
+    doc = fitz.open(make_pdf(tmp_path / "z.pdf", 1))
+    view = pageview.PageView()
+    view.show_page(doc[0])
+    zooms = []
+    view.zoomed.connect(zooms.append)
+    return view, doc, renders, zooms
+
+
+def test_ctrl_sideways_wheel_does_not_zoom(qapp, tmp_path, monkeypatch):
+    # R1-13: a horizontal tilt / touchpad pan with Ctrl held zoomed out.
+    view, doc, renders, zooms = _page_view(qapp, tmp_path, monkeypatch)
+    before = view.zoom
+    n = len(renders)
+    _ctrl_wheel(view, 120, 0)
+    assert view.zoom == before and zooms == [] and len(renders) == n
+    doc.close()
+
+
+def test_ctrl_wheel_at_the_zoom_limit_does_not_rerender(qapp, tmp_path, monkeypatch):
+    # R1-13: at 3.0 every Ctrl+wheel up re-rendered an identical page.
+    from paperknife.qt.pageview import ZOOM_MAX
+    view, doc, renders, zooms = _page_view(qapp, tmp_path, monkeypatch)
+    view.set_zoom(ZOOM_MAX)
+    n = len(renders)
+    _ctrl_wheel(view, 0, 120)
+    view.set_zoom(ZOOM_MAX + 1)
+    assert view.zoom == ZOOM_MAX and len(renders) == n and zooms == []
+    doc.close()
