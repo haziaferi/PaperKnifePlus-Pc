@@ -257,7 +257,7 @@ def test_a_page_that_fails_to_render_is_reported(window, tmp_path, monkeypatch):
     monkeypatch.setattr(core_reader, "rasterise", broken)
     page, _ = _open_unsettled(window, tmp_path)
     assert _wait(lambda: "could not be shown" in window.status_text())
-    assert window.status_text() == "Page 1 could not be shown: boom"
+    assert window.status_text() == "⚠  Page 1 could not be shown: boom"
     assert _wait(lambda: not page._inflight)
 
 

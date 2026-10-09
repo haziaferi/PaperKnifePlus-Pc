@@ -136,7 +136,7 @@ def test_a_page_smaller_than_its_margins_is_skipped_with_a_warning(window, dialo
     _crop(window, dialogs, tmp_path / "in.pdf", out, top=60, bottom=60)
     assert _sizes(out) == [(595, 722), (100, 100)]
     assert window.status_text() == (
-        "✓  Cropped 1 page(s) · 1 skipped (margins larger than the page) → out.pdf")
+        "⚠  Cropped 1 page(s) · 1 skipped (margins larger than the page) → out.pdf")
     assert window.status_role == "warning"
 
 

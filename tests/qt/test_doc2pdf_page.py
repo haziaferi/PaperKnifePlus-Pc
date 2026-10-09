@@ -175,7 +175,7 @@ def test_txt_to_pdf_cancel_stops_the_story_loop(window, dialogs, tmp_path, cappe
     assert capped_writer["pages"] == 1, capped_writer   # the loop stopped after that page
     assert not dialogs.errors(), dialogs.errors()
     assert not out.exists(), "a cancelled conversion left a partial PDF"
-    assert window.status_text() == "Cancelled"
+    assert window.status_text() == "⚠  Cancelled"
 
 
 def test_html_to_pdf_resolves_relative_images(window, dialogs, tmp_path, capped_writer):

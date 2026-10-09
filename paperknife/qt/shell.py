@@ -73,6 +73,22 @@ SEARCH_GLYPH = 0xE721
 
 _TEXT_INPUTS = (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
 
+# A coloured status line always starts with its role's symbol, so its state
+# is not told by colour alone (WCAG 1.4.1); muted lines carry none.
+STATUS_SYMBOLS = {"success": "✓", "warning": "⚠", "danger": "✗"}
+
+
+def status_with_symbol(msg: str, role: str) -> str:
+    """*msg* led by *role*'s symbol: added when it has none, replacing
+    another role's symbol (a "✓" on a warning)."""
+    symbol = STATUS_SYMBOLS.get(role)
+    if symbol is None:
+        return msg
+    text = msg.lstrip()
+    if text[:1] in STATUS_SYMBOLS.values():
+        text = text[1:].lstrip()
+    return f"{symbol}  {text}"
+
 
 # ── Navigation search box ─────────────────────────────────────────────────────
 class NavSearch(NavigationWidget):
@@ -440,6 +456,7 @@ class MainWindow(FluentWindow):
         """role: muted / success / warning / danger (theme.STATUS_ROLES)."""
         if role not in theme.STATUS_ROLES:
             role = "muted"
+        msg = status_with_symbol(msg, role)
         self._status_seq += 1
         self.status_role = role
         theme.label_role(self.status_label, role)

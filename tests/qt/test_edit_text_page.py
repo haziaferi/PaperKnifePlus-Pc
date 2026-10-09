@@ -137,7 +137,7 @@ def test_apply_replaces_only_that_text_and_keeps_image(window, tmp_path):
     # right end of the old span: "Hi" does not reach it, so the background must show
     px = _pixel(pg, bbox.x1 - 3, (bbox.y0 + bbox.y1) / 2)
     assert max(abs(a - b) for a, b in zip(px, BG_RGB, strict=True)) < 10, px
-    assert window.status_label.text() == "Edit applied — use Save to write to disk"
+    assert window.status_label.text() == "✓  Edit applied — use Save to write to disk"
     assert page._sel_bi is None and page.edit_box is None
 
 
@@ -161,7 +161,7 @@ def test_undo_restores_text_and_keeps_image(window, tmp_path):
     assert "Hello world" in pg.get_text() and "Changed" not in pg.get_text()
     px = _pixel(pg, 300, 600)
     assert max(abs(a - b) for a, b in zip(px, BG_RGB, strict=True)) < 10, px
-    assert window.status_label.text() == "Undo applied"
+    assert window.status_label.text() == "✓  Undo applied"
 
 
 def test_selection_is_forgotten_when_another_file_is_opened(window, tmp_path):
@@ -233,7 +233,7 @@ def test_font_not_built_in_falls_back_with_a_warning(window, tmp_path, monkeypat
     page.apply_edit()
     assert "Hi" in page._doc[0].get_text()
     assert window.status_role == "warning"
-    assert window.status_label.text().startswith("Edit applied in Helvetica: the block's font '")
+    assert window.status_label.text().startswith("⚠  Edit applied in Helvetica: the block's font '")
 
 
 def test_save_writes_the_edited_text(window, dialogs, tmp_path):

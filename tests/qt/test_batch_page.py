@@ -297,7 +297,7 @@ def test_a_failing_file_is_reported_on_its_row_and_the_rest_run(window, dialogs,
     notes = _go(window, page)
     assert notes[0] == "✓  a.pdf"
     assert notes[1].startswith("✗  b.pdf  — password-protected"), notes
-    assert window.status_text() == "✓  Batch done — 1 OK, 1 errors"
+    assert window.status_text() == "⚠  Batch done — 1 OK, 1 errors"
     assert window.status_role == "warning"
 
 
@@ -318,7 +318,7 @@ def test_cancelled_batch_does_not_report_success(window, dialogs, tmp_path, monk
     notes = _go(window, page)
     status = window.status_text()
     assert "cancel" in status.lower() and "✓" not in status, status
-    assert status == "Batch cancelled after 1 of 3 file(s) — 1 OK, 0 errors"
+    assert status == "⚠  Batch cancelled after 1 of 3 file(s) — 1 OK, 0 errors"
     assert notes == ["✓  a.pdf", "", ""], notes
 
 

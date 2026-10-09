@@ -140,7 +140,7 @@ def test_mark_all_then_apply_removes_the_secret_from_the_whole_file(window, dial
     wait_job(window)
     n = len(page._pending)
     assert n >= 1 and {p[2] for p in page._pending} == {SECRET}
-    assert window.status_text() == f"Marked {n} occurrence(s) of '{SECRET}' across all pages"
+    assert window.status_text() == f"⚠  Marked {n} occurrence(s) of '{SECRET}' across all pages"
     assert window.status_role == "warning"
     _apply_save(window, dialogs, page, out)
     assert ("ask_yes_no", "Confirm Redaction",

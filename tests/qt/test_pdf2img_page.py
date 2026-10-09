@@ -131,7 +131,7 @@ def test_cancelling_the_job_leaves_no_zip(window, dialogs, tmp_path, monkeypatch
     assert not out.exists()
     assert not list(tmp_path.glob("*.part"))
     assert opened[0].is_closed
-    assert window.status_text() == "Cancelled"
+    assert window.status_text() == "⚠  Cancelled"
 
 
 def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path, monkeypatch):

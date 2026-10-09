@@ -141,7 +141,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             ann = core_annotate.add(page, self.kind, (p0.x, p0.y), (p1.x, p1.y), self.color,
                                     self.opacity / 100.0, self.note_text)
         except Exception as ex:
-            self.window_.set_status(f"Annotation error: {ex}", "warning")
+            self.window_.set_status(f"Annotation error: {ex}", "danger")
         if ann is not None:
             self._undo_stack.append((self._pg, ann.xref))
         self.show_current()

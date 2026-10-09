@@ -463,7 +463,7 @@ def test_close_with_job_asks_and_waits(window, dialogs):
         PREFS_PATH.unlink()
     window.close()
     assert window.isVisible()                          # waits for the job
-    assert window.status_text() == "Cancelling before exit…"
+    assert window.status_text() == "⚠  Cancelling before exit…"
     for _ in range(100):
         pump(0.05)
         if not window.isVisible():

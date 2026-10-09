@@ -63,7 +63,7 @@ def test_job_done_shows_done_and_calls_then(window):
     assert window.progress_strip.isVisibleTo(window)
     wait_job(window)
     assert outcome == [("done", None)]
-    assert window.status_text() == "Done"
+    assert window.status_text() == "✓  Done"
     assert window.status_role == "success"
     assert not window.progress_strip.isVisibleTo(window)
 
@@ -71,7 +71,7 @@ def test_job_done_shows_done_and_calls_then(window):
 def test_job_result_string_becomes_status(window):
     window.run_job(lambda stop: "Saved out.pdf", "Saving")
     wait_job(window)
-    assert window.status_text() == "Saved out.pdf"
+    assert window.status_text() == "✓  Saved out.pdf"
 
 
 def test_worker_status_is_not_covered_by_done(window):
@@ -79,7 +79,7 @@ def test_worker_status_is_not_covered_by_done(window):
         bridge.post(window.set_status, "Wrote 3 files", "success")
     window.run_job(work, "Working")
     wait_job(window)
-    assert window.status_text() == "Wrote 3 files"
+    assert window.status_text() == "✓  Wrote 3 files"
 
 
 def test_job_error_shows_dialog_and_status(window, dialogs):
@@ -91,7 +91,7 @@ def test_job_error_shows_dialog_and_status(window, dialogs):
     wait_job(window)
     assert outcome == [("error", "boom")]
     assert dialogs.errors() == [("error", "Error", "boom")]
-    assert window.status_text() == "Error: boom"
+    assert window.status_text() == "✗  Error: boom"
     assert window.status_role == "danger"
 
 
@@ -104,7 +104,7 @@ def test_job_cancel(window):
     window.cancel_button.click()
     wait_job(window)
     assert outcome == ["cancel"]
-    assert window.status_text() == "Cancelled"
+    assert window.status_text() == "⚠  Cancelled"
     assert window.status_role == "warning"
 
 
@@ -114,7 +114,7 @@ def test_cancel_after_worker_reported_keeps_its_status(window):
         bridge.post(window.set_status, "Saved anyway", "success")
     window.run_job(work, "Working")
     wait_job(window)
-    assert window.status_text() == "Saved anyway"
+    assert window.status_text() == "✓  Saved anyway"
 
 
 def test_second_job_refused(window, dialogs):
@@ -182,7 +182,7 @@ def test_cancel_works_while_locked(window):
     window.cancel_button.click()
     wait_job(window)
     assert not window.is_locked()
-    assert window.status_text() == "Cancelled"
+    assert window.status_text() == "⚠  Cancelled"
 
 
 def test_exception_in_posted_callback_reaches_the_user(window, dialogs):
@@ -195,6 +195,6 @@ def test_exception_in_posted_callback_reaches_the_user(window, dialogs):
     bridge.post(seen.append, "after")
     pump(0.1)
     assert dialogs.errors() == [("error", "Error", "'pages'")]
-    assert window.status_text() == "Error: 'pages'"
+    assert window.status_text() == "✗  Error: 'pages'"
     assert window.status_role == "danger"
     assert seen == ["after"]
