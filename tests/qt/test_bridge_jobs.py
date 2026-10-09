@@ -28,15 +28,23 @@ def test_post_from_main_thread_is_queued(qapp):
     assert seen == ["x"]
 
 
-def test_post_to_deleted_widget_is_a_no_op(qapp):
+def test_post_to_deleted_widget_is_a_no_op(qapp, monkeypatch):
+    import sys
     from PySide6.QtWidgets import QLabel
     from shiboken6 import delete
     lbl = QLabel()
     delete(lbl)
     # The slot swallows "already deleted"; any other RuntimeError would raise.
     bridge._get()._run((lbl.setText, ("x",)))
+    # Queued: an exception in a Qt slot never reaches the test (PySide prints it
+    # through sys.excepthook), and a reported one goes to bridge._report; record
+    # both so the queued half can fail too.
+    raised, reported = [], []
+    monkeypatch.setattr(sys, "excepthook", lambda *exc: raised.append(exc[1]))
+    monkeypatch.setattr(bridge, "_report", reported.append)
     bridge.post(lbl.setText, "x")
     pump(0.05)
+    assert raised == [] and reported == []
 
 
 def _blocking(release: threading.Event, started: threading.Event | None = None):
