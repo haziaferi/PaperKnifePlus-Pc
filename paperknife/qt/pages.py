@@ -529,9 +529,7 @@ class WorkspacePage(ToolPage):
 
         self.split = QSplitter(Qt.Horizontal)
         self.split.setHandleWidth(6)
-        accent = theme.hex_color("accent")
-        self.split.setStyleSheet("QSplitter::handle { background: transparent; }"
-                                 f"QSplitter::handle:hover {{ background: {accent}; }}")
+        self._style_split()
         self.split.setChildrenCollapsible(True)
         mid = QWidget()
         mv = QVBoxLayout(mid)
@@ -585,6 +583,28 @@ class WorkspacePage(ToolPage):
         self._panel_w = PANEL_W
         self._zoom_timer = None
         self.panel_body = None
+        self._panel_hide_btn = None
+        # The glyph pixmaps, the page ground and the splitter accent are
+        # baked for one theme: redo them when Preferences or Windows switch it.
+        from qfluentwidgets import qconfig
+        qconfig.themeChangedFinished.connect(self._apply_theme)
+
+    def _style_split(self):
+        accent = theme.hex_color("accent")
+        self.split.setStyleSheet("QSplitter::handle { background: transparent; }"
+                                 f"QSplitter::handle:hover {{ background: {accent}; }}")
+
+    def _apply_theme(self):
+        from PySide6.QtGui import QBrush
+        self.view.setBackgroundBrush(QBrush(theme.color("page_bg")))
+        self._style_split()
+        for i in range(self.rail.count()):
+            w = self.rail.itemAt(i).widget()
+            if w is not None and hasattr(w, "pk_glyph"):
+                w.setIcon(theme.glyph_icon(w.pk_glyph, 18))
+        self.reopen_btn.setIcon(theme.glyph_icon(0xE76B, 14))
+        if self._panel_hide_btn is not None:
+            self._panel_hide_btn.setIcon(theme.glyph_icon(0xE76C, 14))
 
     # ── rail ──
     def add_rail(self, key: str, glyph: int, tip: str, slot, toggle: bool = True):
@@ -632,6 +652,7 @@ class WorkspacePage(ToolPage):
         hide.setToolTip("Hide panel")
         hide.clicked.connect(lambda: self.show_context(False))
         top.addWidget(hide)
+        self._panel_hide_btn = hide
         bv.addLayout(top)
         if desc:
             d = muted_caption(desc)

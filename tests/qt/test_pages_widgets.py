@@ -303,3 +303,37 @@ def test_zoom_slider_rest_renders_the_page_once(qapp, monkeypatch):
     assert p.view.zoom == 2.2
     assert len(renders) == 1 and len(p.view._overlays) == 1
     p.close()
+
+
+def _ink(icon):
+    from PySide6.QtCore import QSize
+    img = icon.pixmap(QSize(36, 36)).toImage()
+    px = [img.pixelColor(x, y) for x in range(img.width()) for y in range(img.height())]
+    px = [c for c in px if c.alpha() > 200]
+    return px[0].name() if px else None
+
+
+def test_workspace_follows_a_theme_switch(qapp):
+    # R1-24: rail / panel glyphs and the page ground kept the theme the page
+    # was built in: near-black icons on a dark rail after Light -> Dark.
+    from paperknife.qt import theme
+    from paperknife.qt.pages import WorkspacePage
+    p = WorkspacePage("t")
+    btn = p.add_rail("k", 0xE70F, "tip", lambda: None)
+    p.panel_begin("Panel")
+    hide = p._panel_hide_btn if hasattr(p, "_panel_hide_btn") else None
+    try:
+        theme.apply_appearance("dark")
+        pump(0.05)
+        text, bg = theme.hex_color("text"), theme.hex_color("page_bg")
+        assert _ink(btn.icon()) == text
+        assert _ink(p.reopen_btn.icon()) == text
+        assert hide is not None and _ink(hide.icon()) == text
+        assert p.view.backgroundBrush().color().name() == bg
+        assert theme.hex_color("accent") in p.split.styleSheet()
+    finally:
+        theme.apply_appearance("light")
+        pump(0.05)
+    assert _ink(btn.icon()) == theme.hex_color("text")
+    assert p.view.backgroundBrush().color().name() == theme.hex_color("page_bg")
+    p.deleteLater()
