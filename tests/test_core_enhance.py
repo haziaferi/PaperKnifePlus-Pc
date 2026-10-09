@@ -1,30 +1,14 @@
 """paperknife.core.enhance without any user interface: compress, watermark and
 normalise, progress, and Cancel leaving no file behind."""
-import io
-import random
 import re
 import threading
 
 import pymupdf as fitz
 import pytest
-from PIL import Image
 
 from conftest import make_pdf
+from pdf_builders import image_pdf as _image_pdf
 from paperknife.core import enhance as core
-
-
-def _image_pdf(path):
-    """Text plus a 1500 px noise image shown 300 pt wide (= 360 DPI)."""
-    rnd = random.Random(1)
-    im = Image.frombytes("RGB", (1500, 1500), rnd.randbytes(1500 * 1500 * 3))
-    buf = io.BytesIO()
-    im.save(buf, "PNG")
-    with fitz.open() as doc:
-        p = doc.new_page()
-        p.insert_image(fitz.Rect(72, 72, 372, 372), stream=buf.getvalue())
-        p.insert_text((72, 500), "Searchable text", fontsize=14)
-        doc.save(str(path))
-    return str(path)
 
 
 @pytest.mark.parametrize("level,width", [("medium", 625), ("aggressive", 400),
