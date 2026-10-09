@@ -201,14 +201,19 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.pw1.setText("u")
+    page.pw2.setText("boss")
     out = tmp_path / "out.pdf"
     dialogs.save(out)
     page.protect()
+    page.cur_pw.setText("typed while it ran")
     window.show_page("CompressTool")
     wait_job(window)
     assert opened and opened[0].is_closed
     with fitz.open(out) as doc:
         assert doc.needs_pass
+        assert doc.authenticate("u")
+    # Left mid-job: no password stays in the hidden page's fields.
+    assert (page.pw1.text(), page.pw2.text(), page.cur_pw.text()) == ("", "", "")
 
 
 def test_passwords_do_not_stay_in_the_fields_after_the_job(window, dialogs, tmp_path):
