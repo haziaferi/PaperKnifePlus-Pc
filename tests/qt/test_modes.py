@@ -37,9 +37,18 @@ class PanelPage(ToolPage):
         self.panel_on = on
 
 
-def test_zen_timings():
-    assert (shell.SLIDE_MS, shell.KEEP_MS, shell.TOP_HIDE_MS, shell.EDGE, shell.POLL_MS) == \
-        (250, 150, 1000, 8, 40)
+def test_timers_and_slides_use_the_zen_timings(window):
+    # The timings drive real timers and animations: check the wiring, not the
+    # constants restated (a change detector fails only on a deliberate edit).
+    assert window._keep_side_timer.interval() == shell.KEEP_MS
+    assert window._keep_ctx_timer.interval() == shell.KEEP_MS
+    assert window._hide_top_timer.interval() == shell.TOP_HIDE_MS
+    assert window._edge.interval() == shell.POLL_MS
+    window.set_compact(True)
+    at(window, 2, 400)                              # the left edge slides the nav in
+    assert window._anims["side"].duration() == shell.SLIDE_MS
+    at(window, 400, 1)                              # the top edge slides the title bar in
+    assert window._anims["top"].duration() == shell.TOP_SLIDE_MS
 
 
 def test_toggle_nav_collapses_and_expands(window):
@@ -229,10 +238,23 @@ def test_edge_watch_runs_only_when_needed(window, monkeypatch, qapp, dialogs):
         w.deleteLater()
 
 
-def test_title_bar_double_click_maximises(window):
-    """FluentWindow's title bar toggles maximise on double-click (qframelesswindow
-    TitleBarBase.mouseDoubleClickEvent); check the hook is enabled."""
-    assert window.titleBar._isDoubleClickEnabled
+def test_title_bar_double_click_maximises(window, monkeypatch):
+    """A double-click on the title bar reaches qframelesswindow's
+    TitleBarBase.mouseDoubleClickEvent, which toggles maximise.  Offscreen has
+    no HWND to maximise, so the toggle call itself is recorded."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    import qframelesswindow.titlebar as tb_mod
+    toggled = []
+    monkeypatch.setattr(tb_mod, "toggleMaxState", toggled.append)
+    bar = window.titleBar
+    p = QPointF(bar.width() / 3, bar.height() / 2)
+    ev = QMouseEvent(QEvent.MouseButtonDblClick, p, QPointF(bar.mapToGlobal(p)), Qt.LeftButton,
+                     Qt.LeftButton, Qt.NoModifier)
+    QApplication.sendEvent(bar, ev)
+    pump(0.05)
+    assert toggled == [window]
 
 
 @pytest.mark.parametrize("placement", ["header", "bar"])
