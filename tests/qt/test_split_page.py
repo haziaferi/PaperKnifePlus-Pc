@@ -1,7 +1,8 @@
 """The Qt Split page: page ranges into separate files."""
 import pymupdf as fitz
+import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
@@ -13,18 +14,6 @@ def _page(window):
 def _texts(path):
     with fitz.open(path) as d:
         return [p.get_text().strip() for p in d]
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _split(window, dialogs, page, src, ranges, out_dir):
@@ -73,19 +62,24 @@ def test_split_writes_the_pages_it_names(window, dialogs, tmp_path):
     assert len(list(out.iterdir())) == 2
 
 
-def test_split_rejects_pages_past_the_end(window, dialogs, tmp_path):
+@pytest.mark.parametrize("ranges,bad", [("99, 7-9", "page 99 does not exist"),
+                                        ("5, 7-9", "page 7 does not exist")])
+def test_split_rejects_pages_past_the_end(window, dialogs, tmp_path, monkeypatch, ranges, bad):
     page = _page(window)
     src = make_pdf(tmp_path / "in.pdf", pages=5)
     out = tmp_path / "out"
     out.mkdir()
-    opened = _spy_open(window)
+    dialogs.dirs.append(str(out))   # offered, so a split that ran anyway would land here
+    opened = spy_open(window, monkeypatch)
     page.file.set_path(src)
-    page.ranges.setText("99, 7-9")
+    page.ranges.setText(ranges)
     page.run()
+    assert window._current_job is None             # refused before any job started
     wait_job(window)
     assert list(out.iterdir()) == []
+    assert dialogs.dirs == [str(out)]              # refused before the folder dialog
     assert dialogs.errors() and dialogs.errors()[-1][1] == "Split"
-    assert "page 99 does not exist" in dialogs.errors()[-1][2]
+    assert bad in dialogs.errors()[-1][2]
     assert opened and opened[0].is_closed
 
 
@@ -98,20 +92,20 @@ def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_pa
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_folder_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_folder_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()                     # no folder queued: the dialog returns ""
     assert opened and opened[0].is_closed
     assert window._current_job is None
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     out = tmp_path / "out"
     out.mkdir()
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=4))
     dialogs.dirs.append(str(out))
     page.run()
