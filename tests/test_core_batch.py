@@ -7,6 +7,7 @@ import pytest
 
 from conftest import make_pdf
 from paperknife.core import batch as core
+from paperknife.core import ocr as core_ocr
 from paperknife.prefs import DPI_RANGE
 
 
@@ -102,7 +103,7 @@ def test_each_operation_cancelled_returns_none_and_writes_nothing(tmp_path, op):
 _PER_PAGE_STEP = {
     "Compress": (fitz.Document, "rewrite_images", {"level": "medium"}),
     "Watermark": (fitz.Page, "insert_text", {}),
-    "OCR": (core, "render", {"lang": "eng", "dpi": 72}),
+    "OCR": (core_ocr, "render", {"lang": "eng", "dpi": 72}),   # Batch OCR runs core.ocr.ocr_pdf
     "PDF → TXT": (fitz.Page, "get_text", {}),
 }
 
@@ -128,7 +129,10 @@ def test_each_operation_cancelled_mid_file_returns_none_and_writes_nothing(tmp_p
         finally:
             stop.set()
     monkeypatch.setattr(owner, name, step_then_cancel)
-    monkeypatch.setattr(core, "ocr_words", lambda img, lang, scale: [])
+    monkeypatch.setattr(core_ocr, "ocr_words", lambda img, lang, scale: [])
+    if op == "OCR":
+        pytesseract = pytest.importorskip("pytesseract")
+        monkeypatch.setattr(pytesseract, "get_tesseract_version", lambda: "5.0")
     src = make_pdf(tmp_path / "a.pdf", pages=3)
     out_dir = tmp_path / "out"
     out_dir.mkdir()
