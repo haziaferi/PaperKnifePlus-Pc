@@ -7,9 +7,8 @@ import pymupdf as fitz
 from qfluentwidgets import PlainTextEdit, PushButton
 
 from ...core import text as core_text
-from ...core.doc_state import DocHolder
 from .. import dialogs, theme
-from ..pages import WorkspacePage, register_page
+from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"select": 0xE8E9, "undo": 0xE7A7}
@@ -17,7 +16,7 @@ HINT = "Click any text block to select it · edit the span · Ctrl+S to save"
 
 
 @register_page("EditTextTool")
-class EditTextPage(DocHolder, WorkspacePage):
+class EditTextPage(WorkspaceDoc, WorkspacePage):
     save_name = "edited.pdf"
     saved_what = "Edited PDF"
 
@@ -66,21 +65,12 @@ class EditTextPage(DocHolder, WorkspacePage):
         self.edit_box.setFocus()
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path)
-        if doc is None:
+        if self.open_document(path, "Edit Text") is None:
             return
-        self._close_doc()
         # A selection belongs to one page of one document: drop it when either
         # changes, or Apply Edit would write it into another file's block.
-        self._doc, self._pg, self._undo_stack = doc, 0, []
         self._blocks, self._sel_bi = [], None
-        self.set_title("Edit Text", Path(path).name)
         self.build_panel()
         self.show_current()
 

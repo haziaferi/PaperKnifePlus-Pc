@@ -7,9 +7,8 @@ from PySide6.QtWidgets import QFrame
 from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
 
 from ...core import annotate as core_annotate
-from ...core.doc_state import DocHolder
 from .. import dialogs
-from ..pages import WorkspacePage, register_page
+from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"highlight": 0xE7E6, "underline": 0xE8DC, "strikeout": 0xEDE0, "rect": 0xE739,
@@ -26,7 +25,7 @@ TOOLS = {
 
 
 @register_page("AnnotateTool")
-class AnnotatePage(DocHolder, WorkspacePage):
+class AnnotatePage(WorkspaceDoc, WorkspacePage):
     save_name = "annotated.pdf"
 
     def __init__(self, tool=None, window=None):
@@ -106,18 +105,10 @@ class AnnotatePage(DocHolder, WorkspacePage):
             self._paint_swatch()
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path)
-        if doc is None:
+        if self.open_document(path, "Annotate") is None:
             return
-        self._close_doc()
-        self._doc, self._pg, self._undo_stack, self.sel_xref = doc, 0, [], None
-        self.set_title("Annotate", Path(path).name)
+        self.sel_xref = None
         self.build_panel()
         self.show_current()
 

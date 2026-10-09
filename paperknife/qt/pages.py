@@ -391,6 +391,22 @@ class HeldDoc(DocHolder):
             self.set_title(title, subtitle)
 
 
+class WorkspaceDoc(DocHolder):
+    """The document a WorkspacePage edits, held in self._doc."""
+
+    def open_document(self, path: str, title: str):
+        """Open *path* in place of the document shown, at page 1 with no undo
+        history; the file name becomes the subtitle.  The new document, or
+        None (the old one stays) when it cannot be opened."""
+        doc = self.window_.open_pdf_safe(path)
+        if doc is None:
+            return None
+        self._close_doc()
+        self._doc, self._pg, self._undo_stack = doc, 0, []
+        self.set_title(title, Path(path).name)
+        return doc
+
+
 class Refusal(Exception):
     """Raised by run_on_file's prepare(doc): its message is shown as a warning."""
 
@@ -882,6 +898,11 @@ class WorkspacePage(ToolPage):
         a.start(QVariantAnimation.DeleteWhenStopped)
 
     # ── document ──
+    def open(self):
+        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
+        if path:
+            self.open_path(path)
+
     def accept_drop(self, path: str) -> bool:
         """A dropped PDF is opened (open_path)."""
         if not str(path).lower().endswith(".pdf"):

@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 from qfluentwidgets import BodyLabel
 
 from ...core import reader as core_reader
-from .. import bridge, dialogs, theme
+from .. import bridge, theme
 from ..pages import WorkspacePage, register_page
 
 TITLE = "Read / Preview"
@@ -128,11 +128,6 @@ class ReaderPage(WorkspacePage):
         row.addWidget(self.path_label, 1)
 
     # ── file ─────────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
         """Other parts of the app can open a file straight into the reader."""
         self._load(path)

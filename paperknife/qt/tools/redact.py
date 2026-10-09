@@ -12,9 +12,8 @@ import pymupdf as fitz
 from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
 from ...core import redact as core_redact
-from ...core.doc_state import DocHolder
 from .. import dialogs, theme
-from ..pages import WorkspacePage, muted_caption, register_page
+from ..pages import WorkspaceDoc, WorkspacePage, muted_caption, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"box": 0xE739, "search": 0xE721, "undo": 0xE7A7}
@@ -29,7 +28,7 @@ WARN_BODY = ("Content under redaction boxes is completely destroyed — "
 
 
 @register_page("RedactTool")
-class RedactPage(DocHolder, WorkspacePage):
+class RedactPage(WorkspaceDoc, WorkspacePage):
     save_name = "redacted.pdf"
 
     def __init__(self, tool=None, window=None):
@@ -118,19 +117,10 @@ class RedactPage(DocHolder, WorkspacePage):
                                   else f"Page {pg + 1} · box")
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path)
-        if doc is None:
+        if self.open_document(path, "Redact") is None:
             return
-        self._close_doc()
-        self._doc, self._pg = doc, 0
         self._pending, self._secrets = [], {}
-        self.set_title("Redact", Path(path).name)
         self.build_panel()
         self.show_current()
 

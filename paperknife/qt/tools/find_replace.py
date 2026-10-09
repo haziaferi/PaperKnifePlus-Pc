@@ -7,9 +7,8 @@ from pathlib import Path
 from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import text as core_text
-from ...core.doc_state import DocHolder
 from .. import dialogs, theme
-from ..pages import WorkspacePage, register_page
+from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
 # The CTk tool's HIT_CUR / HIT / HIT_EDGE; the fills are see-through so the
@@ -18,7 +17,7 @@ HIT_CUR, HIT, HIT_EDGE = "#80FFD700", "#80FFFACD", "#CCCCCC"
 
 
 @register_page("FindReplaceTool")
-class FindReplacePage(DocHolder, WorkspacePage):
+class FindReplacePage(WorkspaceDoc, WorkspacePage):
     save_name = "replaced.pdf"
     saved_what = "PDF"
 
@@ -62,20 +61,11 @@ class FindReplacePage(DocHolder, WorkspacePage):
         self.panel_body.addWidget(self.hit_label)
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path)
-        if doc is None:
+        if self.open_document(path, "Find & Replace") is None:
             return
-        self._close_doc()
-        self._doc, self._pg, self._undo_stack = doc, 0, []
         self._hits, self._hit_idx = [], -1
         self.hit_label.setText("")
-        self.set_title("Find & Replace", Path(path).name)
         self.show_current()
 
     def deactivate(self):
