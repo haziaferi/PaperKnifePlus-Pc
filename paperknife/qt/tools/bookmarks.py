@@ -120,13 +120,13 @@ class BookmarksPage(HeldDoc, OrganiserPage):
         out_dir = dialogs.ask_dir()
         if not out_dir:
             return
-        kept, written = ask_keep_password(self._doc), []
+        kept = ask_keep_password(self._doc)
         win = self.window_
 
         def work(stop):
             return organise.split_chapters(
                 self._doc, entries, out_dir, stop,
-                win.progress_callback(), release=self._release, written=written)
+                win.progress_callback(), release=self._release)
 
         def then(kind, count):
             if kind != "done":
@@ -137,4 +137,4 @@ class BookmarksPage(HeldDoc, OrganiserPage):
             dialogs.info("Done", f"Split into {count} file(s):\n{out_dir}{note}")
 
         win.run_job(work, "Splitting by bookmarks…", lock=True, then=then,
-                    keep_password=(kept, written))
+                    keep_password=(kept, out_dir))

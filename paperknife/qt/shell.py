@@ -486,9 +486,10 @@ class MainWindow(FluentWindow):
         PyMuPDF call), so Cancel is not offered; it could not stop the write,
         only make the job report "Cancelled" after the file was written.
         keep_password=(kept, outputs): kept, from pages.ask_keep_password, is
-        None (no password to keep) or the input's OpenPassword; every PDF of
-        outputs (a list the worker may fill as it goes) that the job writes
-        gets it, in the worker, after the write.
+        None (no password to keep) or the input's OpenPassword; outputs is a
+        list of files, or a folder whose PDFs are the job's outputs (a split).
+        Each of them the job writes gets kept's password before it reaches its
+        name (core.password.protecting).
 
         One job at a time: while one runs this warns and returns None."""
         if self._current_job and self._current_job.is_running:
@@ -982,33 +983,32 @@ class MainWindow(FluentWindow):
         self._alive = False
 
 
-def _stamp(path: str):
-    """What says a file was rewritten: (mtime, size, file id), None if absent."""
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return st.st_mtime_ns, st.st_size, st.st_ino
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
 
 
 def _keeping_password(work, kept, outputs):
-    """work(stop), then each file of *outputs* (a list work may still be
-    filling) that it wrote, re-saved with *kept*'s open password and
-    permissions; a file it did not write (Cancel before the save) is left
-    alone.  Also after an error, so no file it wrote stays open.  The
-    password is let go once used: the window keeps its last job."""
-    before = {p: _stamp(p) for p in outputs}
+    """work(stop) with every output it writes (*outputs*: a list of files, or a
+    folder whose PDFs are the outputs) encrypted with *kept*'s open password
+    and permissions before the file reaches its name.  A file it does not
+    write (Cancel before the save) is not touched.  The password is let go
+    once the job ends: the window keeps its last job."""
+    if isinstance(outputs, str):
+        folder, names = _norm(outputs), set()
+    else:
+        folder, names = None, {_norm(p) for p in outputs}
+
+    def wanted(target: str) -> bool:
+        t = _norm(target)
+        return t in names or (folder is not None and os.path.dirname(t) == folder
+                              and t.endswith(".pdf"))
     held = [kept]
 
     def run(stop):
-        try:
+        pw = held.pop()
+        with core_password.protecting(pw.user_pw, pw.perm, wanted):
+            del pw
             return work(stop)
-        finally:
-            pw = held.pop()
-            for p in list(outputs):
-                now = _stamp(p)
-                if now is not None and now != before.get(p):
-                    core_password.reprotect(p, pw.user_pw, pw.perm)
     return run
 
 

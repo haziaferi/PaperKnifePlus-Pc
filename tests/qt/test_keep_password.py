@@ -20,14 +20,14 @@ def _question(name):
             f'"{name}" is password-protected. Keep the password on the new file?')
 
 
-def _locked(path, pages=3, toc=None):
+def _locked(path, pages=3, toc=None, user=OPEN_PW, perm=PERM):
     doc = fitz.open()
     for i in range(pages):
         doc.new_page().insert_text((72, 100), f"Page {i + 1}", fontsize=14)
     if toc:
         doc.set_toc(toc)
     doc.save(str(path), encryption=fitz.PDF_ENCRYPT_AES_256,
-             user_pw=OPEN_PW, owner_pw=OWNER_PW, permissions=PERM)
+             user_pw=user, owner_pw=OWNER_PW, permissions=perm)
     doc.close()
     return str(path)
 
@@ -407,3 +407,145 @@ def test_split_by_bookmarks_yes_protects_every_chapter(window, dialogs, tmp_path
     assert _parts(out_dir) == ["01_One.pdf", "02_Two.pdf"]
     for name in _parts(out_dir):
         _assert_kept(out_dir / name, src)
+
+
+# ── Merge: asked only when the protected inputs share one open password ─────
+PERM_B = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_COPY | fitz.PDF_PERM_ACCESSIBILITY
+
+
+def _merge(window, dialogs, paths, passwords, out, answer=None):
+    page = _tool(window, "MergeTool")
+    page.add_paths(paths)
+    dialogs.passwords.extend(passwords)
+    dialogs.save(out)
+    if answer is not None:
+        dialogs.asks.append(answer)
+    page.run()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+
+
+def test_merge_of_inputs_sharing_a_password_keeps_it_with_only_the_common_rights(
+        window, dialogs, tmp_path):
+    plain = make_pdf(tmp_path / "plain.pdf", pages=1)
+    a = _locked(tmp_path / "a.pdf", pages=1)                  # print, accessibility
+    b = _locked(tmp_path / "b.pdf", pages=2, perm=PERM_B)     # print, copy, accessibility
+    out = tmp_path / "merged.pdf"
+    _merge(window, dialogs, [plain, a, b], [OPEN_PW, OPEN_PW], out, answer=True)
+    assert dialogs.msgs.count(_question("a.pdf")) == 1        # the first protected input
+    with fitz.open(out) as d:
+        assert d.needs_pass and not d.authenticate(OWNER_PW)
+    with fitz.open(out) as d:
+        assert d.authenticate(OPEN_PW) == 2
+        assert len(d) == 4
+        assert "AES" in d.metadata["encryption"] and "256" in d.metadata["encryption"]
+        p = int(d.xref_get_key(-1, "Encrypt/P")[1])
+    pa, pb = int(_p_of(a)[1]), int(_p_of(b)[1])
+    assert pa != pb and p == pa & pb
+    assert p & fitz.PDF_PERM_PRINT and not p & fitz.PDF_PERM_COPY
+
+
+def test_merge_no_writes_an_open_file(window, dialogs, tmp_path):
+    a, b = _locked(tmp_path / "a.pdf", pages=1), _locked(tmp_path / "b.pdf", pages=1)
+    out = tmp_path / "merged.pdf"
+    _merge(window, dialogs, [a, b], [OPEN_PW, OPEN_PW], out, answer=False)
+    assert dialogs.msgs.count(_question("a.pdf")) == 1
+    _assert_open(out)
+
+
+def test_merge_of_inputs_with_different_passwords_asks_nothing(window, dialogs, tmp_path):
+    a = _locked(tmp_path / "a.pdf", pages=1)
+    b = _locked(tmp_path / "b.pdf", pages=1, user="another")
+    out = tmp_path / "merged.pdf"
+    _merge(window, dialogs, [a, b], [OPEN_PW, "another"], out)   # no answer queued
+    assert not [m for m in dialogs.msgs if m[0] == "ask_yes_no"]
+    _assert_open(out)
+
+
+def test_merge_of_unprotected_inputs_asks_nothing(window, dialogs, tmp_path):
+    out = tmp_path / "merged.pdf"
+    _merge(window, dialogs, [make_pdf(tmp_path / "a.pdf"), make_pdf(tmp_path / "b.pdf")],
+           [], out)
+    assert not [m for m in dialogs.msgs if m[0] in ("ask_yes_no", "ask_password")]
+    _assert_open(out)
+
+
+def test_merge_cancel_at_the_save_dialog_asks_nothing(window, dialogs, tmp_path):
+    page = _tool(window, "MergeTool")
+    page.add_paths([_locked(tmp_path / "a.pdf", pages=1)])
+    dialogs.passwords.append(OPEN_PW)
+    page.run()                                    # no path queued: Cancel
+    assert window._current_job is None
+    assert not [m for m in dialogs.msgs if m[0] == "ask_yes_no"]
+
+
+# ── never unprotected at the final name, not even for a moment ──────────────
+def _spy_final_moves(monkeypatch):
+    """Every os.replace onto a final .pdf name: (name, was the file moved there
+    encrypted?).  Moves onto a .part (steps before the final one) are not recorded."""
+    real, moves = os.replace, []
+
+    def spy(src, dst):
+        if str(dst).endswith(".pdf"):
+            with fitz.open(str(src)) as d:
+                moves.append((os.path.basename(str(dst)), bool(d.needs_pass)))
+        return real(src, dst)
+    monkeypatch.setattr(os, "replace", spy)
+    return moves
+
+
+def test_every_yes_output_reaches_its_name_already_encrypted(window, dialogs, tmp_path,
+                                                             monkeypatch):
+    src = _locked(tmp_path / "in.pdf")
+    moves = _spy_final_moves(monkeypatch)
+    _compress(window, dialogs, src, tmp_path / "small.pdf", answer=True)    # run_on_file
+    page = _metadata(window, dialogs, src)                                   # DocHolder
+    _save(window, dialogs, page, src, True)                                  # over the source
+    window.show_page("CompressTool")
+    out_dir = tmp_path / "parts"
+    out_dir.mkdir()
+    page = _tool(window, "SplitTool")                                        # a split
+    page.file.set_path(src)
+    dialogs.passwords.append(OPEN_PW)
+    dialogs.dirs.append(str(out_dir))
+    dialogs.asks.append(True)
+    page.run()
+    wait_job(window)
+    _merge(window, dialogs, [src, _locked(tmp_path / "b.pdf", pages=1)],    # Merge
+           [OPEN_PW, OPEN_PW], tmp_path / "merged.pdf", answer=True)
+    assert not dialogs.errors(), dialogs.errors()
+    names = [n for n, _ in moves]
+    assert names == ["small.pdf", "in.pdf", "in_part01_p1-1.pdf", "in_part02_p2-2.pdf",
+                     "in_part03_p3-3.pdf", "merged.pdf"]
+    assert all(enc for _, enc in moves), moves
+
+
+def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialogs, tmp_path,
+                                                                  monkeypatch):
+    # The output is written, then the step that encrypts it fails: the final
+    # name holds nothing (a new file) or the old file (a save over the source).
+    from paperknife.core import password as core
+
+    def boom(*_a):
+        raise OSError("stopped between the write and the encryption")
+    monkeypatch.setattr(core, "encrypt_file", boom)
+    src = _locked(tmp_path / "in.pdf")
+    before = open(src, "rb").read()
+    page = _tool(window, "CompressTool")
+    page.file.set_path(src)
+    dialogs.passwords.append(OPEN_PW)
+    dialogs.save(tmp_path / "small.pdf")
+    dialogs.asks.append(True)
+    page.run()
+    wait_job(window)
+    assert not (tmp_path / "small.pdf").exists()
+    page = _metadata(window, dialogs, src)
+    page.fields["title"].setText("Changed")
+    dialogs.save(src)
+    dialogs.asks.append(True)
+    page.save()
+    wait_job(window)
+    window.show_page("CompressTool")
+    assert open(src, "rb").read() == before
+    assert sorted(os.listdir(tmp_path)) == ["in.pdf"]       # no .part left either
+    assert len(dialogs.errors()) == 2

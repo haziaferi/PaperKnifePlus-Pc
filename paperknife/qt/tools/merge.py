@@ -8,7 +8,7 @@ from qfluentwidgets import LineEdit
 from ...core import organise
 from ...pages import PageRangeError, parse_ranges
 from .. import dialogs
-from ..pages import CollectionPage, register_page
+from ..pages import CollectionPage, ask_keep_password, register_page
 
 RANGE_PLACEHOLDER = "all  or  1-3, 5, 8-end"
 HINT = ("Add PDFs in order · optionally set page ranges per file"
@@ -61,6 +61,7 @@ class MergePage(CollectionPage):
         out = dialogs.ask_save("merged.pdf", ".pdf", [("PDF", "*.pdf")])
         if not out:
             return close_all()
+        kept = ask_keep_password(*(src for _, src, _ in jobs))
         n = len(jobs)
 
         def work(stop):
@@ -79,5 +80,6 @@ class MergePage(CollectionPage):
             dialogs.info("Merge Complete", f"Merged PDF saved:\n{out}")
 
         win.set_status("Merging…")
-        if win.run_job(work, f"Merging {n} PDF(s)…", then=then) is None:
+        if win.run_job(work, f"Merging {n} PDF(s)…", then=then,
+                       keep_password=(kept, [out])) is None:
             close_all()

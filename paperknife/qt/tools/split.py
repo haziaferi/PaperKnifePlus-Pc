@@ -38,7 +38,6 @@ class SplitPage(ToolPage):
         ranges_str = self.ranges.text().strip()
         base = Path(src).stem
         groups: list = []
-        written: list = []          # the parts, for keeping the input's password
 
         def prepare(doc):
             total = len(doc)
@@ -47,10 +46,10 @@ class SplitPage(ToolPage):
 
         def work(doc, out_dir, stop, progress):
             with doc:                   # the job owns the document from here
-                organise.split_ranges(doc, groups, out_dir, base, stop, progress, written)
+                organise.split_ranges(doc, groups, out_dir, base, stop, progress)
 
         self.run_on_file(
             "Split", work, lambda: f"Splitting into {len(groups)} file(s)…",
             lambda _v, out_dir: ("success", f"✓  Split into {len(groups)} file(s) → {out_dir}",
                                  "Done", f"Created {len(groups)} file(s) in:\n{out_dir}"),
-            src=src, prepare=prepare, parts=written)
+            src=src, prepare=prepare, parts=True)
