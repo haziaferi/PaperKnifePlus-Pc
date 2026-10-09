@@ -46,6 +46,22 @@ def live_parts() -> list[str]:
     return sorted(_LIVE_PARTS)
 
 
+_FINISH = threading.local()         # this thread's finishing step (finishing_outputs)
+
+
+@contextlib.contextmanager
+def finishing_outputs(finish) -> Iterator[None]:
+    """While the block runs, every atomic_output in this thread calls
+    finish(target, tmp) on its complete temporary file just before moving it
+    onto target; an exception from finish discards the file instead."""
+    prev = getattr(_FINISH, "fn", None)
+    _FINISH.fn = finish
+    try:
+        yield
+    finally:
+        _FINISH.fn = prev
+
+
 @contextlib.contextmanager
 def atomic_output(path: str) -> Iterator[str]:
     """Yield a temporary path beside *path*; on a clean exit move it onto
@@ -68,6 +84,11 @@ def atomic_output(path: str) -> Iterator[str]:
         if os.path.getsize(tmp) == 0:
             os.unlink(tmp)
             return
+        finish = getattr(_FINISH, "fn", None)
+        if finish is not None:
+            # Before the move: the file reaches *path* already finished (a
+            # file that keeps its input's password is encrypted here).
+            finish(str(target), tmp)
         try:
             os.replace(tmp, target)
         except PermissionError as exc:

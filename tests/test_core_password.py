@@ -131,15 +131,47 @@ def test_carry_moves_it_to_an_in_memory_copy(tmp_path):
     assert core.open_password_of(copy) is None
 
 
-def test_reprotect_uses_the_open_password_a_random_owner_and_the_permissions(tmp_path):
+def _write_plain(out, pages=2):
+    """Write a plain PDF to *out* the way every tool does: through atomic_output."""
+    from paperknife.job_queue import atomic_output
+    with atomic_output(str(out)) as tmp, fitz.open() as nd:
+        for i in range(pages):
+            nd.new_page().insert_text((72, 100), f"Page {i + 1}", fontsize=14)
+        nd.save(tmp)
+
+
+def _spy_replaces(monkeypatch):
+    """Every os.replace onto a final .pdf name: (destination, was the file moved there
+    encrypted?).  A .part destination (a step before the final move) is not recorded."""
+    import os
+    real, moves = os.replace, []
+
+    def spy(src, dst):
+        if str(dst).endswith(".pdf"):
+            with fitz.open(str(src)) as d:
+                moves.append((str(dst), bool(d.needs_pass)))
+        return real(src, dst)
+    monkeypatch.setattr(os, "replace", spy)
+    return moves
+
+
+def test_protecting_encrypts_before_the_final_move(tmp_path, monkeypatch):
     src = _restricted(tmp_path)
     with fitz.open(src) as d:
         p_in = d.xref_get_key(-1, "Encrypt/P")
-    plain = make_pdf(tmp_path / "out.pdf", pages=2)
-    with fitz.open(src) as d:
         d.authenticate("open")
         perm = core.input_permissions(d)
-    core.reprotect(plain, "open", perm)
+    plain = tmp_path / "out.pdf"
+    other = tmp_path / "other.pdf"
+    moves = _spy_replaces(monkeypatch)
+    with core.protecting("open", perm, lambda target: target == str(plain)):
+        _write_plain(plain)
+        _write_plain(other)                       # not an output that keeps it
+    _write_plain(tmp_path / "after.pdf")          # the hook ends with the block
+    assert moves == [(str(plain), True), (str(other), False),
+                     (str(tmp_path / "after.pdf"), False)]
+    with fitz.open(other) as d:
+        assert not d.needs_pass
     with fitz.open(plain) as d:
         assert d.needs_pass and not d.authenticate("owner") and not d.authenticate("")
     with fitz.open(plain) as d:
@@ -147,7 +179,46 @@ def test_reprotect_uses_the_open_password_a_random_owner_and_the_permissions(tmp
         assert "AES" in d.metadata["encryption"] and "256" in d.metadata["encryption"]
         assert d.xref_get_key(-1, "Encrypt/P") == p_in
         assert d[1].get_text().strip() == "Page 2"
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["in.pdf", "out.pdf", "plain-in.pdf"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "after.pdf", "in.pdf", "other.pdf", "out.pdf", "plain-in.pdf"]
+
+
+def test_a_failed_encryption_leaves_no_file_at_the_final_name(tmp_path, monkeypatch):
+    # The write is complete, the encryption step fails (a crash between the
+    # two): the final name never holds the unprotected file, and no .part stays.
+    def boom(path, user_pw, perm):
+        raise OSError("disk gone")
+    monkeypatch.setattr(core, "encrypt_file", boom)
+    out = tmp_path / "out.pdf"
+    with pytest.raises(OSError, match="disk gone"):
+        with core.protecting("open", core.ALL_PERMS, lambda target: True):
+            _write_plain(out)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_failed_encryption_over_an_existing_file_leaves_the_old_one(tmp_path, monkeypatch):
+    out = _restricted(tmp_path, "out.pdf")
+    before = open(out, "rb").read()
+    monkeypatch.setattr(core, "encrypt_file",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk gone")))
+    with pytest.raises(OSError):
+        with core.protecting("open", core.ALL_PERMS, lambda target: True):
+            _write_plain(out)
+    assert open(out, "rb").read() == before
+
+
+def test_shared_open_password_needs_one_password_and_ands_the_permissions():
+    a = core.OpenPassword("a.pdf", "pw", fitz.PDF_PERM_PRINT | fitz.PDF_PERM_COPY | -4096)
+    b = core.OpenPassword("b.pdf", "pw", fitz.PDF_PERM_PRINT | fitz.PDF_PERM_MODIFY | -4096)
+    c = core.OpenPassword("c.pdf", "other", core.ALL_PERMS)
+    shared = core.shared_open_password([None, a, None, b])
+    assert shared.name == "a.pdf" and shared.user_pw == "pw"
+    assert shared.perm == a.perm & b.perm
+    assert shared.perm & fitz.PDF_PERM_PRINT
+    assert not shared.perm & (fitz.PDF_PERM_COPY | fitz.PDF_PERM_MODIFY)
+    assert core.shared_open_password([a, c]) is None
+    assert core.shared_open_password([None, None]) is None
+    assert core.shared_open_password([b]) == b
 
 
 def test_doc_holder_carries_the_password_across_its_copies(tmp_path):

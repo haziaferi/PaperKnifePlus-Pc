@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 import pymupdf as fitz
 
-from ..job_queue import atomic_output
+from ..job_queue import atomic_output, finishing_outputs
 
 ALL_PERMS = (fitz.PDF_PERM_PRINT | fitz.PDF_PERM_PRINT_HQ | fitz.PDF_PERM_COPY
              | fitz.PDF_PERM_MODIFY | fitz.PDF_PERM_ANNOTATE | fitz.PDF_PERM_FORM
@@ -112,16 +112,39 @@ def _attach(doc, kept: OpenPassword) -> None:
     doc._pk_open_password = kept
 
 
-def reprotect(path: str, user_pw: str, perm: int) -> None:
-    """Re-save the unencrypted PDF at *path* over itself with AES-256: open
-    password *user_pw*, permissions *perm*, and a random owner password (the
-    Password tool's rule for a blank one)."""
-    doc = fitz.open(path)
-    try:
-        with atomic_output(path) as tmp:
-            doc.save(tmp, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw=user_pw,
-                     owner_pw=owner_password(""), permissions=perm)
-            doc.close()             # the file is replaced next: let it go
-    finally:
-        if not doc.is_closed:
-            doc.close()
+def shared_open_password(kept) -> OpenPassword | None:
+    """For one file written from several inputs (Merge): *kept* holds each
+    input's OpenPassword, None for an input without one.  When every protected
+    input has the same open password: that password, named after the first
+    protected input, with only the rights every one of them allows (the AND of
+    their permissions).  None when none is protected or their passwords differ."""
+    kept = [k for k in kept if k is not None]
+    if not kept or any(k.user_pw != kept[0].user_pw for k in kept):
+        return None
+    perm = kept[0].perm
+    for k in kept[1:]:
+        perm &= k.perm
+    return OpenPassword(kept[0].name, kept[0].user_pw, perm)
+
+
+def encrypt_file(path: str, user_pw: str, perm: int) -> None:
+    """Rewrite the unencrypted PDF at *path* (a temporary file: see
+    protecting) with AES-256: open password *user_pw*, permissions *perm*, and
+    a random owner password (the Password tool's rule for a blank one)."""
+    with fitz.open(path) as doc:
+        data = doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256, user_pw=user_pw,
+                           owner_pw=owner_password(""), permissions=perm)
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def protecting(user_pw: str, perm: int, wanted):
+    """A context manager: while it is active, every file this thread writes
+    through atomic_output whose final path p has wanted(p) is encrypted
+    (encrypt_file) while it is still the temporary file, before it is moved
+    onto p; so p never holds it unprotected, and if the encryption fails the
+    new file is discarded and p keeps what it had."""
+    def finish(target: str, tmp: str) -> None:
+        if wanted(target):
+            encrypt_file(tmp, user_pw, perm)
+    return finishing_outputs(finish)
