@@ -316,6 +316,7 @@ class ToolPage(QWidget):
         self.window_ = window
         self.placement = action_placement()
         self._compact = False
+        self._ctx_before_compact = True     # the panel as the user left it
         self._buttons: list = []
 
         v = QVBoxLayout(self)
@@ -449,11 +450,14 @@ class ToolPage(QWidget):
 
     # ── window modes (the shell calls these) ──
     def set_compact(self, on: bool):
-        """Compact Mode: the header and any context panel are hidden."""
+        """Compact Mode: the header and any context panel are hidden; leaving
+        it brings the panel back only if it was shown when Compact Mode began."""
+        if self.has_context() and on and not self._compact:
+            self._ctx_before_compact = self.context_shown()
         self._compact = on
         self.header.setVisible(not on)
         if self.has_context():
-            self.show_context(not on)
+            self.show_context(False if on else self._ctx_before_compact)
 
     def reveal_header(self, on: bool):
         """In Compact Mode the top edge brings the header back for a while."""
