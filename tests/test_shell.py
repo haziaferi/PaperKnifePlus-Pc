@@ -173,6 +173,15 @@ def test_home_survives_recent_entry_without_name(app, tmp_path):
         app.show_home()
 
 
+
+def test_home_reuses_the_thumbnail_image_of_an_unchanged_file(app, tmp_path):
+    # Review R2b-1: every Home rebuild wrapped and rescaled each thumbnail anew.
+    from paperknife.app import get_thumb
+    src = make_pdf(tmp_path / "t.pdf", pages=1)
+    first = get_thumb(src, size=(120, 155))
+    assert first is not None
+    assert get_thumb(src, size=(120, 155)) is first
+
 def _fresh_recent(content):
     from paperknife import recent
     old = recent.RECENT_PATH.read_bytes() if recent.RECENT_PATH.exists() else None
