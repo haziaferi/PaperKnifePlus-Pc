@@ -8,6 +8,7 @@ import os
 import pymupdf as fitz
 
 from ..job_queue import atomic_output
+from .password import carry_open_password
 
 UNDO_DEPTH = 10     # whole-document snapshots kept by the editing tools
 
@@ -40,9 +41,7 @@ class DocHolder:
         """Before *path* is replaced: if self._doc holds it, continue on an
         in-memory copy of the same content and close the file."""
         if self._holds(path):
-            doc = self._doc
-            self._doc = fitz.open("pdf", doc.tobytes())
-            doc.close()
+            self._replace_doc(fitz.open("pdf", self._doc.tobytes()))
 
     def _save_doc(self, out: str, **save_opts) -> None:
         """Save self._doc to *out* through atomic_output.
@@ -59,8 +58,7 @@ class DocHolder:
             doc.save(tmp, **save_opts)
             # Only after the save: tobytes() writes unencrypted, and an
             # encryption=PDF_ENCRYPT_KEEP save after it would too.
-            self._doc = fitz.open("pdf", doc.tobytes())
-            doc.close()
+            self._replace_doc(fitz.open("pdf", doc.tobytes()))
 
     # apply_redactions rewrites page resources as well as content, so undo
     # restores a serialised copy.  MuPDF's journal cannot be used: get_text on
@@ -71,5 +69,12 @@ class DocHolder:
 
     def _pop_undo(self) -> None:
         self._pg, data = self._undo_stack.pop()
-        self._doc.close()
-        self._doc = fitz.open("pdf", data)
+        self._replace_doc(fitz.open("pdf", data))
+
+    def _replace_doc(self, new) -> None:
+        """Go on with *new* (a copy of self._doc's content) and close the old
+        document; the password it was opened with goes with the content."""
+        old = self._doc
+        carry_open_password(old, new)
+        self._doc = new
+        old.close()

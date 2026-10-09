@@ -42,6 +42,7 @@ from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButt
 from . import dialogs
 from . import theme
 from ..core.doc_state import DocHolder
+from ..core.password import OpenPassword, open_password_of
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 QT_PAGES: dict[str, type] = {}
@@ -361,6 +362,21 @@ def file_card(on_change=None, exts=(".pdf",)) -> FileCard:
     return FileCard(on_change, exts)
 
 
+def ask_keep_password(doc) -> OpenPassword | None:
+    """Before a PDF is written from *doc*: when *doc* was opened with a
+    password, ask whether the new file keeps it.  The OpenPassword to pass to
+    window.run_job(keep_password=...) on Yes; None on No or when there is no
+    open password (an unprotected input, or one with an owner password only).
+    Ask after the save dialog, so Cancel there asks nothing."""
+    kept = open_password_of(doc)
+    if kept is None:
+        return None
+    if dialogs.ask_yes_no("Password", f'"{kept.name}" is password-protected. '
+                                      "Keep the password on the new file?"):
+        return kept
+    return None
+
+
 class HeldDoc(DocHolder):
     """A page that keeps its file card's (self.file) document open in
     self._doc; self._src is the file it was read from."""
@@ -414,6 +430,7 @@ class WorkspaceDoc(DocHolder):
         out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
         if not out:
             return
+        kept = ask_keep_password(self._doc)
         win = self.window_
 
         def done(kind, _value):
@@ -424,7 +441,7 @@ class WorkspaceDoc(DocHolder):
                 dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
 
         win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False)
+                    lock=True, then=done, cancellable=False, keep_password=(kept, [out]))
 
 
 class Refusal(Exception):
@@ -583,7 +600,8 @@ class ToolPage(QWidget):
 
     def run_on_file(self, title: str, work, label, report, *, src: str | None = None,
                     save: tuple | None = None, prepare=None, open_doc=None, ended=None,
-                    cancellable: bool = True, warning_box: bool = False):
+                    cancellable: bool = True, warning_box: bool = False,
+                    parts: list | None = None):
         """Run *work* on the chosen file: the file card's (or *src*, already
         checked), opened, prepare(doc), the output asked for, then
         work(doc, out, stop, progress) in a job (it closes doc) and, when the
@@ -596,7 +614,11 @@ class ToolPage(QWidget):
         prepare.  prepare(doc): a ValueError's message is shown as an error,
         a Refusal's as a warning; either closes doc and stops.  open_doc(src)
         -> doc | None replaces window.open_pdf_safe.  ended(kind) runs however
-        the job ended, before report."""
+        the job ended, before report.
+
+        A PDF output (save with ".pdf", or *parts*: the list work fills with
+        the PDFs it writes into the chosen folder) from an input opened with a
+        password asks once whether the new files keep it (ask_keep_password)."""
         if src is None:
             src = self.chosen_file(title)
             if not src:
@@ -617,6 +639,8 @@ class ToolPage(QWidget):
         out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
         if not out:
             return doc.close()
+        pdf_out = parts is not None or (save is not None and save[1].lower() == ".pdf")
+        kept = ask_keep_password(doc) if pdf_out else None
         progress = win.progress_callback()
 
         def then(kind, result):
@@ -631,7 +655,8 @@ class ToolPage(QWidget):
 
         if win.run_job(lambda stop: work(doc, out, stop, progress),
                        label if isinstance(label, str) else label(),
-                       then=then, cancellable=cancellable) is None:
+                       then=then, cancellable=cancellable,
+                       keep_password=(kept, parts if parts is not None else [out])) is None:
             doc.close()
 
     # ── shell hooks ──

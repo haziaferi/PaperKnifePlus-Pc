@@ -8,8 +8,9 @@ import pymupdf as fitz
 from qfluentwidgets import ComboBox, FluentIcon, LineEdit, PushButton
 
 from ...core import organise
+from ...core.password import open_password_of
 from .. import dialogs
-from ..pages import HeldDoc, MasterDetailPage, register_page
+from ..pages import HeldDoc, MasterDetailPage, ask_keep_password, register_page
 
 LEVELS = ["1", "2", "3", "4"]
 
@@ -158,13 +159,17 @@ class TocPage(HeldDoc, MasterDetailPage):
         if not out:
             return
         toc = [list(item) for item in self._toc]
+        # A file opened with a password: the answer decides (run_job re-saves
+        # the output with it on Yes).  One without an open password (an owner
+        # password only) saved over itself keeps its encryption, as before.
+        asked = open_password_of(self._doc) is not None
+        kept = ask_keep_password(self._doc)
         win = self.window_
 
         def work(stop):
             self._doc.set_toc(toc)
-            # Saving over the source keeps its password; a copy elsewhere is
-            # written unprotected.
-            keep = {"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) else {}
+            keep = ({"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) and not asked
+                    else {})
             self._save_doc(out, deflate=True, **keep)
 
         def then(kind, _value):
@@ -173,4 +178,5 @@ class TocPage(HeldDoc, MasterDetailPage):
             win.set_status(f"✓  Saved {len(toc)} bookmark(s) → {Path(out).name}", "success")
             dialogs.info("Saved", f"PDF with updated bookmarks:\n{out}")
 
-        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False)
+        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
+                    keep_password=(kept, [out]))

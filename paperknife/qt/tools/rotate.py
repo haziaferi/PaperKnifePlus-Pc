@@ -8,7 +8,7 @@ from PySide6.QtGui import QImage
 
 from ...core import organise
 from .. import dialogs
-from ..pages import HeldDoc, OrganiserPage, register_page
+from ..pages import HeldDoc, OrganiserPage, ask_keep_password, register_page
 
 SUBTITLE = "Click a thumbnail · then rotate or move it"
 THUMB_ZOOM = 0.28           # as the CTk tool's thumbnails
@@ -66,6 +66,7 @@ class RotatePage(HeldDoc, OrganiserPage):
         out = dialogs.ask_save("reordered.pdf", ".pdf", [("PDF", "*.pdf")])
         if not out:
             return
+        kept = ask_keep_password(self._doc)
         order, extra = self.order(), dict(self._extra)
         win = self.window_
         # The thumbnails read the document; none may render while the job uses it.
@@ -82,6 +83,6 @@ class RotatePage(HeldDoc, OrganiserPage):
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF saved:\n{out}")
 
-        if win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False) is None \
-                and self._queue:
+        if win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
+                       keep_password=(kept, [out])) is None and self._queue:
             self._timer.start()
