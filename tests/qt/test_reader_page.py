@@ -83,20 +83,31 @@ def test_open_renders_the_visible_pages_with_their_content(window, dialogs, tmp_
     # "Page 1" at (72, 100) pt: dark pixels there, none in the empty lower half.
     assert _dark_pixels(img, int(70 * z), int(85 * z), int(140 * z), int(105 * z)) > 0
     assert _dark_pixels(img, 0, img.height() // 2, img.width(), img.height()) == 0
-    first, last = page._pg, max(i for i in page._items)
     assert page.page_label.text().endswith(" / 3") and page.page_label.text().startswith("1–")
-    assert last <= min(2, first + core_reader.PRELOAD + 3)
+
+
+def _visible(page):
+    """The 0-based first and last visible page, from the "a–b / n" label."""
+    a, b = page.page_label.text().split(" / ")[0].split("–")
+    return int(a) - 1, int(b) - 1
 
 
 def test_pages_are_stacked_and_scrolling_renders_the_ones_that_come_into_view(window, tmp_path):
     page, _ = _open(window, tmp_path, pages=12)
     assert 11 not in page._items
+    # Only the visible pages plus PRELOAD each side are rendered.
+    first, last = _visible(page)
+    assert last < 11 - core_reader.PRELOAD, "the window shows too much for this test to mean anything"
+    assert set(page._items) == set(range(max(0, first - core_reader.PRELOAD),
+                                         last + core_reader.PRELOAD + 1)), sorted(page._items)
     tops = page._tops
     assert all(b > a for a, b in zip(tops, tops[1:], strict=False))
     bar = page.view.verticalScrollBar()
     bar.setValue(bar.maximum())
     _settle(page)
     assert 11 in page._items and 0 not in page._items      # scrolled-away images are freed
+    first, last = _visible(page)
+    assert set(page._items) == set(range(first - core_reader.PRELOAD, 12)), sorted(page._items)
     assert page.page_label.text().endswith("–12 / 12")
     assert page._items[11].pos().y() == tops[11]
 
