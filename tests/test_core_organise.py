@@ -87,6 +87,24 @@ def test_split_chapters_names_files_and_releases_before_writing(tmp_path):
     assert _texts(tmp_path / "02_Body.pdf") == ["Page 3", "Page 4"]
 
 
+def test_split_chapters_over_its_own_source(tmp_path):
+    # The source is named like its first chapter's output, in the output folder.
+    # release() closes the open file as a tool's DocHolder does; the split must
+    # go on from the content it had and write every chapter.
+    src = make_pdf(tmp_path / "01_Intro.pdf", pages=4)
+    doc = fitz.open(src)
+
+    def release(path):
+        if Path(path).resolve() == Path(src).resolve() and not doc.is_closed:
+            doc.close()
+    entries = [("Intro", 0), ("Body", 2), ("_END_", 4)]
+    n = organise.split_chapters(doc, entries, str(tmp_path), threading.Event(),
+                                lambda v: None, release=release)
+    assert n == 2
+    assert _texts(tmp_path / "01_Intro.pdf") == ["Page 1", "Page 2"]
+    assert _texts(tmp_path / "02_Body.pdf") == ["Page 3", "Page 4"]
+
+
 def test_toc_level_error_and_delete_entry():
     assert organise.toc_level_error([[1, "a", 1], [2, "b", 1], [3, "c", 1]]) is None
     msg = organise.toc_level_error([[1, "a", 1], [3, "c", 1]])

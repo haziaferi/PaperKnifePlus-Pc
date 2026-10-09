@@ -75,15 +75,21 @@ def split_chapters(doc, entries, out_dir: str, stop, progress, release=lambda pa
     in *out_dir*.  *release(path)* is called before a file is replaced, so a tool
     holding that file open can let it go.  Returns the number written."""
     parts = len(entries) - 1
+    targets = [os.path.join(out_dir, f"{i + 1:02d}_"
+                            + re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title)[:50].strip() + ".pdf")
+               for i, (title, _) in enumerate(entries[:-1])]
+    if doc.name and any(os.path.exists(t) and os.path.samefile(t, doc.name) for t in targets):
+        # A chapter replaces the source itself, and release() lets the caller
+        # close it: go on from the content as it is now.
+        doc = fitz.open("pdf", doc.tobytes())
     count = 0
-    for i, (title, start) in enumerate(entries[:-1]):
+    for i, (_, start) in enumerate(entries[:-1]):
         if stop.is_set():
             break
         end = entries[i + 1][1] - 1
         if start > end:
             continue
-        safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title)[:50].strip()
-        target = os.path.join(out_dir, f"{i + 1:02d}_{safe}.pdf")
+        target = targets[i]
         release(target)
         with atomic_output(target) as tmp, fitz.open() as nd:
             nd.insert_pdf(doc, from_page=start, to_page=end)
