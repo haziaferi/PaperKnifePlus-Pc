@@ -182,3 +182,42 @@ def test_doc_to_pdf_cancel_after_the_file_is_in_place_still_reports_it(tmp_path,
     monkeypatch.setattr(core, "atomic_output", cancel_after_commit)
     assert core.doc_to_pdf(str(src), fmt, str(out), stop) == []
     assert out.exists()
+
+
+@pytest.fixture
+def opened_docs(monkeypatch):
+    """Every document fitz.open() returns while the test runs."""
+    real, seen = fitz.open, []
+
+    def recording(*a, **k):
+        d = real(*a, **k)
+        seen.append(d)
+        return d
+    monkeypatch.setattr(core.fitz, "open", recording)
+    return seen
+
+
+def test_doc_to_pdf_a_corrupt_image_leaves_no_document_open(tmp_path, opened_docs):
+    src = tmp_path / "bad.png"
+    src.write_bytes(b"\x89PNG\r\n\x1a\nnot really a png")
+    with pytest.raises(OSError):           # PIL.UnidentifiedImageError
+        core.doc_to_pdf(str(src), "PNG", str(tmp_path / "out.pdf"), threading.Event())
+    assert opened_docs and all(d.is_closed for d in opened_docs)
+
+
+def test_doc_to_pdf_a_failing_slide_leaves_no_document_open(tmp_path, opened_docs,
+                                                            monkeypatch):
+    if not _installed("PPTX"):
+        pytest.skip("python-pptx not installed")
+    from pptx import Presentation
+    src = tmp_path / "a.pptx"
+    prs = Presentation()
+    prs.slides.add_slide(prs.slide_layouts[1]).shapes.title.text = "Slide"
+    prs.save(src)
+
+    def boom(*a, **k):
+        raise RuntimeError("typesetting failed")
+    monkeypatch.setattr(fitz.Page, "insert_htmlbox", boom)
+    with pytest.raises(RuntimeError):
+        core.doc_to_pdf(str(src), "PPTX", str(tmp_path / "out.pdf"), threading.Event())
+    assert opened_docs and all(d.is_closed for d in opened_docs)

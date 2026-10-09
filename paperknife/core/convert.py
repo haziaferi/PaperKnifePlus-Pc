@@ -296,31 +296,27 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
         require(fmt)
         from pptx import Presentation as _PptxPrs
         prs = _PptxPrs(src)
-        nd  = fitz.open()
-        for slide in prs.slides:
+        with fitz.open() as nd:
+            for slide in prs.slides:
+                if stop.is_set():
+                    return None
+                lines = []
+                for shape in slide.shapes:
+                    if shape.has_text_frame:
+                        for para in shape.text_frame.paragraphs:
+                            lines.append(para.text)
+                page = nd.new_page(width=A4.width, height=A4.height)
+                page.insert_htmlbox(A4, "<br>".join(html.escape(ln) for ln in lines))
             if stop.is_set():
-                nd.close()
                 return None
-            lines = []
-            for shape in slide.shapes:
-                if shape.has_text_frame:
-                    for para in shape.text_frame.paragraphs:
-                        lines.append(para.text)
-            page = nd.new_page(width=A4.width, height=A4.height)
-            page.insert_htmlbox(A4, "<br>".join(html.escape(ln) for ln in lines))
-        if stop.is_set():
-            nd.close()
-            return None
-        with atomic_output(out) as tmp:
-            nd.save(tmp, deflate=True)
-        nd.close()
+            with atomic_output(out) as tmp:
+                nd.save(tmp, deflate=True)
 
     elif fmt in ("PNG", "JPEG"):
-        nd = fitz.open()
-        image_page(nd, src)
-        with atomic_output(out) as tmp:
-            nd.save(tmp, deflate=True)
-        nd.close()
+        with fitz.open() as nd:
+            image_page(nd, src)
+            with atomic_output(out) as tmp:
+                nd.save(tmp, deflate=True)
 
     else:
         stories = []          # (Story, page rect)
