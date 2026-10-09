@@ -1263,7 +1263,9 @@ class OrganiserPage(ToolPage):
             it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             it.setFlags(it.flags() | Qt.ItemIsDragEnabled)
             self.grid.addItem(it)
-        self._queue = list(range(self.grid.count()))
+        # The items themselves, not their rows: a move or a drag reorders the
+        # rows while the queue drains.
+        self._queue = [self.grid.item(i) for i in range(self.grid.count())]
         if self._queue:
             self._timer.start()
         self._show_grid_state()
@@ -1296,9 +1298,8 @@ class OrganiserPage(ToolPage):
             if not self._queue:
                 self._timer.stop()
                 return
-            i = self._queue.pop(0)
-            it = self.grid.item(i)
-            if it is not None and self._render is not None:
+            it = self._queue.pop(0)
+            if self._render is not None and self.grid.row(it) >= 0:
                 it.setIcon(self._thumb_icon(it.data(Qt.UserRole)))
 
     def rendering(self) -> bool:

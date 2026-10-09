@@ -125,6 +125,23 @@ def test_organiser_renders_thumbs_a_few_per_turn(qapp):
     page.close()
 
 
+def test_organiser_page_moved_while_rendering_still_gets_its_thumb(qapp):
+    # R1-25: the queue held row numbers; a page moved into the rendered
+    # prefix kept a blank tile and another page was rendered twice.
+    page, calls = _organiser(n=40)
+    page._render_some()                          # one tick: rows 0-3
+    page.select(30)
+    page.move(-30)                               # an unrendered page to the front
+    for _ in range(50):
+        pump(0.02)
+        if not page.rendering():
+            break
+    blank = [page.grid.item(i).data(0x0100) for i in range(page.grid.count())
+             if page.grid.item(i).icon().isNull()]
+    assert blank == [] and sorted(calls) == list(range(40))
+    page.close()
+
+
 def test_organiser_selection_enables_actions_and_moves_a_block(qapp):
     from qfluentwidgets import FluentIcon as FIF
     page, _ = _organiser()
