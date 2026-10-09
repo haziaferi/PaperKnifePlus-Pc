@@ -254,8 +254,10 @@ class RedactPage(DocHolder, WorkspacePage):
         def work(stop):
             core_redact.apply_boxes(self._doc, pending, fill, stop,
                                     lambda v: bridge.post(win.set_progress, v), modes, found)
-            if stop.is_set():
+            if stop.is_set() and len(modes) < pages:
                 return None             # the boxes of the pages not done stay pending
+            # Every page is redacted in memory now, even if Cancel came during the
+            # last one: save, or nothing would ever be able to write them.
             secrets = dict(self._secrets)
             core_redact.merge_secrets(secrets, found)
             removed = core_redact.scrub_secrets(self._doc, secrets)

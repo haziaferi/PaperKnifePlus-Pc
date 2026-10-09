@@ -467,3 +467,29 @@ def test_leaving_the_tool_closes_the_document(window, tmp_path):
     doc = page._doc
     window.show_page("home")
     assert doc.is_closed and page._doc is None and page._pending == []
+
+
+def test_cancel_during_the_last_page_still_saves_the_redactions(window, dialogs, tmp_path,
+                                                                 monkeypatch):
+    # Every page is redacted in memory by the time Cancel lands; giving up then
+    # emptied the box list and left the redacted document impossible to save.
+    import os
+    from paperknife.core import redact as core_redact
+    src = make_pdf(tmp_path / "doc.pdf", pages=1, text="SECRET {n}")
+    assert window.open_tool("RedactTool", src)
+    pump(0.1)
+    page = window.current_page()
+    page._pending.append((0, fitz.Rect(60, 80, 300, 110), None))
+    orig = core_redact.redact_page
+
+    def cancelled_mid_page(doc, pno, rects, fill):
+        window._current_job.cancel()
+        return orig(doc, pno, rects, fill)
+    monkeypatch.setattr(core_redact, "redact_page", cancelled_mid_page)
+    out = tmp_path / "out.pdf"
+    dialogs.save(out)
+    page.save()
+    wait_job(window)
+    assert os.path.exists(out)
+    with fitz.open(out) as d:
+        assert "SECRET" not in d[0].get_text()
