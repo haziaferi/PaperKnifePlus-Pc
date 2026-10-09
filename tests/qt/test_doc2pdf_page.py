@@ -1,4 +1,6 @@
 """The Qt Doc / Text → PDF page: a document or image file in, a PDF out."""
+import threading
+
 import pymupdf as fitz
 import pytest
 from PIL import Image
@@ -10,9 +12,11 @@ _PAGE_CAP = 40
 
 @pytest.fixture
 def capped_writer(monkeypatch):
-    """Story loops that never end would fill the disk; stop them at a cap."""
+    """Story loops that never end would fill the disk; stop them at a cap.
+    A test that sets stats["hold"] to an Event holds the worker inside its first
+    begin_page (stats["first_page"] is set then) until the test sets it."""
     real = fitz.DocumentWriter
-    stats = {"pages": 0}
+    stats = {"pages": 0, "hold": None, "first_page": threading.Event()}
 
     class Capped:
         def __init__(self, path, *a, **k):
@@ -20,6 +24,9 @@ def capped_writer(monkeypatch):
 
         def begin_page(self, rect):
             stats["pages"] += 1
+            if stats["pages"] == 1 and stats["hold"] is not None:
+                stats["first_page"].set()
+                assert stats["hold"].wait(30), "the test never released the worker"
             if stats["pages"] > _PAGE_CAP:
                 raise RuntimeError(f"runaway Story loop: more than {_PAGE_CAP} pages")
             return self._w.begin_page(rect)
@@ -156,11 +163,16 @@ def test_txt_to_pdf_cancel_stops_the_story_loop(window, dialogs, tmp_path, cappe
     out = tmp_path / "huge.pdf"
     page.file.set_path(str(src))
     dialogs.save(out)
+    capped_writer["hold"] = threading.Event()
     page.run()
     assert window._current_job is not None and window._current_job.is_running
-    window._cancel_job()          # before the first page: the loop must notice it
+    # Deterministic: the worker waits inside its first page until Cancel is sent
+    # (parsing the 20 000 lines comes first, so no fixed delay could be enough).
+    assert capped_writer["first_page"].wait(30)
+    window._cancel_job()
+    capped_writer["hold"].set()
     wait_job(window, timeout=60)
-    assert capped_writer["pages"] <= 2, capped_writer
+    assert capped_writer["pages"] == 1, capped_writer   # the loop stopped after that page
     assert not dialogs.errors(), dialogs.errors()
     assert not out.exists(), "a cancelled conversion left a partial PDF"
     assert window.status_text() == "Cancelled"
@@ -304,13 +316,13 @@ def test_doc2pdf_transparent_png_gets_white_background(window, dialogs, tmp_path
         assert doc[0].get_pixmap(alpha=False).pixel(5, 5) == (255, 255, 255)
 
 
-def test_cancelling_the_save_dialog_writes_nothing(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_writes_nothing(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     src = tmp_path / "a.txt"
     src.write_text("hello", encoding="utf-8")
     page.file.set_path(str(src))
     opened = []
-    window.open_pdf_safe = lambda p: opened.append(p)
+    monkeypatch.setattr(window, "open_pdf_safe", lambda p: opened.append(p))
     page.run()                     # no save path queued: the dialog returns ""
     assert window._current_job is None and not opened
     assert list(tmp_path.iterdir()) == [src]
