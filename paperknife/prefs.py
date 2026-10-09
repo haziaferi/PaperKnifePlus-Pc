@@ -19,6 +19,7 @@ _DEFAULTS: dict = {
     "max_recent":      12,        # max recent-file cards on home screen
     "window_geometry": "",        # last window geometry string (WxH+X+Y)
     "qt_window_geometry": "",     # the Qt window's saveGeometry(), base64
+    "qt_stale_parts":  [],        # .part files a job left when the Qt app quit
     "appearance":      "light",   # light / dark / system
 }
 

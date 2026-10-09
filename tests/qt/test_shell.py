@@ -420,6 +420,46 @@ def test_close_with_job_asks_and_waits(window, dialogs):
     assert [m[0] for m in dialogs.msgs].count("ask_yes_no") == 2
 
 
+def test_quit_past_the_close_deadline_leaves_no_part_file(window, dialogs, monkeypatch,
+                                                          tmp_path):
+    # R1-17: the window closed at CLOSE_WAIT_S with a save still writing; the
+    # daemon worker died at exit and its hidden .part file stayed in the
+    # user's output folder.  The next start removes it.
+    import os
+    from paperknife.job_queue import atomic_output
+    from paperknife.qt import shell
+    monkeypatch.setattr(shell, "CLOSE_WAIT_S", 0.3)
+    release, written, parts = threading.Event(), threading.Event(), []
+
+    def work(stop):                     # a save that never looks at stop
+        with atomic_output(str(tmp_path / "out.pdf")) as tmp:
+            parts.append(tmp)
+            with open(tmp, "wb") as f:
+                f.write(b"%PDF-1.7 partial")
+            written.set()
+            release.wait(10)
+    window.run_job(work, "Saving", cancellable=False)
+    assert written.wait(5)
+    dialogs.asks.append(True)
+    window.close()
+    for _ in range(100):
+        pump(0.05)
+        if not window.isVisible():
+            break
+    assert not window.isVisible()
+    assert os.path.exists(parts[0])     # what the killed worker would leave
+    w2 = shell.MainWindow()             # the next start
+    try:
+        assert not os.path.exists(parts[0])
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        release.set()
+        w2._close_ok = True
+        w2._alive = False
+        w2.close()
+        w2.deleteLater()
+
+
 def test_late_job_callback_after_close_is_dropped(window):
     release = threading.Event()
     seen = []

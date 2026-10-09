@@ -33,7 +33,7 @@ from qfluentwidgets.components.navigation.navigation_panel import NavigationDisp
 from qfluentwidgets.components.navigation.navigation_widget import NavigationWidget
 
 from . import bridge, dialogs, pages, theme
-from ..job_queue import CancellableJob
+from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
 
@@ -48,6 +48,7 @@ POLL_MS = 40            # edge watcher interval (runs only when needed)
 CLOSE_WAIT_S = 15       # how long close waits for a cancelled job
 
 GEOMETRY_KEY = "qt_window_geometry"
+STALE_PARTS_KEY = "qt_stale_parts"
 NAV_EXPAND_WIDTH = 212
 NAV_MIN_EXPAND_WINDOW = 900
 BOTTOM_SECTIONS = ("SETTINGS",)
@@ -152,6 +153,8 @@ class MainWindow(FluentWindow):
         self._build_shortcuts()
         self._build_timers()
         self.titleBar.installEventFilter(self)
+
+        self._stale_parts = _remove_stale_parts(PREFS.get(STALE_PARTS_KEY, []))
 
         geo = PREFS.get(GEOMETRY_KEY, "")
         if geo:
@@ -902,11 +905,34 @@ class MainWindow(FluentWindow):
             except Exception:
                 pass
         setattr(PREFS, GEOMETRY_KEY, bytes(self.saveGeometry().toBase64()).decode("ascii"))
+        # A job still writing past CLOSE_WAIT_S dies with the process before
+        # atomic_output can delete its temp file: the next start removes it.
+        stale = set(self.__dict__.get("_stale_parts", [])) | set(live_parts())
+        setattr(PREFS, STALE_PARTS_KEY, sorted(p for p in stale if os.path.exists(p)))
         try:
             PREFS.save()
         except OSError:
             pass
         self._alive = False
+
+
+def _remove_stale_parts(paths) -> list[str]:
+    """Delete the temp files a killed job left (only atomic_output's own
+    hidden ".<stem>-XXXX<ext>.part" names); the ones that cannot go yet."""
+    left = []
+    for p in paths if isinstance(paths, list) else []:
+        if not isinstance(p, str):
+            continue
+        name = os.path.basename(p)
+        if not (name.startswith(".") and name.endswith(".part")):
+            continue
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            left.append(p)
+    return left
 
 
 class _Overlay(QWidget):
