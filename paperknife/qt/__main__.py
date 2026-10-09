@@ -17,8 +17,7 @@ def main(argv=None) -> int:
     app.setApplicationName("PaperKnife+ PC")
     app.setOrganizationName("PaperKnife+")
 
-    # Registry first, then the appearance BEFORE any widget is built.
-    import paperknife.tools  # noqa: F401  (fills tool_base.TOOLS)
+    # The pages first, then the appearance BEFORE any widget is built.
     import paperknife.qt.tools  # noqa: F401  (registers the Qt pages)
     from . import bridge, theme
     bridge.install()

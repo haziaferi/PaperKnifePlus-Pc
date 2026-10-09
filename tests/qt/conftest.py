@@ -84,7 +84,6 @@ def isolated_store(tmp_path_factory, monkeypatch):
 def qapp():
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
-    import paperknife.tools  # noqa: F401  (fills TOOLS)
     import paperknife.qt.tools  # noqa: F401  (registers the Qt pages)
     from paperknife.qt import bridge, theme
     bridge.install()

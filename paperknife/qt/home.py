@@ -168,7 +168,7 @@ class HomePage(ToolPage):
     def build_quick_actions(self, tools):
         """tools: the registry; a button for each QUICK_ACTIONS tool present."""
         from .shell import NAV_GLYPH
-        by_name = {type(t).__name__: t for t in tools}
+        by_name = {t.name: t for t in tools}
         for cls in QUICK_ACTIONS:
             t = by_name.get(cls)
             if t is None or cls in self.quick_buttons:
