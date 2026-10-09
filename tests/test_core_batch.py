@@ -40,6 +40,15 @@ def test_validate_options_refuses_bad_values_with_the_message(opts):
                             f"from {lo} to {hi}, opacity a number above 0 and up to 1.")
 
 
+
+@pytest.mark.parametrize("text", ["", " " + chr(9) + " "])
+def test_validate_options_refuses_an_empty_watermark_text(text):
+    # R45-11: the Watermark page's own check, for the batch too.
+    with pytest.raises(ValueError) as e:
+        core.validate_options({"text": text, "size": "48", "opacity": "0.5"})
+    assert str(e.value) == "Enter watermark text."
+
+
 def test_open_input_refuses_a_password_protected_file(tmp_path):
     with pytest.raises(ValueError, match="password-protected"):
         core.open_input(_locked(tmp_path / "locked.pdf"))

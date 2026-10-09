@@ -76,7 +76,10 @@ OPS = {
 def validate_options(opts: dict) -> dict:
     """*opts* (text typed in the options pane) with size, DPI and opacity as
     numbers, in place.  Raises ValueError with the message to show when one
-    of them is out of range or not a number."""
+    of them is out of range or not a number, or the watermark text is empty
+    (the single-file Watermark tool refuses it the same way)."""
+    if "text" in opts and not str(opts["text"]).strip():
+        raise ValueError("Enter watermark text.")
     lo, hi = DPI_RANGE
     try:
         if "size" in opts:

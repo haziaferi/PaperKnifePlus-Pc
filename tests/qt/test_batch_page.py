@@ -171,6 +171,21 @@ def test_batch_watermark_is_diagonal_and_honours_text_and_opacity(window, dialog
         assert dirs and all(abs(abs(dx) - abs(dy)) < 0.01 and dx and dy for dx, dy in dirs)
 
 
+
+@pytest.mark.parametrize("text", ["", "   "])
+def test_batch_watermark_refuses_empty_text_up_front(window, dialogs, tmp_path, text):
+    # R45-11: an empty text wrote unchanged copies reported ✓; the single-file
+    # Watermark page refuses it with "Enter watermark text.".
+    in_dir, out_dir = _folders(tmp_path)
+    make_pdf(in_dir / "a.pdf", pages=1)
+    page = _run(window, _page(window), in_dir, out_dir, "Watermark")
+    page.controls["text"].setText(text)
+    page.run()
+    wait_job(window)
+    assert dialogs.warnings() == [("warning", "Batch", "Enter watermark text.")]
+    assert list(out_dir.iterdir()) == []
+
+
 def _stamp_size(path):
     with fitz.open(path) as doc:
         return max(s["size"] for b in doc[0].get_text("dict")["blocks"]
