@@ -32,14 +32,29 @@ def _image_rewrite_options(dpi: int):
 # Every function here takes an open document and closes it before the output
 # is moved into place, so *out* may be the input file itself.
 
-def compress_pdf(doc, out: str, level: str) -> None:
+class _Stopped(Exception):
+    """Raised inside atomic_output so a cancelled compression writes nothing."""
+
+
+def compress_pdf(doc, out: str, level: str, stop=None) -> bool:
     """Light: clean + deflate.  Medium/aggressive: also resample embedded
-    images above 150/96 DPI down to that DPI; page content is kept."""
-    with atomic_output(out) as tmp, doc:
-        dpi = _COMPRESS_DPI.get(level)
-        if dpi:
-            doc.rewrite_images(options=_image_rewrite_options(dpi))
-        doc.save(tmp, deflate=True, garbage=4, clean=True)
+    images above 150/96 DPI down to that DPI; page content is kept.
+
+    The work is two long PyMuPDF calls that cannot be interrupted, so *stop* is
+    checked after each: once set, nothing is written and False is returned."""
+    try:
+        with atomic_output(out) as tmp, doc:
+            dpi = _COMPRESS_DPI.get(level)
+            if dpi:
+                doc.rewrite_images(options=_image_rewrite_options(dpi))
+            if stop is not None and stop.is_set():
+                raise _Stopped
+            doc.save(tmp, deflate=True, garbage=4, clean=True)
+            if stop is not None and stop.is_set():
+                raise _Stopped
+    except _Stopped:
+        return False
+    return True
 
 
 def watermark_pdf(doc, out, text, size, opacity, color, stop, progress=None):

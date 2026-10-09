@@ -26,7 +26,8 @@ def open_input(src):
 def _do_compress(src, out_dir, opts, stop):
     if stop.is_set(): return None
     out = os.path.join(out_dir, Path(src).stem + "_compressed.pdf")
-    compress_pdf(open_input(src), out, opts.get("level", "medium"))
+    if not compress_pdf(open_input(src), out, opts.get("level", "medium"), stop):
+        return None
     return out
 
 def _do_watermark(src, out_dir, opts, stop):

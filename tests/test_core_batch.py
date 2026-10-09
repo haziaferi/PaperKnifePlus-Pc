@@ -108,11 +108,7 @@ _PER_PAGE_STEP = {
 }
 
 
-@pytest.mark.parametrize("op", [
-    pytest.param("Compress", marks=pytest.mark.xfail(strict=True, reason=(
-        "R6-37: _do_compress checks stop only on entry and compress_pdf takes no stop, "
-        "so a Cancel that lands while a file is being compressed still writes its output"))),
-    "Watermark", "OCR", "PDF → TXT"])
+@pytest.mark.parametrize("op", ["Compress", "Watermark", "OCR", "PDF → TXT"])
 def test_each_operation_cancelled_mid_file_returns_none_and_writes_nothing(tmp_path, monkeypatch,
                                                                             op):
     # Cancel arrives while the file is being processed (after its first page
