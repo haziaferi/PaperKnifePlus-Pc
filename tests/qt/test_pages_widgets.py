@@ -354,3 +354,33 @@ def test_workspace_follows_a_theme_switch(qapp):
     assert _ink(btn.icon()) == theme.hex_color("text")
     assert p.view.backgroundBrush().color().name() == theme.hex_color("page_bg")
     p.deleteLater()
+
+
+def test_master_detail_ctrl_click_deselect_updates_tools_and_detail(qapp):
+    # R1-26: Ctrl+click on the selected entry cleared the selection without
+    # moving currentRow: Remove stayed enabled and on_select never heard.
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from paperknife.qt.pages import MasterDetailPage
+    calls = []
+
+    class P(MasterDetailPage):
+        def on_select(self, i):
+            calls.append(i)
+    p = P("t")
+    p.resize(900, 600)
+    p.show()
+    b = p.add_tool("Remove", None, lambda: None, needs_selection=True)
+    p.set_items(["a", "b", "c"], keep=1)
+    pump(0.02)
+    calls.clear()
+
+    def ctrl_click(i):
+        rect = p.list.visualItemRect(p.list.item(i))
+        QTest.mouseClick(p.list.viewport(), Qt.LeftButton, Qt.ControlModifier, rect.center())
+        pump(0.02)
+    ctrl_click(1)
+    assert p.current() is None and not b.isEnabled() and calls == [None]
+    ctrl_click(1)
+    assert p.current() == 1 and b.isEnabled() and calls == [None, 1]
+    p.close()

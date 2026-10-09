@@ -1399,6 +1399,8 @@ class MasterDetailPage(ToolPage):
         self.list = ListWidget(self.list_card)
         self.list.setFrameShape(QFrame.NoFrame)
         self.list.currentRowChanged.connect(self._row_changed)
+        self.list.itemSelectionChanged.connect(self._selection_changed)
+        self._shown: int | None = None          # what on_select last heard
         lv.addWidget(self.list, 1)
         self.empty_label = muted_caption(empty_text)
         self.empty_label.setAlignment(Qt.AlignCenter)
@@ -1498,14 +1500,24 @@ class MasterDetailPage(ToolPage):
 
     def _row_changed(self, r: int):
         self._refresh()
-        self.on_select(r if 0 <= r < self.list.count() else None)
+        self._shown = r if 0 <= r < self.list.count() else None
+        self.on_select(self._shown)
+
+    def _selection_changed(self):
+        # Ctrl+click on the selected entry deselects it (and a second one
+        # selects it again) without moving currentRow.
+        self._refresh()
+        cur = self.current()
+        if cur != self._shown:
+            self._shown = cur
+            self.on_select(cur)
 
     def _refresh(self):
         n = self.list.count()
         self.list.setVisible(bool(n))
         self.empty_label.setVisible(not n)
         self.count_label.setText(f"{n} entr{'ies' if n != 1 else 'y'}" if n else "")
-        has = 0 <= self.list.currentRow() < n
+        has = self.current() is not None
         for b in self._tools:
             if getattr(b, "pk_needs_selection", False):
                 b.setEnabled(has)
