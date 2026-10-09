@@ -1,6 +1,10 @@
 """paperknife.core.convert without any user interface: every format both ways,
 progress, and Cancel leaving no file behind."""
+import html
+import io
+import re
 import threading
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -19,6 +23,33 @@ def _installed(fmt):
     return fmt not in core.NEEDS or core.NEEDS[fmt][1]
 
 
+def _texts_in(out, fmt):
+    """The text strings a reader of *fmt* finds in the file *out*."""
+    if fmt == "TXT":
+        return [out.read_text(encoding="utf-8")]
+    if fmt == "HTML":
+        raw = out.read_text(encoding="utf-8")
+        assert raw.lstrip().lower().startswith("<!doctype html")
+        return [html.unescape(t) for t in re.split(r"<[^>]*>", raw)]
+    if fmt == "XML":
+        # The file this test just wrote from its own PDF, not untrusted input.
+        root = ET.parse(out).getroot()  # nosemgrep: python.lang.security.use-defused-xml-parse.use-defused-xml-parse
+        return [ln.get("text", "") for ln in root.iter("line")]
+    if fmt == "RTF":
+        raw = out.read_text(encoding="utf-8")
+        assert raw.startswith("{\\rtf1")
+        return [re.sub(r"\\[a-z]+-?\d* ?|[{}]", "", raw)]
+    if fmt == "DOCX":
+        import docx
+        return [p.text for p in docx.Document(str(out)).paragraphs]
+    if fmt == "XLSX":
+        import openpyxl
+        wb = openpyxl.load_workbook(out)
+        return [str(c) for ws in wb for row in ws.iter_rows(values_only=True)
+                for c in row if c is not None]
+    raise AssertionError(fmt)
+
+
 @pytest.mark.parametrize("fmt", FORMATS)
 def test_pdf_to_doc_writes_every_format_and_reports_progress(tmp_path, fmt):
     if not _installed(fmt):
@@ -30,11 +61,30 @@ def test_pdf_to_doc_writes_every_format_and_reports_progress(tmp_path, fmt):
                          dpi=72)
     assert ok and out.exists() and out.stat().st_size > 0
     assert seen and seen[-1] == pytest.approx(1.0)
-    if fmt == "TXT":
-        text = out.read_text(encoding="utf-8")
-        assert "Hello page 1" in text and "Hello page 3" in text
+    # Each format re-opened with its own reader: every page is in it (any bytes
+    # would pass a size check alone).
     if fmt in ("PNG", "JPEG"):
-        assert len(zipfile.ZipFile(out).namelist()) == 3
+        from PIL import Image
+        with zipfile.ZipFile(out) as z:
+            names = sorted(z.namelist())
+            assert len(names) == 3
+            for name in names:
+                with Image.open(z.open(name)) as im:
+                    assert im.format == fmt and im.convert("L").getextrema()[0] < 128
+    elif fmt == "PPTX":
+        from PIL import Image
+        from pptx import Presentation
+        slides = list(Presentation(str(out)).slides)
+        assert len(slides) == 3                     # a picture of each page, one per slide
+        for slide in slides:
+            pics = [sh for sh in slide.shapes if sh.shape_type == 13]     # PICTURE
+            assert len(pics) == 1
+            with Image.open(io.BytesIO(pics[0].image.blob)) as im:
+                assert im.convert("L").getextrema()[0] < 128              # text drawn
+    else:
+        found = _texts_in(out, fmt)
+        for want in ("Hello page 1", "Hello page 2", "Hello page 3"):
+            assert any(want in t for t in found), (fmt, want, found[:20])
 
 
 def test_pdf_to_doc_cancelled_writes_nothing_and_closes_the_document(tmp_path):
