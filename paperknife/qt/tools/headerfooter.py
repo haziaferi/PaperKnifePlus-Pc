@@ -4,14 +4,13 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtWidgets import QButtonGroup
-from qfluentwidgets import ComboBox, LineEdit, RadioButton
+from qfluentwidgets import ComboBox, LineEdit
 
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
-                     setting_row)
+from ..pages import (ToolPage, card, file_card, group_title, muted_caption, radio_rows,
+                     register_page, setting_row)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
           "{date} for today's date")
@@ -45,15 +44,9 @@ class HeaderFooterPage(ToolPage):
         self.body.addWidget(group_title("Position"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.pos_group = QButtonGroup(self)
-        self.positions: dict[str, RadioButton] = {}
-        for val, label in POSITIONS:
-            holder = setting_row(group, label)
-            rb = RadioButton("")
-            rb.setChecked(val == "bottom-center")
-            self.pos_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.positions[val] = rb
+        self.pos_group = radio_rows(group, [(v, label, "") for v, label in POSITIONS],
+                                    "bottom-center", parent=self)
+        self.positions = self.pos_group.buttons
 
         self.body.addWidget(group_title("Content"))
         group = card(padding=0)
@@ -91,7 +84,7 @@ class HeaderFooterPage(ToolPage):
 
     @property
     def pos(self) -> str:
-        return next(v for v, rb in self.positions.items() if rb.isChecked())
+        return self.pos_group.value()
 
     @property
     def font_name(self) -> str:

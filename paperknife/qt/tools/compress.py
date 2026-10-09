@@ -3,12 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QButtonGroup
-from qfluentwidgets import RadioButton
-
 from ...core import enhance as core_enhance
 from ...prefs import PREFS
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import ToolPage, card, file_card, group_title, radio_rows, register_page
 
 LEVELS = [
     ("light", "Light", "Clean and deflate only. Safe for every file."),
@@ -41,22 +38,15 @@ class CompressPage(ToolPage):
         self.body.addWidget(group_title("Compression level"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.level_group = QButtonGroup(self)
-        self.radios: dict[str, RadioButton] = {}
-        chosen = PREFS.compress_level or "medium"
-        for val, title, desc in LEVELS:
-            holder = setting_row(group, title, desc)
-            rb = RadioButton("")
-            rb.setChecked(val == chosen)
-            self.level_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.radios[val] = rb
+        self.level_group = radio_rows(group, LEVELS, PREFS.compress_level or "medium",
+                                      parent=self)
+        self.radios = self.level_group.buttons
         self.body.addStretch(1)
         self.primary("Compress", self.run)
 
     @property
     def level(self) -> str:
-        return next(v for v, rb in self.radios.items() if rb.isChecked())
+        return self.level_group.value()
 
     def run(self):
         level, orig = self.level, [0]

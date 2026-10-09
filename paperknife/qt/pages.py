@@ -30,8 +30,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout,
+                               QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
+                            RadioButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
                             SubtitleLabel, TitleLabel, TransparentToggleToolButton,
                             TransparentToolButton, setCustomStyleSheet)
@@ -169,6 +171,35 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     group.setProperty("pk_rows", rows + 1)
     row.title_label = name
     return control
+
+
+class RadioChoice(QButtonGroup):
+    """A one-of-N choice: self.buttons maps each value to its RadioButton."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.buttons: dict = {}
+
+    def value(self):
+        return next(v for v, rb in self.buttons.items() if rb.isChecked())
+
+    def set(self, value):
+        self.buttons[value].setChecked(True)
+
+
+def radio_rows(group: QWidget, choices, default, *, row=setting_row,
+               parent=None) -> RadioChoice:
+    """One setting row per (value, title, desc) in *choices* in *group* (a
+    card()), each with a radio button; *default* is checked.  *row* makes a
+    row (a page's own setting_row)."""
+    choice = RadioChoice(parent)
+    for value, title, desc in choices:
+        rb = RadioButton("")
+        rb.setChecked(value == default)
+        choice.addButton(rb)
+        row(group, title, desc).layout().addWidget(rb)
+        choice.buttons[value] = rb
+    return choice
 
 
 def spin_box(lo: int, hi: int, value: int, width: int = 160):

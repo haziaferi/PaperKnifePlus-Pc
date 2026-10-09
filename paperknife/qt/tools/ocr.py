@@ -4,14 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup
-from qfluentwidgets import BodyLabel, InfoBar, InfoBarPosition, LineEdit, RadioButton, Slider
+from qfluentwidgets import BodyLabel, InfoBar, InfoBarPosition, LineEdit, Slider
 
 from ...core import ocr as core_ocr
 from ...prefs import PREFS, pref_dpi
 from .. import bridge
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
-                     setting_row)
+from ..pages import (ToolPage, card, file_card, group_title, muted_caption, radio_rows,
+                     register_page, setting_row)
 
 MODES = [("overlay", "Overlay", "invisible text layer"),
          ("text", "Text-only PDF", "")]
@@ -70,15 +69,8 @@ class OCRPage(ToolPage):
         self.body.addWidget(group_title("Output mode"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.mode_group = QButtonGroup(self)
-        self.modes: dict[str, RadioButton] = {}
-        for val, name, desc in MODES:
-            holder = setting_row(group, name, desc)
-            rb = RadioButton("")
-            rb.setChecked(val == "overlay")
-            self.mode_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.modes[val] = rb
+        self.mode_group = radio_rows(group, MODES, "overlay", parent=self)
+        self.modes = self.mode_group.buttons
 
         self.log = muted_caption("")
         self.log.setContentsMargins(0, 8, 0, 0)
@@ -86,7 +78,7 @@ class OCRPage(ToolPage):
 
     @property
     def text_only(self) -> bool:
-        return self.modes["text"].isChecked()
+        return self.mode_group.value() == "text"
 
     def open(self):
         if self.available:

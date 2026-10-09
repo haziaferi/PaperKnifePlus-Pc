@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QFrame, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, RadioButton, SingleDirectionScrollArea, StrongBodyLabel
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, SingleDirectionScrollArea, StrongBodyLabel
 
 from ...core import organise
 from .. import dialogs, theme
-from ..pages import (HeldDoc, OrganiserPage, _clear_layout, card, group_title, muted_caption,
+from ..pages import (HeldDoc, OrganiserPage, _clear_layout, card, group_title, muted_caption, radio_rows,
                      register_page)
 
 SUBTITLE = "Split a PDF at its chapter / section bookmarks"
@@ -41,22 +41,16 @@ class BookmarksPage(HeldDoc, OrganiserPage):
         self.settings.addWidget(group_title("Split at"))
         group = card(padding=0)
         self.settings.addWidget(group)
-        self.level_group = QButtonGroup(self)
-        self.radios: dict[bool, RadioButton] = {}
-        for title, all_levels in LEVELS:
-            row = self.setting_row(group, title)
-            rb = RadioButton("")
-            rb.setChecked(not all_levels)
-            self.level_group.addButton(rb)
-            row.layout().addWidget(rb)
-            self.radios[all_levels] = rb
+        self.level_group = radio_rows(group, [(v, title, "") for title, v in LEVELS], False,
+                                      row=self.setting_row, parent=self)
+        self.radios = self.level_group.buttons
         self.settings.addStretch(1)
 
         self.primary("Split", self.run)
 
     @property
     def all_levels(self) -> bool:
-        return self.radios[True].isChecked()
+        return self.level_group.value()
 
     # ── outline ──────────────────────────────────────────────────────────────
     def _show_message(self, text: str, role: str):
