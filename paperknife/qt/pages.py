@@ -1172,13 +1172,16 @@ class CollectionPage(ToolPage):
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
                  exts=(".pdf",), add_text: str = "Add PDFs", empty_text: str = "",
-                 settings: bool = True, toolbar: bool = True, parent=None):
+                 settings: bool = True, toolbar: bool = True, filter_label: str | None = None,
+                 open_title: str | None = None, parent=None):
         from PySide6.QtGui import QKeySequence, QShortcut
         from qfluentwidgets import FluentIcon as FIF
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
         self.exts = tuple(e.lower() for e in (exts or ()))
         self.add_text = add_text
+        self.filter_label = filter_label or ("PDF" if self.exts == (".pdf",) else "Supported files")
+        self.open_title = open_title or add_text
         self.rows: list[CollectionRow] = []
         self._sel: int | None = None
 
@@ -1337,11 +1340,10 @@ class CollectionPage(ToolPage):
     def open(self):
         if self.exts:
             pats = " ".join(f"*{e}" for e in self.exts)
-            label = "PDF" if self.exts == (".pdf",) else "Supported files"
-            filters = [(label, pats), ("All", "*.*")]
+            filters = [(self.filter_label, pats), ("All", "*.*")]
         else:
             filters = None
-        self.add_paths(dialogs.ask_open_many(self.add_text, filters))
+        self.add_paths(dialogs.ask_open_many(self.open_title, filters))
 
     def delete(self):
         self.remove_selected()

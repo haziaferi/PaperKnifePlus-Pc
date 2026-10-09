@@ -7,8 +7,6 @@ from ...core import convert as core_convert
 from .. import dialogs
 from ..pages import CollectionPage, register_page
 
-_PATTERNS = " ".join(f"*{e}" for e in core_convert.IMAGE_EXTS)
-
 
 @register_page("Img2PdfTool")
 class Img2PdfPage(CollectionPage):
@@ -16,14 +14,11 @@ class Img2PdfPage(CollectionPage):
         super().__init__(
             "Image → PDF", "Convert JPG · PNG · WEBP · BMP · TIFF images into a PDF",
             tool=tool, window=window, exts=core_convert.IMAGE_EXTS,
-            add_text="Add Images", settings=False,
+            add_text="Add Images", settings=False, filter_label="Images",
+            open_title="Select Images",
             empty_text="Add images in the order they should appear: "
                        "drop them here, or use Add Images.")
         self.primary("Convert to PDF", self.run)
-
-    def open(self):
-        self.add_paths(dialogs.ask_open_many("Select Images",
-                                             [("Images", _PATTERNS), ("All", "*.*")]))
 
     def run(self):
         paths = self.paths()
