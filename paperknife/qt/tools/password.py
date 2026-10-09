@@ -59,9 +59,6 @@ class PasswordPage(ToolPage):
     def open(self):
         self.file.choose()
 
-    def save(self):
-        self.protect()
-
     def _forget_passwords(self):
         # The job's closures hold what the worker needs; the fields (whose
         # eye button shows them) keep nothing once it ended or the page is left.

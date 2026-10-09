@@ -35,9 +35,6 @@ class SplitPage(ToolPage):
     def open(self):
         self.file.choose()
 
-    def save(self):
-        self.run()
-
     def run(self):
         src = self.file.path()
         if not src:

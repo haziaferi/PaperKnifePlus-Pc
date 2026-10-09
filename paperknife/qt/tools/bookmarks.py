@@ -159,6 +159,3 @@ class BookmarksPage(DocHolder, OrganiserPage):
             dialogs.info("Done", f"Split into {count} file(s):\n{out_dir}{note}")
 
         win.run_job(work, "Splitting by bookmarks…", lock=True, then=then)
-
-    def save(self):
-        self.run()
