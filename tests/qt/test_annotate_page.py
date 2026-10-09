@@ -37,19 +37,44 @@ def test_each_tool_adds_its_annotation_where_dragged(window, tmp_path, kind, typ
     annots = list(pg.annots())
     assert len(annots) == 1 and annots[0].type[1] == type_name
     r = annots[0].rect
-    # A highlight pads its rectangle around the text it marks (as in the CTk app).
+    if kind == "note":
+        # A note is an icon anchored at the press point.
+        assert (r.x0, r.y0) == (pytest.approx(72, abs=1), pytest.approx(90, abs=1))
+        assert r.width < 30 and r.height < 30
+        return
+    # A highlight pads its rectangle around the text it marks (as in the CTk app);
+    # a rect / line pads by half its border.
     tol = 6 if kind in ("highlight", "underline", "strikeout") else 2
-    assert kind == "note" or r.x0 == pytest.approx(72, abs=tol)
+    assert tuple(r) == pytest.approx((72, 90, 180, 110), abs=tol)
+    flat = [c for v in (annots[0].vertices or []) for c in v]
+    if kind in ("highlight", "underline", "strikeout"):
+        # The marked quad is exactly the dragged rectangle.
+        assert flat == pytest.approx([72, 90, 180, 90, 72, 110, 180, 110], abs=0.5)
+    elif kind == "line":
+        assert flat == pytest.approx([72, 90, 180, 110], abs=0.5)     # its two ends
+
+
+def _shown(widget, page):
+    """Shown on the page: alive (a rebuilt panel deletes its old rows) and visible."""
+    from shiboken6 import isValid
+    return isValid(widget) and widget.isVisibleTo(page)
 
 
 def test_panel_follows_the_tool(window, tmp_path):
     page, _ = _open(window, tmp_path)
     page.set_kind("highlight")
     pump(0.05)                             # widgets added to a shown panel show next turn
-    assert page.opacity_slider.isVisibleTo(page)
+    slider = page.opacity_slider
+    assert slider.isVisibleTo(page)
     page.set_kind("note")
     pump(0.05)
-    assert page.text_edit.isVisibleTo(page)
+    text_edit = page.text_edit
+    assert text_edit.isVisibleTo(page)
+    assert not _shown(slider, page), "the highlight's opacity row is still shown for a note"
+    page.set_kind("highlight")
+    pump(0.05)
+    assert page.opacity_slider.isVisibleTo(page)
+    assert not _shown(text_edit, page), "the note's text row is still shown for a highlight"
 
 
 def test_click_selects_then_delete_removes(window, tmp_path):
@@ -72,7 +97,10 @@ def test_undo_removes_the_last_annotation(window, tmp_path):
     _drag(page, (72, 200), (180, 220))
     page.undo()
     pg = page._doc[0]
-    assert len(list(pg.annots())) == 1
+    left = list(pg.annots())
+    assert len(left) == 1
+    # The last one (y 200-220) went; the first (y 90-110) stays.
+    assert left[0].rect.y0 == pytest.approx(90, abs=6) and left[0].rect.y1 < 150
 
 
 def test_save_runs_as_a_job_and_writes_the_annotations(window, dialogs, tmp_path):
