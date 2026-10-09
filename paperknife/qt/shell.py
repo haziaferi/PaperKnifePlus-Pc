@@ -37,9 +37,9 @@ from . import bridge, dialogs, pages, theme
 from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
+from .pages import SLIDE_MS      # sidebar / panel slide
 
 # ── Timings (Zen defaults, refs/zen.md) ───────────────────────────────────────
-SLIDE_MS = 250          # sidebar / panel slide
 TOP_SLIDE_MS = 150      # title bar slide
 KEEP_MS = 150           # sidebar stays after the pointer leaves
 TOP_HIDE_MS = 1000      # title bar hides after the pointer leaves
