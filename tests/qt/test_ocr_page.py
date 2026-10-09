@@ -2,13 +2,11 @@
 tests/test_convert.py) except for one test that needs the real binary and is
 skipped when none is found."""
 import html as _html
-import os
-import shutil
 
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, requires_tesseract, spy_open, wait_job
 
 _WORDS = [  # (text, conf, left, top, width, height) in 72-dpi pixels
     ("Smith", 95, 100, 300, 50, 16),
@@ -71,18 +69,6 @@ def _page(window):
     assert window.open_tool("OCRTool")
     pump(0.05)
     return window.current_page()
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _source_pdf(path, rotation=0):
@@ -200,7 +186,7 @@ def test_missing_tesseract_is_an_error_and_writes_nothing(window, dialogs, tmp_p
         raise pytesseract.TesseractNotFoundError()
     monkeypatch.setattr(pytesseract, "get_tesseract_version", missing)
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     out = tmp_path / "o.pdf"
     _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), out)
     assert dialogs.errors() and "Tesseract not found" in dialogs.errors()[-1][2]
@@ -227,32 +213,24 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()
     assert opened and opened[0].is_closed
     assert not window._current_job
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, tess):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, tess, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), tmp_path / "o.pdf")
     assert window.show_page("home")
     assert opened and all(d.is_closed for d in opened)
 
 
-def _real_tesseract():
-    from paperknife.core import ocr as core_ocr
-    if shutil.which("tesseract"):
-        return True
-    return any(os.path.isfile(os.path.join(os.environ.get(v, ""), sub, "tesseract.exe"))
-               for v, sub in core_ocr.TESS_DIRS)
-
-
-@pytest.mark.skipif(not _real_tesseract(), reason="no Tesseract binary on this machine")
+@requires_tesseract
 def test_ocr_with_real_tesseract_makes_an_image_only_page_searchable(window, dialogs, tmp_path):
     with fitz.open() as text_doc, fitz.open() as img:
         p = text_doc.new_page()
