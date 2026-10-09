@@ -315,7 +315,7 @@ def test_home_thumbnails_are_read_off_the_ui_thread(window, monkeypatch, tmp_pat
     # R1-10: an offline share's stat timeout or a huge scan's render held the
     # window; the file is now looked at and rendered on a worker.
     import os
-    from paperknife.qt import home as hmod
+    from paperknife import recent as hmod      # home renders through recent.thumb_image
     seen = {"stat": [], "open": []}
 
     class Os:
