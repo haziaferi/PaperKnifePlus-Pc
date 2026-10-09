@@ -319,6 +319,49 @@ def test_home_lists_recent_files_and_clears(window, dialogs, tmp_path):
     assert home.cards == [] and home.empty_label.isVisibleTo(home)
 
 
+
+def test_home_thumbnails_are_read_off_the_ui_thread(window, monkeypatch, tmp_path):
+    # R1-10: an offline share's stat timeout or a huge scan's render held the
+    # window; the file is now looked at and rendered on a worker.
+    import os
+    from paperknife.qt import home as hmod
+    seen = {"stat": [], "open": []}
+
+    class Os:
+        def __getattr__(self, name):
+            return getattr(os, name)
+
+        def stat(self, path, *a, **k):
+            if str(path).endswith("offthread.pdf"):
+                seen["stat"].append(threading.current_thread())
+            return os.stat(path, *a, **k)
+
+    class Fitz:
+        def __getattr__(self, name):
+            return getattr(hmod.__dict__["_real_fitz"], name)
+
+        def open(self, *a, **k):
+            if a and str(a[0]).endswith("offthread.pdf"):
+                seen["open"].append(threading.current_thread())
+            return hmod.__dict__["_real_fitz"].open(*a, **k)
+    monkeypatch.setitem(hmod.__dict__, "_real_fitz", hmod.fitz)
+    monkeypatch.setattr(hmod, "os", Os())
+    monkeypatch.setattr(hmod, "fitz", Fitz())
+    p = make_pdf(tmp_path / "offthread.pdf", 1)
+    window.open_pdf_safe(p).close()
+    window.show_page("CompressTool")
+    window.show_page("home")
+    home = window.current_page()
+    card = next(c for c in home.cards if c.name_label.text() == "offthread.pdf")
+    for _ in range(50):
+        pump(0.02)
+        if card.thumb.pixmap() is not None and not card.thumb.pixmap().isNull():
+            break
+    assert card.thumb.pixmap() is not None and not card.thumb.pixmap().isNull()
+    assert seen["stat"] and threading.main_thread() not in seen["stat"]
+    assert seen["open"] and threading.main_thread() not in seen["open"]
+
+
 # ── geometry and close ────────────────────────────────────────────────────────
 def test_geometry_saved_under_new_key(window, monkeypatch):
     from paperknife.prefs import PREFS, PREFS_PATH
