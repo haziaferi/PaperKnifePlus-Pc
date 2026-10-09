@@ -626,7 +626,9 @@ class MainWindow(FluentWindow):
     # ══════════════════════════════════════════════════════════════════════════
     def toggle_nav(self):
         """Ctrl+Alt+S: collapse or expand the navigation (in Compact Mode:
-        bring it in or send it away)."""
+        bring it in or send it away).  Ignored while a job holds the view."""
+        if self._locked:
+            return
         if self.compact:
             self._reveal_side(not self._side_shown)
             return
@@ -637,6 +639,8 @@ class MainWindow(FluentWindow):
             self.navigationInterface.expand()
 
     def toggle_compact(self):
+        if self._locked:                # the held page is not re-laid out mid-job
+            return
         self.set_compact(not self.compact)
 
     def set_compact(self, on: bool):
