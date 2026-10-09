@@ -1,7 +1,7 @@
 """The Qt Merge page: a collection of PDFs, each with its own page range."""
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
@@ -13,18 +13,6 @@ def _page(window):
 def _texts(path):
     with fitz.open(path) as d:
         return [p.get_text().strip() for p in d]
-
-
-def _spy_opens(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def test_the_page_builds_with_one_range_field_per_file(window, tmp_path):
@@ -62,6 +50,21 @@ def test_blank_ranges_merge_every_page_in_list_order(window, dialogs, tmp_path):
     assert window.status_role == "success"
 
 
+def test_merge_can_overwrite_one_of_its_inputs(window, dialogs, tmp_path):
+    a = make_pdf(tmp_path / "a.pdf", pages=2, text="A{n}")
+    b = make_pdf(tmp_path / "b.pdf", pages=3, text="B{n}")
+    page = _page(window)
+    page.add_paths([a, b])
+    dialogs.save(a)                    # save the result over the first input
+    page.run()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+    assert _texts(a) == ["A1", "A2", "B1", "B2", "B3"]
+    assert _texts(b) == ["B1", "B2", "B3"]
+    assert not list(tmp_path.glob("*.part"))
+    assert dialogs.msgs[-1][:2] == ("info", "Merge Complete")
+
+
 def test_merge_uses_each_files_range(window, dialogs, tmp_path):
     a = make_pdf(tmp_path / "a.pdf", pages=5, text="A{n}")
     b = make_pdf(tmp_path / "b.pdf", pages=2, text="B{n}")
@@ -90,7 +93,7 @@ def test_reordering_changes_the_output_order(window, dialogs, tmp_path):
     assert _texts(out) == ["B1", "A1"]
 
 
-def test_a_reversed_range_is_reported_instead_of_dropped(window, dialogs, tmp_path):
+def test_a_reversed_range_is_reported_instead_of_dropped(window, dialogs, tmp_path, monkeypatch):
     a = make_pdf(tmp_path / "a.pdf", pages=5, text="A{n}")
     b = make_pdf(tmp_path / "b.pdf", pages=2, text="B{n}")
     page = _page(window)
@@ -98,7 +101,7 @@ def test_a_reversed_range_is_reported_instead_of_dropped(window, dialogs, tmp_pa
     page.rows[0].extra.setText("5-3")
     out = tmp_path / "merged.pdf"
     dialogs.save(out)
-    opened = _spy_opens(window)
+    opened = spy_open(window, monkeypatch)
     page.run()
     wait_job(window)
     assert not out.exists(), f"merged without file a: {_texts(out)}"
@@ -117,19 +120,19 @@ def test_a_dropped_pdf_is_added_and_others_are_refused(window, tmp_path):
     assert page.paths() == [src]
 
 
-def test_cancelling_the_save_dialog_closes_every_input(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_every_input(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.add_paths([make_pdf(tmp_path / "a.pdf"), make_pdf(tmp_path / "b.pdf")])
-    opened = _spy_opens(window)
+    opened = spy_open(window, monkeypatch)
     page.run()                     # no save path queued: the dialog returns ""
     assert len(opened) == 2 and all(d.is_closed for d in opened)
     assert not dialogs.errors()
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.add_paths([make_pdf(tmp_path / "a.pdf")])
-    opened = _spy_opens(window)
+    opened = spy_open(window, monkeypatch)
     out = tmp_path / "merged.pdf"
     dialogs.save(out)
     page.run()
