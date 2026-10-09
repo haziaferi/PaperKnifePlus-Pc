@@ -175,3 +175,18 @@ def test_cancel_works_while_locked(window):
     wait_job(window)
     assert not window.is_locked()
     assert window.status_text() == "Cancelled"
+
+
+def test_exception_in_posted_callback_reaches_the_user(window, dialogs):
+    # R1-4: the frozen build has no console; a callback that raises must not
+    # vanish into stderr, and the event loop must keep running.
+    def bad():
+        raise KeyError("pages")
+    seen = []
+    bridge.post(bad)
+    bridge.post(seen.append, "after")
+    pump(0.1)
+    assert dialogs.errors() == [("error", "Error", "'pages'")]
+    assert window.status_text() == "Error: 'pages'"
+    assert window.status_role == "danger"
+    assert seen == ["after"]
