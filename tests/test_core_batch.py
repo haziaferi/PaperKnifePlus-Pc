@@ -77,6 +77,7 @@ def test_each_operation_writes_its_output(tmp_path, op, opts, name):
 
 def test_ocr_operation_adds_a_text_layer(tmp_path, monkeypatch):
     pytesseract = pytest.importorskip("pytesseract")
+    monkeypatch.setattr(pytesseract, "get_tesseract_version", lambda: "5.0")
     monkeypatch.setattr(pytesseract, "image_to_data", lambda img, lang=None, **k: {
         "text": ["", "HELLO"], "conf": [-1, 95], "left": [0, 100], "top": [0, 200],
         "width": [0, 150], "height": [0, 40]})
@@ -112,3 +113,16 @@ def test_pdf_to_txt_operation_of_a_pdf_without_text_says_so(tmp_path):
     d.close()
     with pytest.raises(NoText):
         core.OPS["PDF → TXT"](str(src), str(tmp_path), {}, threading.Event())
+
+
+def test_ocr_operation_without_tesseract_gives_the_install_hint(tmp_path, monkeypatch):
+    pytesseract = pytest.importorskip("pytesseract")
+
+    def missing(*a, **k):
+        raise pytesseract.TesseractNotFoundError()
+    monkeypatch.setattr(pytesseract, "get_tesseract_version", missing)
+    monkeypatch.setattr(pytesseract, "image_to_data", missing)
+    src = make_pdf(tmp_path / "a.pdf", pages=1)
+    with pytest.raises(RuntimeError, match="Tesseract not found"):
+        core.OPS["OCR"](src, str(tmp_path), {"lang": "eng", "dpi": 72}, threading.Event())
+    assert not (tmp_path / "a_ocr.pdf").exists()
