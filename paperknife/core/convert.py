@@ -429,7 +429,7 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
 class Extracted:
     count: int        # images written
     scanned: int      # unique image xrefs looked at
-    failed: int       # images that could not be decoded or written
+    failed: int       # images that could not be decoded
 
 
 def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> Extracted | None:
@@ -448,6 +448,8 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                 if xref in seen:
                     continue
                 seen.add(xref)
+                # Only decoding counts as a failed image; a write error (disk
+                # full, a locked file) is the job's error.
                 try:
                     base = doc.extract_image(xref)
                     w, h = base["width"], base["height"]
@@ -469,11 +471,12 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                         img.save(buf, "JPEG", quality=92)
                         data = buf.getvalue()
                         ext  = "jpg"
-                    # An image of another PDF extracted here may have the same xref.
-                    fname = unused_path(os.path.join(out_dir, f"img_{xref:05d}.{ext}"))
-                    with atomic_output(fname) as tmp:
-                        Path(tmp).write_bytes(data)
-                    count += 1
                 except Exception:
                     failed += 1
+                    continue
+                # An image of another PDF extracted here may have the same xref.
+                fname = unused_path(os.path.join(out_dir, f"img_{xref:05d}.{ext}"))
+                with atomic_output(fname) as tmp:
+                    Path(tmp).write_bytes(data)
+                count += 1
     return Extracted(count, len(seen), failed)
