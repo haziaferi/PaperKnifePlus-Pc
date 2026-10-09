@@ -62,6 +62,15 @@ class PasswordPage(ToolPage):
     def save(self):
         self.protect()
 
+    def _forget_passwords(self):
+        # The job's closures hold what the worker needs; the fields (whose
+        # eye button shows them) keep nothing once it ended or the page is left.
+        for e in (self.pw1, self.pw2, self.cur_pw):
+            e.clear()
+
+    def deactivate(self):
+        self._forget_passwords()
+
     def _open_unlocked(self, src, password, title, wrong_message, any_encryption=False):
         """The document at src, authenticated with password when it needs one
         to open (or, with any_encryption, whenever it is encrypted at all), or
@@ -98,6 +107,7 @@ class PasswordPage(ToolPage):
             core.protect_pdf(doc, out, pw, owner, perm)
 
         def then(kind, _value):
+            self._forget_passwords()
             if kind != "done":
                 return
             win.set_status(f"✓  Protected → {Path(out).name}", "success")
@@ -123,6 +133,7 @@ class PasswordPage(ToolPage):
             core.unprotect_pdf(doc, out)
 
         def then(kind, _value):
+            self._forget_passwords()
             if kind != "done":
                 return
             win.set_status(f"✓  Unlocked → {Path(out).name}", "success")
