@@ -97,6 +97,45 @@ def test_each_operation_cancelled_returns_none_and_writes_nothing(tmp_path, op):
     assert list(out_dir.iterdir()) == []
 
 
+# Where each operation does its per-page work, and the options it runs with.
+_PER_PAGE_STEP = {
+    "Compress": (fitz.Document, "rewrite_images", {"level": "medium"}),
+    "Watermark": (fitz.Page, "insert_text", {}),
+    "OCR": (core, "render", {"lang": "eng", "dpi": 72}),
+    "PDF → TXT": (fitz.Page, "get_text", {}),
+}
+
+
+@pytest.mark.parametrize("op", [
+    pytest.param("Compress", marks=pytest.mark.xfail(strict=True, reason=(
+        "R6-37: _do_compress checks stop only on entry and compress_pdf takes no stop, "
+        "so a Cancel that lands while a file is being compressed still writes its output"))),
+    "Watermark", "OCR", "PDF → TXT"])
+def test_each_operation_cancelled_mid_file_returns_none_and_writes_nothing(tmp_path, monkeypatch,
+                                                                            op):
+    # Cancel arrives while the file is being processed (after its first page
+    # of three), the case that can leave a partial output behind.
+    owner, name, opts = _PER_PAGE_STEP[op]
+    real = getattr(owner, name)
+    stop = threading.Event()
+    calls = []
+
+    def step_then_cancel(*a, **k):
+        calls.append(1)
+        try:
+            return real(*a, **k)
+        finally:
+            stop.set()
+    monkeypatch.setattr(owner, name, step_then_cancel)
+    monkeypatch.setattr(core, "ocr_words", lambda img, lang, scale: [])
+    src = make_pdf(tmp_path / "a.pdf", pages=3)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    assert core.OPS[op](src, str(out_dir), opts, stop) is None
+    assert calls, "the per-page step never ran: the cancel did not land mid-file"
+    assert list(out_dir.iterdir()) == []
+
+
 @pytest.mark.parametrize("op", ["Compress", "Watermark", "OCR", "PDF → TXT"])
 def test_each_operation_refuses_a_password_protected_input(tmp_path, op):
     with pytest.raises(ValueError, match="password-protected"):
