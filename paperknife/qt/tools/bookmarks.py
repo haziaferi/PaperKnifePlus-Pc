@@ -7,8 +7,8 @@ from qfluentwidgets import BodyLabel, SingleDirectionScrollArea, StrongBodyLabel
 
 from ...core import organise
 from .. import dialogs, theme
-from ..pages import (HeldDoc, OrganiserPage, _clear_layout, card, group_title, muted_caption, radio_rows,
-                     register_page)
+from ..pages import (HeldDoc, OrganiserPage, _clear_layout, ask_keep_password, card, group_title,
+                     muted_caption, radio_rows, register_page)
 
 SUBTITLE = "Split a PDF at its chapter / section bookmarks"
 SHOWN = 60                  # outline entries listed, as the CTk tool
@@ -120,12 +120,13 @@ class BookmarksPage(HeldDoc, OrganiserPage):
         out_dir = dialogs.ask_dir()
         if not out_dir:
             return
+        kept, written = ask_keep_password(self._doc), []
         win = self.window_
 
         def work(stop):
             return organise.split_chapters(
                 self._doc, entries, out_dir, stop,
-                win.progress_callback(), release=self._release)
+                win.progress_callback(), release=self._release, written=written)
 
         def then(kind, count):
             if kind != "done":
@@ -135,4 +136,5 @@ class BookmarksPage(HeldDoc, OrganiserPage):
                     if skipped else "")
             dialogs.info("Done", f"Split into {count} file(s):\n{out_dir}{note}")
 
-        win.run_job(work, "Splitting by bookmarks…", lock=True, then=then)
+        win.run_job(work, "Splitting by bookmarks…", lock=True, then=then,
+                    keep_password=(kept, written))

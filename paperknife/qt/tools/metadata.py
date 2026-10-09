@@ -11,7 +11,8 @@ from qfluentwidgets import LineEdit
 
 from ...core import metadata as core
 from .. import dialogs
-from ..pages import HeldDoc, ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import (HeldDoc, ToolPage, ask_keep_password, card, file_card, group_title,
+                     register_page, setting_row)
 
 
 @register_page("MetadataTool")
@@ -78,6 +79,7 @@ class MetadataPage(HeldDoc, ToolPage):
         out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
         if not out:
             return
+        kept = ask_keep_password(self._doc)
         changed = meta != self._loaded
         win = self.window_
 
@@ -92,4 +94,5 @@ class MetadataPage(HeldDoc, ToolPage):
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF with updated metadata saved:\n{out}")
 
-        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False)
+        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
+                    keep_password=(kept, [out]))

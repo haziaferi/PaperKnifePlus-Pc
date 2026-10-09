@@ -13,7 +13,8 @@ from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
 from ...core import redact as core_redact
 from .. import dialogs, theme
-from ..pages import WorkspaceDoc, WorkspacePage, muted_caption, register_page
+from ..pages import (WorkspaceDoc, WorkspacePage, ask_keep_password, muted_caption,
+                     register_page)
 
 # Segoe Fluent Icons code points
 GLYPHS = {"box": 0xE739, "search": 0xE721, "undo": 0xE7A7}
@@ -203,6 +204,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
         if not out:
             return
+        kept = ask_keep_password(self._doc)
         fill = core_redact.FILLS[self.fill]
         pending = list(self._pending)
         pages = len({p[0] for p in pending})
@@ -253,4 +255,5 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
             extra = ("\n\nAlso removed from: " + ", ".join(removed)) if removed else ""
             dialogs.info("Saved", f"Redacted PDF saved:\n{out}{extra}")
 
-        win.run_job(work, f"Redacting {pages} page(s)…", lock=True, then=then)
+        win.run_job(work, f"Redacting {pages} page(s)…", lock=True, then=then,
+                    keep_password=(kept, [out]))

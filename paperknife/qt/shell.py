@@ -34,6 +34,7 @@ from qfluentwidgets.components.navigation.navigation_panel import NavigationDisp
 from qfluentwidgets.components.navigation.navigation_widget import NavigationWidget
 
 from . import bridge, dialogs, pages, theme
+from ..core import password as core_password
 from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
@@ -470,7 +471,8 @@ class MainWindow(FluentWindow):
     # JOBS
     # ══════════════════════════════════════════════════════════════════════════
     def run_job(self, worker_fn, label: str = "Working…", *, lock: bool = False,
-                then=None, cancellable: bool = True) -> CancellableJob | None:
+                then=None, cancellable: bool = True,
+                keep_password=None) -> CancellableJob | None:
         """Run worker_fn(stop) in a background thread with progress and Cancel;
         stop is a threading.Event the worker checks with is_set().
 
@@ -483,11 +485,17 @@ class MainWindow(FluentWindow):
         cancellable=False: the worker never checks stop (a save, a single
         PyMuPDF call), so Cancel is not offered; it could not stop the write,
         only make the job report "Cancelled" after the file was written.
+        keep_password=(kept, outputs): kept, from pages.ask_keep_password, is
+        None (no password to keep) or the input's OpenPassword; every PDF of
+        outputs (a list the worker may fill as it goes) that the job writes
+        gets it, in the worker, after the write.
 
         One job at a time: while one runs this warns and returns None."""
         if self._current_job and self._current_job.is_running:
             dialogs.warning("Busy", BUSY_MSG)
             return None
+        if keep_password is not None and keep_password[0] is not None:
+            worker_fn = _keeping_password(worker_fn, *keep_password)
 
         # As in the Tk app: collect here, on the main thread, so the
         # collector never runs a widget's teardown on the worker.
@@ -584,6 +592,9 @@ class MainWindow(FluentWindow):
                 dialogs.error("Error", "Incorrect password.")
                 doc.close()
                 return None
+            # Kept on the document until it is closed, for a PDF written from
+            # it that keeps the password (pages.ask_keep_password).
+            core_password.keep_open_password(doc, Path(path).name, pw)
         RECENT.push(path, len(doc))
         return doc
 
@@ -969,6 +980,36 @@ class MainWindow(FluentWindow):
         except OSError:
             pass
         self._alive = False
+
+
+def _stamp(path: str):
+    """What says a file was rewritten: (mtime, size, file id), None if absent."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size, st.st_ino
+
+
+def _keeping_password(work, kept, outputs):
+    """work(stop), then each file of *outputs* (a list work may still be
+    filling) that it wrote, re-saved with *kept*'s open password and
+    permissions; a file it did not write (Cancel before the save) is left
+    alone.  Also after an error, so no file it wrote stays open.  The
+    password is let go once used: the window keeps its last job."""
+    before = {p: _stamp(p) for p in outputs}
+    held = [kept]
+
+    def run(stop):
+        try:
+            return work(stop)
+        finally:
+            pw = held.pop()
+            for p in list(outputs):
+                now = _stamp(p)
+                if now is not None and now != before.get(p):
+                    core_password.reprotect(p, pw.user_pw, pw.perm)
+    return run
 
 
 def _on_a_screen(rect: QRect) -> bool:

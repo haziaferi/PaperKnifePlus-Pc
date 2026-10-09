@@ -9,10 +9,11 @@ from ..job_queue import atomic_output
 from .doc_state import same_file
 
 
-def split_ranges(doc, groups, out_dir: str, base: str, stop, progress) -> int | None:
+def split_ranges(doc, groups, out_dir: str, base: str, stop, progress,
+                 written: list | None = None) -> int | None:
     """Write each (first, last) page group of *doc* to its own file in *out_dir*,
-    named <base>_partNN_pA-B.pdf.  Returns the number written, None if cancelled.
-    The caller owns *doc*."""
+    named <base>_partNN_pA-B.pdf, each path appended to *written* once it is
+    there.  Returns the number written, None if cancelled.  The caller owns *doc*."""
     parts = len(groups)
     for i, (fr, to) in enumerate(groups):
         if stop.is_set():
@@ -21,6 +22,8 @@ def split_ranges(doc, groups, out_dir: str, base: str, stop, progress) -> int | 
         with atomic_output(target) as tmp, fitz.open() as nd:
             nd.insert_pdf(doc, from_page=fr, to_page=to)
             nd.save(tmp, deflate=True)
+        if written is not None:
+            written.append(target)
         progress((i + 1) / parts)
     return parts
 
@@ -71,10 +74,12 @@ def bookmark_chapters(toc, total: int, all_levels: bool):
     return entries, skipped
 
 
-def split_chapters(doc, entries, out_dir: str, stop, progress, release=lambda path: None) -> int:
+def split_chapters(doc, entries, out_dir: str, stop, progress, release=lambda path: None,
+                   written: list | None = None) -> int:
     """Write each chapter of *entries* (from bookmark_chapters) to NN_<title>.pdf
-    in *out_dir*.  *release(path)* is called before a file is replaced, so a tool
-    holding that file open can let it go.  Returns the number written."""
+    in *out_dir*, each path appended to *written* once it is there.
+    *release(path)* is called before a file is replaced, so a tool holding that
+    file open can let it go.  Returns the number written."""
     parts = len(entries) - 1
     targets = [os.path.join(out_dir, f"{i + 1:02d}_"
                             + re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title)[:50].strip() + ".pdf")
@@ -95,6 +100,8 @@ def split_chapters(doc, entries, out_dir: str, stop, progress, release=lambda pa
         with atomic_output(target) as tmp, fitz.open() as nd:
             nd.insert_pdf(doc, from_page=start, to_page=end)
             nd.save(tmp, deflate=True)
+        if written is not None:
+            written.append(target)
         count += 1
         progress((i + 1) / parts)
     return count

@@ -196,6 +196,7 @@ def test_saving_over_an_encrypted_input_keeps_its_password(window, dialogs, tmp_
     page.title_edit.setText("Chapter")
     page.page_edit.setText("2")
     page._add()
+    dialogs.asks.append(True)               # "Keep the password on the new file?"
     _save(window, dialogs, page, str(src))
     window.show_page("CompressTool")
     with fitz.open(str(src)) as d:
