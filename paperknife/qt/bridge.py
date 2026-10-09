@@ -100,8 +100,3 @@ def post(fn, *args) -> None:
         b.call.emit((fn, args))
     except RuntimeError:
         pass        # the bridge was deleted between _get() and emit()
-
-
-def after(_ms, fn) -> None:
-    """The after_fn signature CancellableJob expects (ms is ignored: 0)."""
-    post(fn)

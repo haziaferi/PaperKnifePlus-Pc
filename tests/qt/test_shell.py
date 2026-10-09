@@ -120,15 +120,6 @@ def test_ctrl_k_focuses_search(window):
         window.focusWidget(), "search field did not take focus"
 
 
-def test_unported_tool_gets_placeholder(window, monkeypatch):
-    # An empty registry stands for "not ported yet", so this holds as tools are ported.
-    monkeypatch.setattr(pages, "QT_PAGES", {})
-    assert window.show_page("CompressTool")
-    page = window.current_page()
-    assert isinstance(page, pages.PlaceholderPage)
-    assert page.title_label.text() == "Compress"
-
-
 def test_registered_page_class_is_used_and_hooks_run(window, hook_page):
     assert hook_page.calls == ["activate"]
     assert window.show_page("home")

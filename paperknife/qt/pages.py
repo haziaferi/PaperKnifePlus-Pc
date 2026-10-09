@@ -14,7 +14,6 @@ A tool's Qt page registers itself by the tool's class name:
             ...
 
 and MainWindow.page_for(tool) builds it the first time the tool is opened.
-A tool with no registered page gets a PlaceholderPage.
 
 Optional hooks the shell calls when a page defines them:
     open() / save() / undo()     Ctrl+O / Ctrl+S / Ctrl+Z
@@ -29,12 +28,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
-                            TitleLabel, setCustomStyleSheet)
+                            SubtitleLabel, TitleLabel, TransparentToggleToolButton,
+                            TransparentToolButton, setCustomStyleSheet)
 
 from . import dialogs
 from . import theme
@@ -464,7 +464,7 @@ class ToolPage(QWidget):
         if self._compact:
             self.header.setVisible(on)
 
-    # Context panel: a workspace page (phase 3) overrides these four.
+    # Context panel: a workspace page overrides these four.
     def has_context(self) -> bool:
         return False
 
@@ -478,19 +478,7 @@ class ToolPage(QWidget):
         pass
 
 
-class PlaceholderPage(ToolPage):
-    """What a tool shows until its Qt page is written."""
-
-    def __init__(self, tool=None, window=None, title: str | None = None):
-        name = title or plain_label(getattr(tool, "label", "") or type(tool).__name__)
-        super().__init__(name, "", tool=tool, window=window)
-        self.note = muted_caption(f"{name} is being moved to the new interface.")
-        self.note.setObjectName("placeholderNote")
-        self.body.addWidget(self.note)
-        self.body.addStretch(1)
-
-
-# ── Group templates: phase 3 ──────────────────────────────────────────────────
+# ── Group templates ───────────────────────────────────────────────────────────
 PANEL_W, PANEL_MIN, PANEL_MAX, SLIDE_MS = 280, 220, 480, 250
 
 
@@ -507,17 +495,11 @@ class WorkspacePage(ToolPage):
     add widgets to self.panel_body, set_doc / show_current for the document."""
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None):
-        from PySide6.QtCore import QEasingCurve, QVariantAnimation
         from PySide6.QtWidgets import QSplitter
-        from qfluentwidgets import (Slider, SubtitleLabel, TransparentToggleToolButton,
-                                    TransparentToolButton)
+        from qfluentwidgets import Slider
         from qfluentwidgets import FluentIcon as FIF
         from .pageview import PageView
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False)
-        self._QEasingCurve, self._QVariantAnimation = QEasingCurve, QVariantAnimation
-        self._TransparentToolButton = TransparentToolButton
-        self._ToggleButton = TransparentToggleToolButton
-        self._SubtitleLabel = SubtitleLabel
 
         frame = SimpleCardWidget()
         h = QHBoxLayout(frame)
@@ -612,7 +594,7 @@ class WorkspacePage(ToolPage):
 
     # ── rail ──
     def add_rail(self, key: str, glyph: int, tip: str, slot, toggle: bool = True):
-        cls = self._ToggleButton if toggle else self._TransparentToolButton
+        cls = TransparentToggleToolButton if toggle else TransparentToolButton
         btn = cls(theme.glyph_icon(glyph, 18))
         btn.setFixedSize(40, 40)
         btn.setToolTip(tip)
@@ -650,9 +632,9 @@ class WorkspacePage(ToolPage):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(self._SubtitleLabel(title))
+        top.addWidget(SubtitleLabel(title))
         top.addStretch(1)
-        hide = self._TransparentToolButton(theme.glyph_icon(0xE76C, 14))
+        hide = TransparentToolButton(theme.glyph_icon(0xE76C, 14))
         hide.setToolTip("Hide panel")
         hide.clicked.connect(lambda: self.show_context(False))
         top.addWidget(hide)
@@ -716,11 +698,11 @@ class WorkspacePage(ToolPage):
             if old is not None:
                 self.reopen_btn.setVisible(target == 0)
             return
-        a = self._QVariantAnimation(self)
+        a = QVariantAnimation(self)
         a.setDuration(SLIDE_MS)
         a.setStartValue(start)
         a.setEndValue(target)
-        a.setEasingCurve(self._QEasingCurve.OutCubic)
+        a.setEasingCurve(QEasingCurve.OutCubic)
 
         def step(w):
             total = sum(self.split.sizes())       # now, not when the slide began
@@ -730,7 +712,7 @@ class WorkspacePage(ToolPage):
         # Deleted when it stops, so a page that slides often keeps none.
         a.finished.connect(lambda: self._panel_anim is a and setattr(self, "_panel_anim", None))
         self._panel_anim = a
-        a.start(self._QVariantAnimation.DeleteWhenStopped)
+        a.start(QVariantAnimation.DeleteWhenStopped)
 
     # ── pages ──
     def page_count(self) -> int:
@@ -1390,10 +1372,9 @@ class MasterDetailPage(ToolPage):
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
                  empty_text: str = "Open a PDF to see its entries", parent=None):
-        from qfluentwidgets import ListWidget, SubtitleLabel
+        from qfluentwidgets import ListWidget
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
-        self._SubtitleLabel = SubtitleLabel
         self.file = file_card(self.load)
         self.body.addWidget(self.file)
         self.body.addSpacing(8)
@@ -1470,7 +1451,7 @@ class MasterDetailPage(ToolPage):
         self._detail_box = box
         bv = box.layout()
         bv.setSpacing(4)
-        bv.addWidget(self._SubtitleLabel(title))
+        bv.addWidget(SubtitleLabel(title))
         if desc:
             d = muted_caption(desc)
             d.setWordWrap(True)

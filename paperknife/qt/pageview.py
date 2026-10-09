@@ -30,7 +30,7 @@ class PageView(QGraphicsView):
     released = Signal(object)
     zoomed = Signal(float)
 
-    def __init__(self, background: str = "#F0EBE3", parent=None):
+    def __init__(self, background: str, parent=None):
         super().__init__(parent)
         self.setScene(QGraphicsScene(self))
         self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)

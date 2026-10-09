@@ -22,7 +22,7 @@ from qfluentwidgets import BodyLabel, CardWidget, FlowLayout, PushButton, Transp
 
 from . import bridge, dialogs
 from . import theme
-from .pages import ToolPage, group_title, muted_caption
+from .pages import ToolPage, group_title, muted_caption, plain_label
 from ..recent import RECENT, time_ago
 
 THUMB_BOX = (100, 130)
@@ -211,7 +211,6 @@ class HomePage(ToolPage):
     def build_quick_actions(self, tools):
         """tools: the registry; a button for each QUICK_ACTIONS tool present."""
         from .shell import NAV_GLYPH
-        from .pages import plain_label
         by_name = {type(t).__name__: t for t in tools}
         for cls in QUICK_ACTIONS:
             t = by_name.get(cls)

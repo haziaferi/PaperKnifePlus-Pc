@@ -5,8 +5,8 @@ MainWindow: the FluentWindow shell that replaces paperknife/app.py's App.
 - Navigation from tool_base.TOOLS grouped by tool.section (first-seen order,
   registry order inside a group), Home first, Preferences at the bottom,
   a search box (Ctrl+K / Ctrl+F) filtering by label.
-- Pages are built on first use by page_for(tool): a class registered in
-  pages.QT_PAGES under the tool's class name, else a PlaceholderPage.
+- Pages are built on first use by page_for(tool): the class registered in
+  pages.QT_PAGES under the tool's class name.
 - Status bar with colour roles, a progress strip with Cancel, run_job with
   the CTk app's semantics, lock=True holding the page and navigation.
 - Window modes: Ctrl+Alt+S collapses / expands the navigation; Ctrl+Alt+C
@@ -308,11 +308,8 @@ class MainWindow(FluentWindow):
     # PAGES AND NAVIGATION
     # ══════════════════════════════════════════════════════════════════════════
     def page_for(self, tool) -> QWidget:
-        """The Qt page for *tool*: its registered class, else a placeholder."""
-        cls = pages.QT_PAGES.get(type(tool).__name__)
-        if cls is not None:
-            return cls(tool, self)
-        return pages.PlaceholderPage(tool, self)
+        """The Qt page for *tool*: its registered class."""
+        return pages.QT_PAGES[type(tool).__name__](tool, self)
 
     def _ensure_page(self, key: str) -> QWidget:
         page = self._pages.get(key)

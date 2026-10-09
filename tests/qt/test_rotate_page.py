@@ -56,14 +56,6 @@ def test_save_without_a_file_warns(window, dialogs):
     assert dialogs.msgs[-1][:3] == ("warning", "Save", "Open a PDF first.")
 
 
-def test_rotate_without_a_selection_asks_for_one(window, dialogs, tmp_path):
-    page, _ = _open(window, tmp_path)
-    page.rotate(90)
-    assert dialogs.msgs[-1] == ("info", "Select Page", "Click a thumbnail first.")
-    page.move_pages(1)
-    assert dialogs.msgs[-1] == ("info", "Select Page", "Click a thumbnail first.")
-
-
 def test_save_unchanged_writes_the_same_pages(window, dialogs, tmp_path):
     page, _ = _open(window, tmp_path)
     out = tmp_path / "out.pdf"

@@ -66,18 +66,13 @@ class RotatePage(DocHolder, OrganiserPage):
 
     # ── page actions ─────────────────────────────────────────────────────────
     def rotate(self, deg: int):
-        sel = self.selected()
-        if not sel:
-            return dialogs.info("Select Page", "Click a thumbnail first.")
         order = self.order()
-        for i in sel:
+        for i in self.selected():
             k = order[i]
             self._extra[k] = (self._extra[k] + deg) % 360
             self.refresh(i)
 
     def move_pages(self, d: int):
-        if not self.selected():
-            return dialogs.info("Select Page", "Click a thumbnail first.")
         self.move(d)
 
     # ── save ─────────────────────────────────────────────────────────────────

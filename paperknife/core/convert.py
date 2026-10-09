@@ -432,7 +432,6 @@ class Extracted:
 def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> Extracted | None:
     """Write every embedded image of *doc* (closed here) at least *min_px* on both
     sides into *out_dir*, as "Original", "PNG" or "JPEG".  None if cancelled."""
-    from PIL import Image as _Image
     seen, count, failed = set(), 0, 0
     total = len(doc)
     with doc:
@@ -455,7 +454,7 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                     data = base["image"]
                     ext  = base["ext"]
                     if fmt == "PNG":
-                        img = _Image.open(io.BytesIO(data))
+                        img = Image.open(io.BytesIO(data))
                         if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
                             img = img.convert("RGB")      # PNG cannot store CMYK
                         buf = io.BytesIO()
@@ -463,7 +462,7 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                         data = buf.getvalue()
                         ext  = "png"
                     elif fmt == "JPEG":
-                        img = _Image.open(io.BytesIO(data)).convert("RGB")
+                        img = Image.open(io.BytesIO(data)).convert("RGB")
                         buf = io.BytesIO()
                         img.save(buf, "JPEG", quality=92)
                         data = buf.getvalue()
