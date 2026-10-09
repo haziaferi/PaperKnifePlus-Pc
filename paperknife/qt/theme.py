@@ -109,14 +109,14 @@ def apply_palette(name: str) -> None:
     from qfluentwidgets import qconfig
     from qfluentwidgets.common.style_sheet import updateStyleSheet
     updateStyleSheet(lazy=False)
+    for w in QApplication.topLevelWidgets():      # before retint: its background
+        window_follows_palette(w)                 # animation must aim at the Mica state
     fluent_route.retint(old, COLORS)
     for w, fn in list(_styled.items()):
         try:
             fn(w)
         except RuntimeError:
             pass
-    for w in QApplication.topLevelWidgets():
-        window_follows_palette(w)
     qconfig.themeChangedFinished.emit()
     for w in QApplication.allWidgets():
         w.update()
@@ -124,12 +124,16 @@ def apply_palette(name: str) -> None:
 
 def window_follows_palette(win) -> None:
     """A palette that moves the window role turns Mica off (Mica would cover
-    the colour); under a palette that keeps it, Mica is left as it is."""
+    the colour); a palette that keeps it gives Mica back if this turned it off."""
     if not hasattr(win, "setMicaEffectEnabled"):
         return
     moved = any(fluent_route.delta("window", d) is not None for d in (False, True))
     if moved and win.isMicaEffectEnabled():
         win.setMicaEffectEnabled(False)
+        win._pk_mica_off = True
+    elif not moved and getattr(win, "_pk_mica_off", False):
+        win._pk_mica_off = False
+        win.setMicaEffectEnabled(True)
 
 
 # ── Appearance ────────────────────────────────────────────────────────────────

@@ -76,11 +76,32 @@ def delta(role: str, dark: bool):
     return _delta_cache[key]
 
 
+_GROUND = {False: (255, 255, 255), True: (32, 32, 32)}   # light / dark window, roughly
+
+
+def _over(rgba, dark):
+    """*rgba* composited over the theme's ground: what it looks like, opaque."""
+    a = rgba[3] / 255
+    g = _GROUND[dark]
+    return tuple(rgba[i] * a + g[i] * (1 - a) for i in range(3))
+
+
 def shift(rgba, role: str, dark: bool):
-    """The colour *rgba* moved with *role*; None when the role did not move."""
+    """The colour *rgba* moved with *role*; None when the role did not move.
+
+    Channel by channel: rgba + (palette[role] - today[role]).  An opaque
+    library colour whose role is translucent today (rgb(96, 96, 96) under
+    rgba(0, 0, 0, 0.61)) moves by the change in what the role looks like
+    over the ground, and stays opaque."""
     d = delta(role, dark)
     if d is None:
         return None
+    if rgba[3] == 255:
+        ref = rgba_of(TODAY[role][dark])
+        if ref[3] < 255:
+            a, b = _over(ref, dark), _over(rgba_of(_active[role][dark]), dark)
+            return tuple(max(0, min(255, int(round(rgba[i] + b[i] - a[i]))))
+                         for i in range(3)) + (255,)
     return tuple(max(0, min(255, int(round(rgba[i] + d[i])))) for i in range(4))
 
 
@@ -108,6 +129,10 @@ _INPUT_FILES = {"line_edit", "spin_box"}
 _TRANSPARENT_SEL = ("Transparent", "Hyperlink", "::indicator", "TitleBar", "ListView",
                     "ListWidget", "TableView", "TreeView", "::item", "NavigationPanel",
                     "Pivot", "Segmented", "MenuActionListWidget", "CloseButton")
+# InfoBar backgrounds (FluentSystemColor *_BACKGROUND, light and dark)
+_INFO_TINTS = {(223, 246, 221): "success_tint", (57, 61, 27): "success_tint",
+               (255, 244, 206): "warning_tint", (67, 53, 25): "warning_tint",
+               (253, 231, 233): "danger_tint", (68, 39, 38): "danger_tint"}
 _STATES = ("hover", "pressed", "disabled", "checked", "focus", "selected")
 
 
@@ -177,7 +202,7 @@ def classify_qss(fname: str, sel: str, prop: str, rgba, dark: bool):
     ink = (255, 255, 255) if dark else (0, 0, 0)
     anti = (0, 0, 0) if dark else (255, 255, 255)
     rgb = (r, g, b)
-    neutral = r == g == b
+    neutral = max(r, g, b) - min(r, g, b) <= 3     # rgb(225, 224, 223) is a grey too
     transparent_sel = any(t in sel for t in _TRANSPARENT_SEL)
 
     if a == 0:      # invisible: only the docked navigation pane is a real surface
@@ -187,11 +212,7 @@ def classify_qss(fname: str, sel: str, prop: str, rgba, dark: bool):
 
     if not neutral:                             # chromatic
         if fname == "info_bar" and kind == "fill":
-            if g > r and g > b:
-                return "success_tint"
-            if r >= g > b:
-                return "warning_tint" if g > b + 20 and r - g < 60 else "danger_tint"
-            return None
+            return _INFO_TINTS.get(rgb)
         if fname == "fluent_window":            # the close button's red
             return "danger"
         return None
@@ -332,10 +353,15 @@ L, D = False, True
 
 
 def _nav_tint(w, rgba):
-    a = rgba[3]
-    if a == 10:
-        return "tint_selected" if getattr(w, "isSelected", False) else "tint_hover"
-    return "tint_hover" if getattr(w, "isSelected", False) else "tint_pressed"
+    """NavigationPushButton.paintEvent: alpha 10 = selected at rest or
+    hovered, 6 = selected and hovered or about to be selected (pressed)."""
+    try:
+        selected = bool(w._canDrawIndicator())
+    except (AttributeError, RuntimeError):
+        selected = bool(getattr(w, "isSelected", False))
+    if rgba[3] == 10:
+        return "tint_selected" if selected else "tint_hover"
+    return "tint_hover" if selected else "tint_pressed"
 
 
 def _radio_fill(w, _rgba):
@@ -443,28 +469,25 @@ def _route_from_frame(f, rgba):
 
 
 class RoutedQColor(_RealQColor):
-    """QColor as the patched library modules see it: built from numbers, it
-    is moved with its role."""
+    """QColor as the patched library modules see it.  Calling it returns a
+    plain QColor, never an instance of this class: a Python subclass reaches
+    Qt as a QVariant holding a Python object, which QPropertyAnimation cannot
+    interpolate (the window's background animated to black) and the QColor
+    copy constructor refuses.  Built from numbers or Qt.white / Qt.black,
+    the colour is moved with its role.  Class attributes (NameFormat,
+    fromHsvF...) are QColor's."""
 
-    def __init__(self, *args):
-        if len(args) == 1 and isinstance(args[0], _RealQColor):
-            # A copy.  (PySide resolves a QColor subclass argument to the
-            # QVariant overload, which refuses an invalid colour.)
-            super().__init__()
-            if args[0].isValid():
-                self.setRgba64(args[0].rgba64())
-            return
-        super().__init__(*args)
-        if not args or not (
-                (len(args) in (3, 4) and all(isinstance(x, int) for x in args))
-                or (len(args) == 1 and isinstance(args[0], _RealQt.GlobalColor))):
-            return
-        rgba = (self.red(), self.green(), self.blue(), self.alpha())
-        hit = _route_from_frame(sys._getframe(1), rgba)
-        if hit is not None:
-            new = shift(rgba, hit[0], hit[1])
-            if new is not None:
-                self.setRgb(*new)
+    def __new__(cls, *args):
+        c = _RealQColor(*args)
+        numbers = len(args) in (3, 4) and all(isinstance(x, int) for x in args)
+        if numbers or (len(args) == 1 and isinstance(args[0], _RealQt.GlobalColor)):
+            rgba = (c.red(), c.green(), c.blue(), c.alpha())
+            hit = _route_from_frame(sys._getframe(1), rgba)
+            if hit is not None:
+                new = shift(rgba, hit[0], hit[1])
+                if new is not None:
+                    c.setRgb(*new)
+        return c
 
 
 class _GlobalColorProxy:
@@ -656,6 +679,11 @@ def _same_pair(light, dark, pair) -> bool:
         return False
 
 
+# Greys the library passes as a fill string in its light branches (combo /
+# drop-down arrow, line edit buttons, calendar / cycle list arrows).
+LIBRARY_ICON_FILLS = {"#646464", "#656565", "#5e5e5e", "#9c9c9c"}
+
+
 def _wrap_icon(cls, Theme):
     real_render, real_icon = cls.render, cls.icon
 
@@ -664,6 +692,12 @@ def _wrap_icon(cls, Theme):
             fill = icon_fill(self, theme)
             if fill is not None:
                 attributes["fill"] = fill
+        elif str(attributes["fill"]).lower() in LIBRARY_ICON_FILLS:
+            from qfluentwidgets import isDarkTheme
+            dark = isDarkTheme() if theme == Theme.AUTO else theme == Theme.DARK
+            new = shift(rgba_of(attributes["fill"]), "fluent_icon", dark)
+            if new is not None:
+                attributes["fill"] = "#{:02x}{:02x}{:02x}".format(*new[:3])
         return real_render(self, painter, rect, theme, indexes, **attributes)
 
     def icon(self, theme=Theme.AUTO, color=None):
