@@ -701,19 +701,32 @@ class WorkspacePage(ToolPage):
 
     def show_context(self, on: bool):
         target = self._panel_w if on else 0
-        total = sum(self.split.sizes())
+        # One slide at a time: a second call within SLIDE_MS takes over from
+        # where the running one is instead of fighting it over setSizes.
+        old = getattr(self, "_panel_anim", None)
+        if old is not None:
+            self._panel_anim = None
+            old.stop()
         start = self.split.sizes()[1]
         if start == target:
+            if old is not None:
+                self.reopen_btn.setVisible(target == 0)
             return
         a = self._QVariantAnimation(self)
         a.setDuration(SLIDE_MS)
         a.setStartValue(start)
         a.setEndValue(target)
         a.setEasingCurve(self._QEasingCurve.OutCubic)
-        a.valueChanged.connect(lambda w: self.split.setSizes([total - int(w), int(w)]))
+
+        def step(w):
+            total = sum(self.split.sizes())       # now, not when the slide began
+            self.split.setSizes([total - int(w), int(w)])
+        a.valueChanged.connect(step)
         a.finished.connect(lambda: self.reopen_btn.setVisible(target == 0))
-        a.start()
+        # Deleted when it stops, so a page that slides often keeps none.
+        a.finished.connect(lambda: self._panel_anim is a and setattr(self, "_panel_anim", None))
         self._panel_anim = a
+        a.start(self._QVariantAnimation.DeleteWhenStopped)
 
     # ── pages ──
     def page_count(self) -> int:

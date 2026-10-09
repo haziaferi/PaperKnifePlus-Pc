@@ -384,3 +384,34 @@ def test_master_detail_ctrl_click_deselect_updates_tools_and_detail(qapp):
     ctrl_click(1)
     assert p.current() == 1 and b.isEnabled() and calls == [None, 1]
     p.close()
+
+
+def test_context_panel_quick_show_then_hide_ends_hidden(qapp, monkeypatch):
+    # R1-27: a second show_context within SLIDE_MS left the first animation
+    # running; touching the right edge and leaving at once opened the panel.
+    from paperknife.qt.pages import SLIDE_MS
+    p, _ = _workspace(qapp, monkeypatch)
+    p.show_context(False)
+    pump(SLIDE_MS / 1000 + 0.2)
+    assert p.split.sizes()[1] == 0 and p.reopen_btn.isVisible()
+    p.show_context(True)
+    pump(0.03)
+    p.show_context(False)
+    pump(SLIDE_MS / 1000 + 0.2)
+    assert p.split.sizes()[1] == 0
+    assert p.reopen_btn.isVisible()
+    p.close()
+
+
+def test_context_panel_slides_leave_no_animation_behind(qapp, monkeypatch):
+    # R1-27 (verifier): every show_context also leaked one animation object.
+    from PySide6.QtCore import QVariantAnimation
+    from paperknife.qt.pages import SLIDE_MS
+    p, _ = _workspace(qapp, monkeypatch)
+    for on in (False, True, False, True):
+        p.show_context(on)
+        pump(SLIDE_MS / 1000 + 0.1)
+    pump(0.05)
+    assert [a for a in p.findChildren(QVariantAnimation) if type(a) is QVariantAnimation] == []
+    assert p.split.sizes()[1] > 0 and not p.reopen_btn.isVisible()
+    p.close()
