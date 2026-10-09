@@ -338,10 +338,12 @@ def test_cancelled_batch_does_not_report_success(app, dialogs, tmp_path, monkeyp
     for n in "abc":
         make_pdf(in_dir / f"{n}.pdf", pages=1)
 
-    def compress_then_cancel(doc, out, level):
+    def compress_then_cancel(doc, out, level, stop=None):
+        # This file finished compressing just before Cancel was pressed.
         doc.close()
         Path(out).write_bytes(b"%PDF-1.7")
         app._cancel_job()
+        return True
     monkeypatch.setattr(batch, "compress_pdf", compress_then_cancel)
     t = tool(app, "BatchTool")
     t._in_dir_var.set(str(in_dir))
