@@ -35,7 +35,8 @@ from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QSizePolicy, Q
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
                             RadioButton, Slider,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
-                            SubtitleLabel, TitleLabel, TransparentToggleToolButton,
+                            SubtitleLabel, TitleLabel, TransparentPushButton,
+                            TransparentToggleToolButton,
                             TransparentToolButton, setCustomStyleSheet)
 
 from . import dialogs
@@ -826,12 +827,7 @@ class WorkspacePage(ToolPage):
 
     def panel_field(self, label: str) -> QHBoxLayout:
         """A small label above its control, as a narrow panel stacks them."""
-        self.panel_body.addSpacing(12)
-        self.panel_body.addWidget(muted_caption(label))
-        row = FieldRow()
-        row.setSpacing(8)
-        self.panel_body.addLayout(row)
-        return row
+        return _field_row(self.panel_body, label)
 
     def _clamp(self, *_):
         w = self.split.sizes()[1]
@@ -959,6 +955,49 @@ def _clear_layout(layout):
 SETTINGS_W = 360            # collection: width of the settings column
 
 
+def _settings_column(owner: QWidget, name: str):
+    """The settings column at a template's right: (scroll area, its QVBoxLayout)."""
+    sa = SingleDirectionScrollArea(owner, Qt.Vertical)
+    sa.setWidgetResizable(True)
+    sa.enableTransparentBackground()
+    sa.setFrameShape(QFrame.NoFrame)
+    sa.setFixedWidth(SETTINGS_W)
+    sw = QWidget()
+    sw.setObjectName(name)
+    sw.setStyleSheet(f"QWidget#{name} {{ background: transparent; }}")
+    lay = QVBoxLayout(sw)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(8)
+    sa.setWidget(sw)
+    return sa, lay
+
+
+def column_setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
+    """A setting row sized for a settings column (the name takes the room)."""
+    return setting_row(group, title, desc, label_width=0)
+
+
+def _field_row(lay: QVBoxLayout, label: str) -> QHBoxLayout:
+    """A small label above its control, as a narrow column stacks them."""
+    lay.addSpacing(12)
+    lay.addWidget(muted_caption(label))
+    row = FieldRow()
+    row.setSpacing(8)
+    lay.addLayout(row)
+    return row
+
+
+def _tool_button(text: str, icon, slot, needs_selection: bool = False,
+                 parent=None) -> TransparentPushButton:
+    """A toolbar / context-bar button; pk_needs_selection marks one that is
+    enabled only while something is selected."""
+    b = (TransparentPushButton(icon, text, parent) if icon is not None
+         else TransparentPushButton(text, parent))
+    b.clicked.connect(slot)
+    b.pk_needs_selection = needs_selection
+    return b
+
+
 class CollectionRow(QWidget):
     """One entry of a CollectionPage list: its number, the file's name and
     folder, an optional control of its own (row.extra, e.g. a page range)
@@ -1037,7 +1076,6 @@ class CollectionPage(ToolPage):
                  settings: bool = True, toolbar: bool = True, parent=None):
         from PySide6.QtGui import QKeySequence, QShortcut
         from qfluentwidgets import FluentIcon as FIF
-        from qfluentwidgets import TransparentPushButton
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
         self.exts = tuple(e.lower() for e in (exts or ()))
@@ -1060,8 +1098,7 @@ class CollectionPage(ToolPage):
         self.add_btn = self.up_btn = self.down_btn = self.remove_btn = None
         if toolbar:
             def tb(text, icon, slot):
-                b = TransparentPushButton(icon, text, bar)
-                b.clicked.connect(slot)
+                b = _tool_button(text, icon, slot, parent=bar)
                 self.toolbar.addWidget(b)
                 return b
             self.add_btn = tb(add_text, FIF.ADD, self.open)
@@ -1097,20 +1134,8 @@ class CollectionPage(ToolPage):
         self.settings_area = None
         self.settings = None
         if settings:
-            sa = SingleDirectionScrollArea(self, Qt.Vertical)
-            sa.setWidgetResizable(True)
-            sa.enableTransparentBackground()
-            sa.setFrameShape(QFrame.NoFrame)
-            sa.setFixedWidth(SETTINGS_W)
-            sw = QWidget()
-            sw.setObjectName("collectionSettings")
-            sw.setStyleSheet("QWidget#collectionSettings { background: transparent; }")
-            self.settings = QVBoxLayout(sw)
-            self.settings.setContentsMargins(0, 0, 0, 0)
-            self.settings.setSpacing(8)
-            sa.setWidget(sw)
-            self.settings_area = sa
-            cols.addWidget(sa)
+            self.settings_area, self.settings = _settings_column(self, "collectionSettings")
+            cols.addWidget(self.settings_area)
         self.body.addLayout(cols, 1)
 
         for keys, d in (("Alt+Up", -1), ("Alt+Down", 1)):
@@ -1122,9 +1147,7 @@ class CollectionPage(ToolPage):
         what = "PDFs" if self.exts == (".pdf",) else "files"
         return f"Drop {what} here, or use {self.add_text}."
 
-    @staticmethod
-    def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
-        return setting_row(group, title, desc, label_width=0)
+    setting_row = staticmethod(column_setting_row)
 
     # ── hooks a tool may override ──
     def make_extra(self, path: str) -> QWidget | None:
@@ -1132,9 +1155,7 @@ class CollectionPage(ToolPage):
 
     def add_tool(self, text: str, icon, slot):
         """Another toolbar button (after Remove)."""
-        from qfluentwidgets import TransparentPushButton
-        b = TransparentPushButton(icon, text)
-        b.clicked.connect(slot)
+        b = _tool_button(text, icon, slot)
         self.toolbar.insertWidget(self.toolbar.count() - 2, b)
         return b
 
@@ -1372,20 +1393,8 @@ class OrganiserPage(ToolPage):
         self.settings_area = None
         self.settings = None
         if settings:
-            sa = SingleDirectionScrollArea(self, Qt.Vertical)
-            sa.setWidgetResizable(True)
-            sa.enableTransparentBackground()
-            sa.setFrameShape(QFrame.NoFrame)
-            sa.setFixedWidth(SETTINGS_W)
-            sw = QWidget()
-            sw.setObjectName("organiserSettings")
-            sw.setStyleSheet("QWidget#organiserSettings { background: transparent; }")
-            self.settings = QVBoxLayout(sw)
-            self.settings.setContentsMargins(0, 0, 0, 0)
-            self.settings.setSpacing(8)
-            sa.setWidget(sw)
-            self.settings_area = sa
-            cols.addWidget(sa)
+            self.settings_area, self.settings = _settings_column(self, "organiserSettings")
+            cols.addWidget(self.settings_area)
         self.body.addLayout(cols, 1)
 
         self._centre: QWidget | None = None
@@ -1397,19 +1406,14 @@ class OrganiserPage(ToolPage):
         self._show_grid_state()
         self._selection_changed()
 
-    @staticmethod
-    def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
-        return setting_row(group, title, desc, label_width=0)
+    setting_row = staticmethod(column_setting_row)
 
     # ── what a subclass fills ──
     def load(self, path: str):
         """The file card changed; open *path* and call set_pages()."""
 
     def add_action(self, text: str, icon, slot, needs_selection: bool = True):
-        from qfluentwidgets import TransparentPushButton
-        b = TransparentPushButton(icon, text) if icon is not None else TransparentPushButton(text)
-        b.clicked.connect(slot)
-        b.pk_needs_selection = needs_selection
+        b = _tool_button(text, icon, slot, needs_selection)
         self.context_bar.insertWidget(len(self._actions), b)
         self._actions.append(b)
         self._selection_changed()
@@ -1599,10 +1603,7 @@ class MasterDetailPage(ToolPage):
         """The selection changed (None = nothing selected)."""
 
     def add_tool(self, text: str, icon, slot, needs_selection: bool = False):
-        from qfluentwidgets import TransparentPushButton
-        b = TransparentPushButton(icon, text) if icon is not None else TransparentPushButton(text)
-        b.clicked.connect(slot)
-        b.pk_needs_selection = needs_selection
+        b = _tool_button(text, icon, slot, needs_selection)
         self.toolbar.insertWidget(len(self._tools), b)
         self._tools.append(b)
         self._refresh()
@@ -1636,12 +1637,7 @@ class MasterDetailPage(ToolPage):
         return self.detail
 
     def detail_field(self, label: str) -> QHBoxLayout:
-        self.detail.addSpacing(12)
-        self.detail.addWidget(muted_caption(label))
-        row = FieldRow()
-        row.setSpacing(8)
-        self.detail.addLayout(row)
-        return row
+        return _field_row(self.detail, label)
 
     # ── entries ──
     def count(self) -> int:
