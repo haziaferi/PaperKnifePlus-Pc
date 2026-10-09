@@ -585,6 +585,34 @@ def test_a_mesh_shading_turns_the_page_into_an_image():
                    for x in range(1, out.xref_length()))
 
 
+
+def test_a_stream_nothing_can_read_turns_the_page_into_an_image(monkeypatch):
+    # cut_line_art raising leaves no list of unsafe shapes, and residual() never
+    # sees a mesh shading: with no fill the page stayed vector, mesh data and all.
+    import struct
+    from paperknife.core import redact as core_redact
+    from paperknife.tools.redact import redact_page
+    doc = fitz.open()
+    mesh = doc.get_new_xref()
+    doc.update_object(mesh, "<</ShadingType 4/ColorSpace/DeviceRGB/BitsPerCoordinate 16"
+                            "/BitsPerComponent 8/BitsPerFlag 8/Decode[0 595 0 842 0 1 0 1 0 1]>>")
+
+    def v(x, y, r, g, b):
+        return struct.pack(">BHHBBB", 0, round(x / 595 * 65535), round(y / 842 * 65535),
+                           r, g, b)
+    doc.update_stream(mesh, v(100, 300, 255, 0, 0) + v(500, 300, 0, 255, 0)
+                      + v(300, 700, 0, 0, 255))
+    _raw_page(doc, b"/S1 sh", f"<</Shading<</S1 {mesh} 0 R>>>>")
+
+    def unreadable(page, rects):
+        raise ValueError("an operator sequence lineart cannot read")
+    monkeypatch.setattr(core_redact, "cut_line_art", unreadable)
+    box = [fitz.Rect(250, 250, 350, 350)]
+    assert redact_page(doc, 0, box, None) == "image"
+    out = fitz.open("pdf", doc.tobytes(garbage=4, deflate=True))
+    assert not any(b"ShadingType" in (out.xref_object(x) or "").encode()
+                   for x in range(1, out.xref_length()))
+
 def test_drawing_order_is_kept(app, dialogs, tmp_path):
     doc, boxes = case_order()
     src = doc.tobytes()

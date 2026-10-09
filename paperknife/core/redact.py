@@ -46,6 +46,9 @@ def redact_page(doc: fitz.Document, pno: int, rects, fill) -> str:
         left = residual(page, rects)
     except Exception:                   # a stream this module cannot read at all
         left = True
+        # Nothing checked it for shapes MuPDF cannot remove (a mesh shading
+        # residual() never sees): the page goes to an image, the safe outcome.
+        unsafe = ["unreadable stream"]
     if left:
         doc.xref_set_key(page.xref, "Contents", contents[1])
         mode, graphics = "whole", fitz.PDF_REDACT_LINE_ART_REMOVE_IF_TOUCHED
