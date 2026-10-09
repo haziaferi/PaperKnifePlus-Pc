@@ -109,10 +109,24 @@ def test_a_stopped_conversion_leaves_no_file(tmp_path):
     assert not out.exists() and not list(tmp_path.glob("*.part"))
 
 
-def test_leaving_the_tool_holds_no_document(window, tmp_path):
+def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path):
+    import os
     page = _page(window)
-    page.add_paths([_image(tmp_path / "a.png", (30, 30), (0, 0, 0))])
+    a = _image(tmp_path / "a.png", (30, 30), (0, 0, 0))
+    b = _image(tmp_path / "b.jpg", (40, 20), (255, 0, 0))
+    page.add_paths([a, b])
+    out = tmp_path / "out.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as doc:
+        assert len(doc) == 2
     window.show_page("home")
     pump(0.05)
-    assert not getattr(page, "_doc", None)
-    assert _page(window) is page and len(page.paths()) == 1
+    # Windows refuses to rename or delete a file a handle still holds open: no
+    # input image and not the output may be held once the page is left.
+    os.replace(a, tmp_path / "a-moved.png")
+    os.replace(b, tmp_path / "b-moved.jpg")
+    out.unlink()
+    assert _page(window) is page and len(page.paths()) == 2
