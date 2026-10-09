@@ -450,9 +450,10 @@ class MainWindow(FluentWindow):
         """0.0 - 1.0; call on the main thread (bridge.post from a worker)."""
         self.progress.setValue(int(1000 * max(0.0, min(1.0, float(value)))))
 
-    def _prog_show(self, label: str):
+    def _prog_show(self, label: str, cancellable: bool = True):
         self.progress.setValue(0)
         self.job_label.setText(label)
+        self.cancel_button.setVisible(cancellable)
         self.progress_strip.show()
 
     def _prog_hide(self):
@@ -464,7 +465,7 @@ class MainWindow(FluentWindow):
     # JOBS
     # ══════════════════════════════════════════════════════════════════════════
     def run_job(self, worker_fn, label: str = "Working…", *, lock: bool = False,
-                then=None) -> CancellableJob | None:
+                then=None, cancellable: bool = True) -> CancellableJob | None:
         """Run worker_fn(stop) in a background thread with progress and Cancel;
         stop is a threading.Event the worker checks with is_set().
 
@@ -474,6 +475,9 @@ class MainWindow(FluentWindow):
         ends the page and the navigation are held (only Cancel works) and
         shortcuts are ignored.  then(kind, value), kind "done" / "error" /
         "cancel", runs on the main thread after the job has ended.
+        cancellable=False: the worker never checks stop (a save, a single
+        PyMuPDF call), so Cancel is not offered; it could not stop the write,
+        only make the job report "Cancelled" after the file was written.
 
         One job at a time: while one runs this warns and returns None."""
         if self._current_job and self._current_job.is_running:
@@ -484,7 +488,7 @@ class MainWindow(FluentWindow):
         # As in the Tk app: collect here, on the main thread, so the
         # collector never runs a widget's teardown on the worker.
         gc.collect()
-        self._prog_show(label)
+        self._prog_show(label, cancellable)
         seq_at_start = self._status_seq
         if lock:
             self._lock_view()
@@ -529,7 +533,8 @@ class MainWindow(FluentWindow):
             cb()
 
     def _cancel_job(self):
-        if self._current_job and self._current_job.is_running:
+        if (self._current_job and self._current_job.is_running
+                and not self.cancel_button.isHidden()):
             self._current_job.cancel()
 
     def is_locked(self) -> bool:

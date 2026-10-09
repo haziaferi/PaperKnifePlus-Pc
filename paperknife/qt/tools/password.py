@@ -103,7 +103,7 @@ class PasswordPage(ToolPage):
             win.set_status(f"✓  Protected → {Path(out).name}", "success")
             dialogs.info("Done", f"Protected PDF saved:\n{out}")
 
-        if win.run_job(work, "Encrypting…", then=then) is None:
+        if win.run_job(work, "Encrypting…", then=then, cancellable=False) is None:
             doc.close()
 
     def unprotect(self):
@@ -128,5 +128,5 @@ class PasswordPage(ToolPage):
             win.set_status(f"✓  Unlocked → {Path(out).name}", "success")
             dialogs.info("Done", f"Unlocked PDF saved:\n{out}")
 
-        if win.run_job(work, "Removing the password…", then=then) is None:
+        if win.run_job(work, "Removing the password…", then=then, cancellable=False) is None:
             doc.close()

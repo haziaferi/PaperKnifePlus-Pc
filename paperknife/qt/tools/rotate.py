@@ -103,6 +103,6 @@ class RotatePage(DocHolder, OrganiserPage):
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF saved:\n{out}")
 
-        if win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then) is None \
+        if win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False) is None \
                 and self._queue:
             self._timer.start()

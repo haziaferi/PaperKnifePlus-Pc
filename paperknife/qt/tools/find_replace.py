@@ -218,4 +218,4 @@ class FindReplacePage(DocHolder, WorkspacePage):
                 dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
 
         win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=then)
+                    lock=True, then=then, cancellable=False)

@@ -97,4 +97,4 @@ class MetadataPage(DocHolder, ToolPage):
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF with updated metadata saved:\n{out}")
 
-        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then)
+        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False)

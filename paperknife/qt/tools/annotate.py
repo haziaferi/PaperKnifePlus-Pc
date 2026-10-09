@@ -226,4 +226,4 @@ class AnnotatePage(DocHolder, WorkspacePage):
                 dialogs.info("Saved", f"Annotated PDF saved:\n{out}")
 
         win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=done)
+                    lock=True, then=done, cancellable=False)

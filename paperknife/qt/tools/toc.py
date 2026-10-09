@@ -189,4 +189,4 @@ class TocPage(DocHolder, MasterDetailPage):
             win.set_status(f"✓  Saved {len(toc)} bookmark(s) → {Path(out).name}", "success")
             dialogs.info("Saved", f"PDF with updated bookmarks:\n{out}")
 
-        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then)
+        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False)

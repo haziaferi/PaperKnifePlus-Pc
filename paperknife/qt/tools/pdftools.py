@@ -65,5 +65,5 @@ class PdfToolsPage(ToolPage):
             win.set_status(status, "success")
             dialogs.info("Done", text)
 
-        if win.run_job(work, "Repairing…", then=then) is None:
+        if win.run_job(work, "Repairing…", then=then, cancellable=False) is None:
             doc.close()

@@ -87,5 +87,5 @@ class CompressPage(ToolPage):
             (dialogs.info if role == "success" else dialogs.warning)(title, text)
 
         win.set_status("Compressing…")
-        if win.run_job(work, "Compressing PDF…", then=then) is None:
+        if win.run_job(work, "Compressing PDF…", then=then, cancellable=False) is None:
             doc.close()
