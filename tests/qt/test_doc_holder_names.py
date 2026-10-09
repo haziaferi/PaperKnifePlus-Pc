@@ -5,7 +5,6 @@ import inspect
 
 
 def test_no_page_hides_a_doc_holder_method(qapp):
-    import paperknife.tools  # noqa: F401
     import paperknife.qt.tools  # noqa: F401
     from paperknife.core.doc_state import DocHolder
     from paperknife.qt.pages import QT_PAGES

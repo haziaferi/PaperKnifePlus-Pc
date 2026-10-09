@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QLineEdit
 
 from paperknife.qt import pages
 from paperknife.qt.pages import ToolPage
-from paperknife.tool_base import TOOLS
+from paperknife.tool_registry import TOOL_REGISTRY as TOOLS
 
 
 class HookPage(ToolPage):
@@ -62,14 +62,14 @@ def hook_page(window, monkeypatch):
 def test_nav_lists_every_tool_grouped_in_registry_order(window):
     order = window.nav_order()
     flat = [k for _h, keys in order for k in keys]
-    names = [type(t).__name__ for t in TOOLS]
+    names = [t.name for t in TOOLS]
     assert sorted(flat) == sorted(names) and len(flat) == len(names)
     # groups in first-seen order, tools in registry order inside each group
     sections = []
     for t in TOOLS:
         if t.section not in sections:
             sections.append(t.section)
-    expected = [[type(t).__name__ for t in TOOLS if t.section == s] for s in sections]
+    expected = [[t.name for t in TOOLS if t.section == s] for s in sections]
     assert [keys for _h, keys in order] == expected
     headers = [h for h, _k in order]
     assert headers == [s.capitalize() if s != "SETTINGS" else "" for s in sections]

@@ -2,11 +2,11 @@
 paperknife.qt.shell
 MainWindow: the FluentWindow shell that replaces paperknife/app.py's App.
 
-- Navigation from tool_base.TOOLS grouped by tool.section (first-seen order,
+- Navigation from tool_registry.TOOL_REGISTRY grouped by tool.section (first-seen order,
   registry order inside a group), Home first, Preferences at the bottom,
   a search box (Ctrl+K / Ctrl+F) filtering by label.
 - Pages are built on first use by page_for(tool): the class registered in
-  pages.QT_PAGES under the tool's class name.
+  pages.QT_PAGES under tool.name (the CTk tool's class name).
 - Status bar with colour roles, a progress strip with Cancel, run_job with
   the CTk app's semantics, lock=True holding the page and navigation.
 - Window modes: Ctrl+Alt+S collapses / expands the navigation; Ctrl+Alt+C
@@ -118,7 +118,7 @@ class MainWindow(FluentWindow):
     def __init__(self, tools=None):
         super().__init__()
         bridge.install()
-        from ..theme import __version__
+        from .._version import __version__
         self.setWindowTitle(f"PaperKnife+ PC  v{__version__}")
         icon = Path(__file__).resolve().parents[2] / "assets" / "icon.ico"
         if icon.is_file():
@@ -128,8 +128,8 @@ class MainWindow(FluentWindow):
         self.setAcceptDrops(True)
 
         if tools is None:
-            from ..tool_base import TOOLS
-            tools = TOOLS
+            from ..tool_registry import TOOL_REGISTRY
+            tools = TOOL_REGISTRY
         self.tools = list(tools)
 
         # State
@@ -255,7 +255,7 @@ class MainWindow(FluentWindow):
             header = None if bottom else nav.addItemHeader(section.capitalize(), pos)
             keys = []
             for t in groups[section]:
-                key = type(t).__name__
+                key = t.name
                 self._tool_by_key[key] = t
                 self._add_item(key, pages.plain_label(t.label),
                                theme.Glyph(NAV_GLYPH.get(key, DEFAULT_GLYPH)), pos)
@@ -310,7 +310,7 @@ class MainWindow(FluentWindow):
     # ══════════════════════════════════════════════════════════════════════════
     def page_for(self, tool) -> QWidget:
         """The Qt page for *tool*: its registered class."""
-        return pages.QT_PAGES[type(tool).__name__](tool, self)
+        return pages.QT_PAGES[tool.name](tool, self)
 
     def _ensure_page(self, key: str) -> QWidget:
         page = self._pages.get(key)

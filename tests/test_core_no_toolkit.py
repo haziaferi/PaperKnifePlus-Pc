@@ -14,7 +14,8 @@ CORE = sorted(f"paperknife.core.{p.stem}" for p in (SRC / "paperknife" / "core")
               if p.stem != "__init__")
 TOOLKIT_FREE = ["paperknife", "paperknife.core", *CORE,
                 "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
-                "paperknife.pages", "paperknife.lineart", "paperknife.tool_base"]
+                "paperknife.pages", "paperknife.lineart", "paperknife.tool_base",
+                "paperknife.tool_registry", "paperknife._version"]
 
 
 def test_every_core_module_is_probed():
@@ -45,10 +46,9 @@ _QT_START = (
     "print('TOOLKITS=' + ','.join(bad))\n")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "R6-43: the Qt start-up imports paperknife.tools (the TOOLS registry, written in "
-    "the CTk tool modules) and paperknife.theme (for __version__), which load tkinter "
-    "and customtkinter"))
+# R6-43: the start-up once imported paperknife.tools (the CTk registry) and
+# paperknife.theme (for __version__); it reads paperknife.tool_registry and
+# paperknife._version now.
 def test_the_qt_app_starts_without_a_toolkit(tmp_path):
     import os
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen", HOME=str(tmp_path),
