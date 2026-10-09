@@ -199,15 +199,15 @@ def test_shortcuts_ignored_while_locked(window, hook_page):
 
 
 def test_escape_clears_search(window):
-    from PySide6.QtTest import QTest
+    # Offscreen does not deliver a key press to a QShortcut reliably, so the
+    # window's own Escape shortcut is found and activated (not clear_search
+    # called by the test): a missing, disabled or miswired shortcut fails.
+    from PySide6.QtGui import QKeySequence, QShortcut
+    esc = [s for s in window.findChildren(QShortcut)
+           if s.key() == QKeySequence(Qt.Key_Escape)]
+    assert len(esc) == 1 and esc[0].isEnabled(), esc
     window.search.edit.setText("split")
-    window.activateWindow()
-    window.setFocus()
-    pump(0.05)
-    QTest.keyClick(window, Qt.Key_Escape)
-    pump(0.05)
-    if window.search.edit.text():           # key not delivered offscreen
-        window.clear_search()
+    esc[0].activated.emit()
     assert window.search.edit.text() == ""
 
 
@@ -536,10 +536,17 @@ def test_late_job_callback_after_close_is_dropped(window):
     assert seen == []
 
 
-def test_poll_positions_are_window_relative(window):
-    # sanity for the mode tests: the simulated pointer maps back exactly
-    g = window.mapToGlobal(QPoint(5, 6))
-    assert window.mapFromGlobal(g) == QPoint(5, 6)
+def test_edge_poll_reads_the_pointer_through_its_seam(window):
+    # The mode tests move a simulated pointer (window.pointer_at); this checks
+    # that an edge poll with no explicit position really reads it through
+    # window._pointer (not QCursor.pos) and maps it window-relative.
+    window.set_compact(True)
+    window.pointer_at = QPoint(window.width() // 2, 400)
+    window._poll_edges()
+    assert not window._side_shown
+    window.pointer_at = QPoint(2, 400)                  # the left edge
+    window._poll_edges()
+    assert window._side_shown
 
 
 # ── dialogs: a closed dialog does not stay behind ──
