@@ -4,7 +4,6 @@ from __future__ import annotations
 from qfluentwidgets import ComboBox
 
 from ...core import convert as core_convert
-from .. import dialogs
 from ..pages import (spin_box, ToolPage, card, file_card, group_title, muted_caption, register_page,
                      setting_row)
 
@@ -44,35 +43,23 @@ class ExtractPage(ToolPage):
         self.file.choose()
 
     def run(self):
-        src = self.file.path()
+        src = self.chosen_file("Extract")
         if not src:
-            return dialogs.warning("Extract", "Select a PDF first.")
-        min_px = int(self.min_px.value())
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
             return
-        out_dir = dialogs.ask_dir()
-        if not out_dir:
-            return doc.close()
+        min_px = int(self.min_px.value())
         fmt = self.fmt.currentText()
 
-        def work(stop):
-            # Closes doc; None if cancelled.
-            return core_convert.extract_images(doc, out_dir, fmt, min_px, stop,
-                                               win.progress_callback())
+        def work(doc, out_dir, stop, progress):
+            return core_convert.extract_images(doc, out_dir, fmt, min_px, stop, progress)
 
-        def then(kind, res):
-            if kind != "done" or res is None:
-                return
+        def report(res, out_dir):
             count, failed = res.count, res.failed
             msg = (f"Found and extracted {count} image(s)  "
                    f"({res.scanned} unique xrefs scanned)")
             fail_txt = f"\n{failed} image(s) could not be extracted." if failed else ""
             self.log.setText(msg + fail_txt.replace("\n", "  ·  "))
-            win.set_status(f"✓  Extracted {count} image(s) → {out_dir}",
-                           "warning" if failed else "success")
-            dialogs.info("Done", f"Extracted {count} image(s) to:\n{out_dir}{fail_txt}")
+            return ("warning" if failed else "success",
+                    f"✓  Extracted {count} image(s) → {out_dir}",
+                    "Done", f"Extracted {count} image(s) to:\n{out_dir}{fail_txt}")
 
-        if win.run_job(work, "Extracting images…", then=then) is None:
-            doc.close()
+        self.run_on_file("Extract", work, "Extracting images…", report, src=src)

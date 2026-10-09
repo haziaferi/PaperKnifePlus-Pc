@@ -298,6 +298,10 @@ def file_card(on_change=None, exts=(".pdf",)) -> FileCard:
     return FileCard(on_change, exts)
 
 
+class Refusal(Exception):
+    """Raised by run_on_file's prepare(doc): its message is shown as a warning."""
+
+
 # ── The page frame ────────────────────────────────────────────────────────────
 class ToolPage(QWidget):
     """Header (title 28 px semibold, subtitle 12 px muted, an actions area),
@@ -439,6 +443,76 @@ class ToolPage(QWidget):
         """Something for the header's actions area that is not an action
         (a file chip, a page counter); it stays in the header either way."""
         self.header_actions.insertWidget(0, w, 0, Qt.AlignTop)
+
+    # ── the single-file run ──
+    def chosen_file(self, title: str, missing: str = "Select a PDF first.") -> str:
+        """The file card's path; "" after warning *missing* when none is chosen."""
+        src = self.file.path()
+        if not src:
+            dialogs.warning(title, missing)
+        return src
+
+    def run_on_file(self, title: str, work, label, report, *, src: str | None = None,
+                    save: tuple | None = None, prepare=None, open_doc=None, ended=None,
+                    cancellable: bool = True, working: str | None = None,
+                    warning_box: bool = False, ask_first: bool = False):
+        """Run *work* on the chosen file: the file card's (or *src*, already
+        checked), opened, prepare(doc), the output asked for, then
+        work(doc, out, stop, progress) in a job (it closes doc) and, when the
+        job is done, report(result, out) -> (role, status, box title, box text).
+
+        save: (default name, extension, filters) asks for a file; None asks
+        for a folder.  label: the job's label, or a callable giving it after
+        prepare.  prepare(doc): a ValueError's message is shown as an error,
+        a Refusal's as a warning; either closes doc and stops.  open_doc(src)
+        -> doc | None replaces window.open_pdf_safe.  ended(kind) runs however
+        the job ended, before report."""
+        if src is None:
+            src = self.chosen_file(title)
+            if not src:
+                return
+        win = self.window_
+
+        def ask():
+            return dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
+
+        out = ask() if ask_first else None
+        if ask_first and not out:
+            return
+        doc = open_doc(src) if open_doc is not None else win.open_pdf_safe(src)
+        if doc is None:
+            return
+        if prepare is not None:
+            try:
+                prepare(doc)
+            except Refusal as e:
+                doc.close()
+                return dialogs.warning(title, str(e))
+            except ValueError as e:
+                doc.close()
+                return dialogs.error(title, str(e))
+        if not ask_first:
+            out = ask()
+            if not out:
+                return doc.close()
+        progress = win.progress_callback()
+
+        def then(kind, result):
+            if ended is not None:
+                ended(kind)
+            if kind != "done":
+                return
+            role, status, box_title, text = report(result, out)
+            win.set_status(status, role)
+            box = dialogs.warning if warning_box and role == "warning" else dialogs.info
+            box(box_title, text)
+
+        if working:
+            win.set_status(working)
+        if win.run_job(lambda stop: work(doc, out, stop, progress),
+                       label if isinstance(label, str) else label(),
+                       then=then, cancellable=cancellable) is None:
+            doc.close()
 
     # ── drops ──
     def accept_drop(self, path: str) -> bool:

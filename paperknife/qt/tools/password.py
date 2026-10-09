@@ -82,59 +82,37 @@ class PasswordPage(ToolPage):
         return doc
 
     def protect(self):
-        src = self.file.path()
+        src = self.chosen_file("Protect", "Select a PDF.")
         if not src:
-            return dialogs.warning("Protect", "Select a PDF.")
+            return
         pw = self.pw1.text()
         if not pw:
             return dialogs.warning("Protect", "Enter a password.")
         owner = core.owner_password(self.pw2.text())
-        out = dialogs.ask_save("protected.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
         perm = core.permissions(self.allow_print.isChecked(), self.allow_copy.isChecked())
-        doc = self._open_unlocked(src, self.cur_pw.text(), "Protect",
-                                  "This PDF is already encrypted. Enter its password "
-                                  "in “Current password” below to change it.")
-        if doc is None:
-            return
-        win = self.window_
-
-        def work(stop):
-            core.protect_pdf(doc, out, pw, owner, perm)
-
-        def then(kind, _value):
-            self._forget_passwords()
-            if kind != "done":
-                return
-            win.set_status(f"✓  Protected → {Path(out).name}", "success")
-            dialogs.info("Done", f"Protected PDF saved:\n{out}")
-
-        if win.run_job(work, "Encrypting…", then=then, cancellable=False) is None:
-            doc.close()
+        cur = self.cur_pw.text()
+        self.run_on_file(
+            "Protect", lambda doc, out, stop, _p: core.protect_pdf(doc, out, pw, owner, perm),
+            "Encrypting…",
+            lambda _v, out: ("success", f"✓  Protected → {Path(out).name}",
+                             "Done", f"Protected PDF saved:\n{out}"),
+            src=src, save=("protected.pdf", ".pdf", [("PDF", "*.pdf")]),
+            open_doc=lambda s: self._open_unlocked(
+                s, cur, "Protect", "This PDF is already encrypted. Enter its password "
+                                   "in “Current password” below to change it."),
+            ended=lambda _kind: self._forget_passwords(), cancellable=False, ask_first=True)
 
     def unprotect(self):
-        src = self.file.path()
+        src = self.chosen_file("Unprotect", "Select a PDF.")
         if not src:
-            return dialogs.warning("Unprotect", "Select a PDF.")
+            return
         pw = self.cur_pw.text()
-        out = dialogs.ask_save("unlocked.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        doc = self._open_unlocked(src, pw, "Error", "Incorrect password.", any_encryption=True)
-        if doc is None:
-            return
-        win = self.window_
-
-        def work(stop):
-            core.unprotect_pdf(doc, out)
-
-        def then(kind, _value):
-            self._forget_passwords()
-            if kind != "done":
-                return
-            win.set_status(f"✓  Unlocked → {Path(out).name}", "success")
-            dialogs.info("Done", f"Unlocked PDF saved:\n{out}")
-
-        if win.run_job(work, "Removing the password…", then=then, cancellable=False) is None:
-            doc.close()
+        self.run_on_file(
+            "Unprotect", lambda doc, out, stop, _p: core.unprotect_pdf(doc, out),
+            "Removing the password…",
+            lambda _v, out: ("success", f"✓  Unlocked → {Path(out).name}",
+                             "Done", f"Unlocked PDF saved:\n{out}"),
+            src=src, save=("unlocked.pdf", ".pdf", [("PDF", "*.pdf")]),
+            open_doc=lambda s: self._open_unlocked(s, pw, "Error", "Incorrect password.",
+                                                   any_encryption=True),
+            ended=lambda _kind: self._forget_passwords(), cancellable=False, ask_first=True)

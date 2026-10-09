@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import pdftools as core
-from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 
@@ -39,26 +38,10 @@ class PdfToolsPage(ToolPage):
         self.file.choose()
 
     def run(self):
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("PDF Tools", "Select a PDF first.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("repaired.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
-
-        def work(stop):
-            return core.repair_pdf(doc, out)
-
-        def then(kind, repaired):
-            if kind != "done":
-                return
+        def report(repaired, out):
             status, text = repair_report(repaired, out)
-            win.set_status(status, "success")
-            dialogs.info("Done", text)
+            return "success", status, "Done", text
 
-        if win.run_job(work, "Repairing…", then=then, cancellable=False) is None:
-            doc.close()
+        self.run_on_file("PDF Tools", lambda doc, out, stop, _p: core.repair_pdf(doc, out),
+                         "Repairing…", report,
+                         save=("repaired.pdf", ".pdf", [("PDF", "*.pdf")]), cancellable=False)

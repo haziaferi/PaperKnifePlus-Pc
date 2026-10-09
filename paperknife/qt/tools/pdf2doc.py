@@ -8,7 +8,7 @@ from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, Slider
 
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
-from .. import dialogs, theme
+from .. import theme
 from ..pages import Divider, ToolPage, card, file_card, group_title, register_page, setting_row
 
 INFO = {
@@ -128,32 +128,20 @@ class Pdf2DocPage(ToolPage):
         self.file.choose()
 
     def run(self):
-        src = self.file.path()
+        src = self.chosen_file("Convert")
         if not src:
-            return dialogs.warning("Convert", "Select a PDF first.")
+            return
         fmt = self.format
         ext, desc, default = OUT[fmt]
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save(default, ext, [(desc, f"*{ext}"), ("All", "*.*")])
-        if not out:
-            return doc.close()
         dpi, quality = self.options()
 
-        def work(stop):
-            # Closes doc; False if cancelled (nothing written).
-            return core_convert.pdf_to_doc(doc, fmt, out, stop,
-                                           win.progress_callback(),
+        def work(doc, out, stop, progress):
+            return core_convert.pdf_to_doc(doc, fmt, out, stop, progress,
                                            dpi=dpi, quality=quality)
 
-        def then(kind, ok):
-            if kind != "done" or not ok:
-                return
-            win.set_status(f"✓  PDF → {fmt}: {Path(out).name}", "success")
-            dialogs.info("Done", f"Saved:\n{out}")
-
-        win.set_status(f"Converting PDF → {fmt}…")
-        if win.run_job(work, f"Converting PDF → {fmt}…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Convert", work, f"Converting PDF → {fmt}…",
+            lambda _ok, out: ("success", f"✓  PDF → {fmt}: {Path(out).name}",
+                              "Done", f"Saved:\n{out}"),
+            src=src, save=(default, ext, [(desc, f"*{ext}"), ("All", "*.*")]),
+            working=f"Converting PDF → {fmt}…")

@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QButtonGroup
 from qfluentwidgets import ComboBox, RadioButton
 
 from ...core import enhance as core_enhance
-from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]     # the CTk menu's order
@@ -76,27 +75,13 @@ class NormalisePage(ToolPage):
         self.file.choose()
 
     def run(self):
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("Normalise", "Select a PDF first.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("normalised.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
         size, orient, stretch = self.size.currentText(), self.orient, self.stretch
 
-        def work(stop):
-            return core_enhance.normalise_pdf(doc, out, size, orient, stretch, stop,
-                                              win.progress_callback())
+        def work(doc, out, stop, progress):
+            return core_enhance.normalise_pdf(doc, out, size, orient, stretch, stop, progress)
 
-        def then(kind, result):
-            if kind != "done" or not result:
-                return
-            win.set_status(f"✓  Normalised → {Path(out).name}", "success")
-            dialogs.info("Done", f"Normalised PDF saved:\n{out}")
-
-        if win.run_job(work, "Normalising pages…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Normalise", work, "Normalising pages…",
+            lambda _r, out: ("success", f"✓  Normalised → {Path(out).name}",
+                             "Done", f"Normalised PDF saved:\n{out}"),
+            save=("normalised.pdf", ".pdf", [("PDF", "*.pdf")]))

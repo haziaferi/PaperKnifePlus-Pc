@@ -6,10 +6,10 @@ from pathlib import Path
 from qfluentwidgets import LineEdit, SwitchButton
 
 from ...core import crop as core
-from ...pages import PageRangeError, selected_pages
+from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
-                     setting_row)
+from ..pages import (Refusal, ToolPage, card, file_card, group_title, muted_caption,
+                     register_page, setting_row)
 
 # (key, row name) in the order the CTk tool lays out its cross of fields
 EDGES = [("top", "Top"), ("left", "Left"), ("right", "Right"), ("bottom", "Bottom")]
@@ -71,9 +71,9 @@ class CropPage(ToolPage):
         self.file.choose()
 
     def run(self):
-        src = self.file.path()
+        src = self.chosen_file("Crop")
         if not src:
-            return dialogs.warning("Crop", "Select a PDF first.")
+            return
         try:
             margins = core.parse_margins(*(self.margins[k].text()
                                            for k in ("top", "right", "bottom", "left")))
@@ -81,33 +81,19 @@ class CropPage(ToolPage):
             return dialogs.warning("Crop", str(e))
         range_str = self.page_range.text().strip()
         reset = self.reset.isChecked()
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        total = len(doc)
-        try:
-            pages = selected_pages(range_str, total)
-        except PageRangeError as e:
-            doc.close()
-            return dialogs.error("Crop", str(e))
-        if not core.croppable(doc, pages, margins, reset):
-            doc.close()
-            return dialogs.warning("Crop", "No page was cropped: the margins are larger "
-                                           "than every selected page.")
-        out = dialogs.ask_save("cropped.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
+        pages: list[int] = []
 
-        def work(stop):
-            return core.crop_pdf(doc, out, pages, margins, reset, stop)
+        def prepare(doc):
+            pages[:] = selected_pages(range_str, len(doc))
+            if not core.croppable(doc, pages, margins, reset):
+                raise Refusal("No page was cropped: the margins are larger "
+                              "than every selected page.")
 
-        def then(kind, cropped):
-            if kind != "done":
-                return
+        def report(cropped, out):
             role, status = crop_report(cropped, len(pages), out)
-            win.set_status(status, role)
-            dialogs.info("Done", f"Cropped PDF saved:\n{out}")
+            return role, status, "Done", f"Cropped PDF saved:\n{out}"
 
-        if win.run_job(work, f"Cropping {len(pages)} page(s)…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Crop", lambda doc, out, stop, _p: core.crop_pdf(doc, out, pages, margins, reset, stop),
+            lambda: f"Cropping {len(pages)} page(s)…", report, src=src,
+            save=("cropped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare)

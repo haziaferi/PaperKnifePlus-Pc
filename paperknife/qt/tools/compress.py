@@ -8,7 +8,6 @@ from qfluentwidgets import RadioButton
 
 from ...core import enhance as core_enhance
 from ...prefs import PREFS
-from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 LEVELS = [
@@ -63,29 +62,16 @@ class CompressPage(ToolPage):
         self.file.choose()
 
     def run(self):
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("Compress", "Select a PDF first.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("compressed.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
-        level, orig = self.level, Path(src).stat().st_size
+        level, orig = self.level, [0]
 
-        def work(stop):
+        def prepare(doc):
+            orig[0] = Path(doc.name).stat().st_size
+
+        def work(doc, out, stop, progress):
             core_enhance.compress_pdf(doc, out, level)
             return Path(out).stat().st_size
 
-        def then(kind, new):
-            if kind != "done":
-                return
-            role, status, title, text = size_report(orig, new, out)
-            win.set_status(status, role)
-            (dialogs.info if role == "success" else dialogs.warning)(title, text)
-
-        win.set_status("Compressing…")
-        if win.run_job(work, "Compressing PDF…", then=then, cancellable=False) is None:
-            doc.close()
+        self.run_on_file("Compress", work, "Compressing PDF…",
+                         lambda new, out: size_report(orig[0], new, out),
+                         save=("compressed.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
+                         cancellable=False, working="Compressing…", warning_box=True)

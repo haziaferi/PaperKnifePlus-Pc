@@ -9,7 +9,7 @@ from qfluentwidgets import BodyLabel, InfoBar, InfoBarPosition, LineEdit, RadioB
 
 from ...core import ocr as core_ocr
 from ...prefs import PREFS, pref_dpi
-from .. import bridge, dialogs
+from .. import bridge
 from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
                      setting_row)
 
@@ -95,34 +95,21 @@ class OCRPage(ToolPage):
     def run(self):
         if not self.available:
             return
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("OCR", "Select a PDF first.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
         lang = self.lang.text().strip() or "eng"
         dpi = int(self.dpi.value())
         text_only = self.text_only
         log = self.log
 
-        def work(stop):
+        def work(doc, out, stop, progress):
             return core_ocr.ocr_pdf(
-                doc, out, lang, dpi, text_only, stop,
-                win.progress_callback(),
+                doc, out, lang, dpi, text_only, stop, progress,
                 lambda n, t: bridge.post(log.setText, f"OCR — page {n} / {t}"))
 
-        def then(kind, total):
-            if kind != "done" or total is None:
-                return
+        def report(total, out):
             log.setText(f"✓  Done — {total} page(s) processed")
-            win.set_status(f"✓  OCR complete — {total} page(s) → {Path(out).name}", "success")
-            dialogs.info("OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
+            return ("success", f"✓  OCR complete — {total} page(s) → {Path(out).name}",
+                    "OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
 
-        win.set_status(f"Starting OCR ({lang}, {dpi} DPI)…")
-        if win.run_job(work, f"OCR — {dpi} DPI · lang={lang}", then=then) is None:
-            doc.close()
+        self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report,
+                         save=("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")]),
+                         working=f"Starting OCR ({lang}, {dpi} DPI)…")

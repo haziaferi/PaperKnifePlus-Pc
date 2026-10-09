@@ -89,34 +89,23 @@ class WatermarkPage(ToolPage):
 
     # ── the action ──
     def run(self):
-        src = self.file.path()
-        text = self.text.text().strip()
+        src = self.chosen_file("Watermark")
         if not src:
-            return dialogs.warning("Watermark", "Select a PDF first.")
+            return
+        text = self.text.text().strip()
         if not text:
             return dialogs.warning("Watermark", "Enter watermark text.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("watermarked.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
         size = int(self.size.value())
         opacity = self.opacity.value() / 100.0
         color = tuple(c / 255 for c in self.color)
 
-        def work(stop):
-            return core_enhance.watermark_pdf(
-                doc, out, text, size, opacity, color, stop,
-                win.progress_callback()) is not None
+        def work(doc, out, stop, progress):
+            return core_enhance.watermark_pdf(doc, out, text, size, opacity, color, stop,
+                                              progress)
 
-        def then(kind, result):
-            if kind != "done" or not result:
-                return
-            win.set_status(f"✓  Watermarked → {Path(out).name}", "success")
-            dialogs.info("Done", f"Watermarked PDF saved:\n{out}")
-
-        win.set_status("Applying watermark…")
-        if win.run_job(work, "Applying watermark…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Watermark", work, "Applying watermark…",
+            lambda _r, out: ("success", f"✓  Watermarked → {Path(out).name}",
+                             "Done", f"Watermarked PDF saved:\n{out}"),
+            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]),
+            working="Applying watermark…")
