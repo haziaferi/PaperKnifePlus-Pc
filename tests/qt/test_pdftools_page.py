@@ -1,7 +1,7 @@
 """The Qt PDF Tools page: repair a damaged file."""
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, truncated_pdf, wait_job
 
 
 def _page(window):
@@ -10,24 +10,9 @@ def _page(window):
     return window.current_page()
 
 
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
-
-
 def _truncated(tmp_path):
-    good = make_pdf(tmp_path / "good.pdf", pages=2)
-    data = open(good, "rb").read()
-    bad = tmp_path / "bad.pdf"
-    bad.write_bytes(data[: data.rfind(b"xref")])
-    return str(bad)
+    """A 2-page PDF cut before its xref table (no table, trailer or %%EOF)."""
+    return truncated_pdf(make_pdf(tmp_path / "good.pdf", pages=2), tmp_path / "bad.pdf")
 
 
 def test_the_page_builds_and_offers_only_repair(window):
@@ -74,7 +59,7 @@ def test_pdftools_repair_recovers_a_truncated_file(window, dialogs, tmp_path):
     assert window.status_text() == "✓  Repaired PDF saved → out.pdf"
     with fitz.open(out) as doc:
         assert not doc.is_repaired and doc.page_count == 2
-        assert doc[1].get_text().strip() == "Page 2"
+        assert [p.get_text().strip() for p in doc] == ["Page 1", "Page 2"]
 
 
 def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_path):
@@ -86,19 +71,19 @@ def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_pa
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()                     # no save path queued: the dialog returns ""
     assert opened and opened[0].is_closed
     assert window._current_job is None
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     out = tmp_path / "out.pdf"
     dialogs.save(out)
     page.run()
