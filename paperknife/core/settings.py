@@ -10,7 +10,7 @@ INT_RANGES = {
     "default_dpi": ("Default DPI", *DPI_RANGE),
 }
 # What "Restore defaults" leaves alone.
-KEEP_ON_RESTORE = ("window_geometry",)
+KEEP_ON_RESTORE = ("window_geometry", "qt_window_geometry")
 
 
 def check_values(values: dict) -> str | None:

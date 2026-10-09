@@ -44,3 +44,17 @@ def test_restore_defaults_keeps_the_tk_window_geometry(prefs):
     assert prefs.ocr_lang == _DEFAULTS["ocr_lang"]
     assert prefs.appearance == _DEFAULTS["appearance"]
     assert prefs.window_geometry == "800x600+0+0"
+
+
+def test_restore_defaults_keeps_the_qt_window_geometry_too(prefs):
+    # Either app's Restore defaults saves prefs.json; wiping the other window's
+    # geometry there made the Qt window reopen at the default size and place.
+    import json
+    from paperknife import prefs as prefs_mod
+    prefs.qt_window_geometry = "AdnQywADAAAAAA=="
+    prefs.window_geometry = "800x600+0+0"
+    core.restore_defaults(prefs)
+    prefs.save()                        # as both Preferences pages do
+    assert prefs.qt_window_geometry == "AdnQywADAAAAAA=="
+    saved = json.loads(prefs_mod.PREFS_PATH.read_text(encoding="utf-8"))
+    assert saved["qt_window_geometry"] == "AdnQywADAAAAAA=="
