@@ -270,6 +270,16 @@ def test_replace_wrapped_match_once(app, dialogs, tmp_path):
     assert "qux" in text and "foo" in text
 
 
+
+def test_replace_moves_the_bar_through_its_second_half(app, dialogs, tmp_path, monkeypatch):
+    # Review R2b-13: the bar climbed to 50 % in the search, then sat there.
+    seen = []
+    monkeypatch.setattr(app, "_prog_update", seen.append, raising=False)
+    _fr(app, dialogs, tmp_path, "The quick fox jumps", "fox", "dog")
+    from conftest import pump
+    pump(app, 0.05)
+    assert seen and abs(max(seen) - 1.0) < 1e-9, seen
+
 def test_replace_can_be_undone(app, dialogs, tmp_path):
     t = _fr(app, dialogs, tmp_path, "The quick fox jumps", "fox", "dog")
     assert app._cur_undo_fn is not None

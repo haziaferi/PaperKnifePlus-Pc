@@ -152,7 +152,9 @@ class FindReplaceTool(PageCanvasTool):
             self._push_undo()
             state["snapshot"] = True
             try:
-                core_text.replace_matches(self._doc, found, repl, font, stop)
+                core_text.replace_matches(
+                    self._doc, found, repl, font, stop,
+                    lambda v: app.after(0, lambda: app._prog_update(v)))
             except Exception as e:
                 raise RuntimeError(f"Nothing was replaced:\n{e}") from e
             state["count"] = sum(len(ms) for _, ms in found)
