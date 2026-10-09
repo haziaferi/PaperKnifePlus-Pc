@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QButtonGroup
 from qfluentwidgets import ComboBox, RadioButton
 
 from ...core import enhance as core_enhance
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]     # the CTk menu's order
@@ -90,7 +90,7 @@ class NormalisePage(ToolPage):
 
         def work(stop):
             return core_enhance.normalise_pdf(doc, out, size, orient, stretch, stop,
-                                              lambda v: bridge.post(win.set_progress, v))
+                                              win.progress_callback())
 
         def then(kind, result):
             if kind != "done" or not result:

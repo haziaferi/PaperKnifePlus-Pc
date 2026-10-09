@@ -8,7 +8,7 @@ from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import text as core_text
 from ...core.doc_state import DocHolder
-from .. import bridge, dialogs, theme
+from .. import dialogs, theme
 from ..pages import WorkspacePage, register_page
 
 GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
@@ -91,10 +91,6 @@ class FindReplacePage(DocHolder, WorkspacePage):
         self.set_title("Find & Replace", "Open a PDF to start")
         self.show_current()
 
-    def _progress(self, scale: float = 1.0):
-        win = self.window_
-        return lambda v: bridge.post(win.set_progress, v * scale)
-
     # ── search ───────────────────────────────────────────────────────────────
     def find_all(self):
         if self._doc is None:
@@ -102,7 +98,7 @@ class FindReplacePage(DocHolder, WorkspacePage):
         needle = self.find_edit.text().strip()
         if not needle:
             return
-        progress = self._progress()
+        progress = self.window_.progress_callback()
 
         def work(stop):
             found = core_text.find_all(self._doc, needle, stop, progress)
@@ -154,7 +150,7 @@ class FindReplacePage(DocHolder, WorkspacePage):
                 "Replace", "The replacement contains characters no built-in font can draw.")
         win = self.window_
         state = {"count": 0, "snapshot": False}
-        first_half, second_half = self._progress(0.5), self._progress()
+        first_half, second_half = win.progress_callback(0.5), win.progress_callback()
 
         def work(stop):
             found = core_text.find_all(self._doc, needle, stop, first_half)

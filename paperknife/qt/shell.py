@@ -450,6 +450,11 @@ class MainWindow(FluentWindow):
         """0.0 - 1.0; call on the main thread (bridge.post from a worker)."""
         self.progress.setValue(int(1000 * max(0.0, min(1.0, float(value)))))
 
+    def progress_callback(self, scale: float = 1.0):
+        """A worker's progress(fraction): posts set_progress(fraction * scale)
+        to the main thread."""
+        return lambda v: bridge.post(self.set_progress, v * scale)
+
     def _prog_show(self, label: str, cancellable: bool = True):
         self.progress.setValue(0)
         self.job_label.setText(label)

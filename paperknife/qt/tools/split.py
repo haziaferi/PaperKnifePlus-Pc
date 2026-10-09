@@ -7,7 +7,7 @@ from qfluentwidgets import LineEdit
 
 from ...core import organise
 from ...pages import PageRangeError, parse_ranges
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 
@@ -59,7 +59,7 @@ class SplitPage(ToolPage):
         def work(stop):
             with doc:                   # the job owns the document from here
                 organise.split_ranges(doc, groups, out_dir, base, stop,
-                                      lambda v: bridge.post(win.set_progress, v))
+                                      win.progress_callback())
 
         def then(kind, _value):
             if kind != "done":

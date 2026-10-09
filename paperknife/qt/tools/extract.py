@@ -4,7 +4,7 @@ from __future__ import annotations
 from qfluentwidgets import ComboBox
 
 from ...core import convert as core_convert
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import (spin_box, ToolPage, card, file_card, group_title, muted_caption, register_page,
                      setting_row)
 
@@ -60,7 +60,7 @@ class ExtractPage(ToolPage):
         def work(stop):
             # Closes doc; None if cancelled.
             return core_convert.extract_images(doc, out_dir, fmt, min_px, stop,
-                                               lambda v: bridge.post(win.set_progress, v))
+                                               win.progress_callback())
 
         def then(kind, res):
             if kind != "done" or res is None:

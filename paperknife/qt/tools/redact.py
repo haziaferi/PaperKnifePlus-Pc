@@ -13,7 +13,7 @@ from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
 from ...core import redact as core_redact
 from ...core.doc_state import DocHolder
-from .. import bridge, dialogs, theme
+from .. import dialogs, theme
 from ..pages import WorkspacePage, muted_caption, register_page
 
 # Segoe Fluent Icons code points
@@ -211,7 +211,7 @@ class RedactPage(DocHolder, WorkspacePage):
 
         win.run_job(
             lambda stop: core_redact.find_phrase(
-                self._doc, needle, stop, lambda v: bridge.post(win.set_progress, v)),
+                self._doc, needle, stop, win.progress_callback()),
             f"Searching for '{needle}'…", lock=True, then=done)
 
     # ── undo / delete ────────────────────────────────────────────────────────
@@ -253,7 +253,7 @@ class RedactPage(DocHolder, WorkspacePage):
 
         def work(stop):
             core_redact.apply_boxes(self._doc, pending, fill, stop,
-                                    lambda v: bridge.post(win.set_progress, v), modes, found)
+                                    win.progress_callback(), modes, found)
             if stop.is_set() and len(modes) < pages:
                 return None             # the boxes of the pages not done stay pending
             # Every page is redacted in memory now, even if Cancel came during the

@@ -9,7 +9,7 @@ from qfluentwidgets import BodyLabel, RadioButton, SingleDirectionScrollArea, St
 
 from ...core import organise
 from ...core.doc_state import DocHolder
-from .. import bridge, dialogs, theme
+from .. import dialogs, theme
 from ..pages import (OrganiserPage, _clear_layout, card, group_title, muted_caption,
                      register_page)
 
@@ -148,7 +148,7 @@ class BookmarksPage(DocHolder, OrganiserPage):
         def work(stop):
             return organise.split_chapters(
                 self._doc, entries, out_dir, stop,
-                lambda v: bridge.post(win.set_progress, v), release=self._release)
+                win.progress_callback(), release=self._release)
 
         def then(kind, count):
             if kind != "done":

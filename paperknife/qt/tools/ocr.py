@@ -113,7 +113,7 @@ class OCRPage(ToolPage):
         def work(stop):
             return core_ocr.ocr_pdf(
                 doc, out, lang, dpi, text_only, stop,
-                lambda v: bridge.post(win.set_progress, v),
+                win.progress_callback(),
                 lambda n, t: bridge.post(log.setText, f"OCR — page {n} / {t}"))
 
         def then(kind, total):

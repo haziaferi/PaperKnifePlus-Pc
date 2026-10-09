@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import convert as core_convert
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import CollectionPage, register_page
 
 _PATTERNS = " ".join(f"*{e}" for e in core_convert.IMAGE_EXTS)
@@ -36,7 +36,7 @@ class Img2PdfPage(CollectionPage):
 
         def work(stop):
             return core_convert.images_to_pdf(
-                paths, out, stop, lambda v: bridge.post(win.set_progress, v))
+                paths, out, stop, win.progress_callback())
 
         def then(kind, written):
             if kind != "done":

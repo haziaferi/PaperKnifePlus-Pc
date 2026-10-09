@@ -8,7 +8,7 @@ from qfluentwidgets import BodyLabel, Slider
 
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 DPI_RANGE = (72, 300)
@@ -64,7 +64,7 @@ class Pdf2ImgPage(ToolPage):
         def work(stop):
             # PNG pages in a ZIP, written atomically; closes doc; False if cancelled.
             return core_convert.pdf_to_doc(
-                doc, "PNG", out, stop, lambda v: bridge.post(win.set_progress, v), dpi=dpi)
+                doc, "PNG", out, stop, win.progress_callback(), dpi=dpi)
 
         def then(kind, ok):
             if kind != "done" or not ok:

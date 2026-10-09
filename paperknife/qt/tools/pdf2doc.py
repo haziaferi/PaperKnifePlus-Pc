@@ -8,7 +8,7 @@ from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, Slider
 
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
-from .. import bridge, dialogs, theme
+from .. import dialogs, theme
 from ..pages import Divider, ToolPage, card, file_card, group_title, register_page, setting_row
 
 INFO = {
@@ -145,7 +145,7 @@ class Pdf2DocPage(ToolPage):
         def work(stop):
             # Closes doc; False if cancelled (nothing written).
             return core_convert.pdf_to_doc(doc, fmt, out, stop,
-                                           lambda v: bridge.post(win.set_progress, v),
+                                           win.progress_callback(),
                                            dpi=dpi, quality=quality)
 
         def then(kind, ok):

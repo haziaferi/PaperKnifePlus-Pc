@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QFrame
 from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
 
 from ...core import enhance as core_enhance
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 DEFAULT_COLOR = (128, 128, 128)          # the CTk tool's #808080 swatch
@@ -109,7 +109,7 @@ class WatermarkPage(ToolPage):
         def work(stop):
             return core_enhance.watermark_pdf(
                 doc, out, text, size, opacity, color, stop,
-                lambda v: bridge.post(win.set_progress, v)) is not None
+                win.progress_callback()) is not None
 
         def then(kind, result):
             if kind != "done" or not result:
