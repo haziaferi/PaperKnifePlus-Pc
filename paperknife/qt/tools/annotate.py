@@ -133,6 +133,10 @@ class AnnotatePage(DocHolder, WorkspacePage):
 
     def deactivate(self):
         self._close_doc()
+        self._undo_stack, self.sel_xref = [], None
+        self.set_title("Annotate", "Open a PDF to start")
+        self.build_panel()
+        self.show_current()
 
     # ── mouse ────────────────────────────────────────────────────────────────
     def _press(self, xy):

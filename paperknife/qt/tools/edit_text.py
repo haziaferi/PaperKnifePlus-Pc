@@ -97,7 +97,9 @@ class EditTextPage(DocHolder, WorkspacePage):
     def deactivate(self):
         self._close_doc()
         self._blocks, self._sel_bi, self._undo_stack = [], None, []
+        self.set_title("Edit Text", "Open a PDF to start")
         self.build_panel()
+        self.show_current()
 
     # ── overlay and mouse ────────────────────────────────────────────────────
     def draw_overlay(self, page):
