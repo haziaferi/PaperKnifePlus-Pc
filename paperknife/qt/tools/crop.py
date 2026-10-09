@@ -94,6 +94,10 @@ class CropPage(ToolPage):
         except PageRangeError as e:
             doc.close()
             return dialogs.error("Crop", str(e))
+        if not core.croppable(doc, pages, margins, reset):
+            doc.close()
+            return dialogs.warning("Crop", "No page was cropped: the margins are larger "
+                                           "than every selected page.")
         out = dialogs.ask_save("cropped.pdf", ".pdf", [("PDF", "*.pdf")])
         if not out:
             return doc.close()

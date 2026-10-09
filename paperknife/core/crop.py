@@ -24,6 +24,20 @@ def parse_margins(top: str, right: str, bottom: str, left: str
     return mt, mr, mb, ml
 
 
+def croppable(doc, pages, margins, reset: bool) -> int:
+    """How many of *pages* crop_pdf would crop (the others are smaller than
+    their margins), without changing *doc*: a caller can refuse before it
+    asks where to save a copy nothing was done to."""
+    mt, mr, mb, ml = margins
+    n = 0
+    for pg_num in pages:
+        page = doc[pg_num]
+        seen = page.mediabox * page.rotation_matrix if reset else page.rect
+        if not fitz.Rect(ml, mt, seen.width - mr, seen.height - mb).is_empty:
+            n += 1
+    return n
+
+
 def crop_pdf(doc, out: str, pages, margins, reset: bool, stop) -> int | None:
     """Cut *margins* (top, right, bottom, left, in points as the page is seen)
     off each 0-based page number in *pages* of *doc* (closed here), first
