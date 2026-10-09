@@ -130,10 +130,19 @@ def _fluent_box(title: str, msg: str, *, cancel: str | None, yes: str = "OK"):
     return box
 
 
+def _exec_once(box) -> int:
+    """exec() a dialog parented to the main window, then delete it: a closed
+    box must not stay behind as a hidden child for the whole session."""
+    try:
+        return box.exec()
+    finally:
+        box.deleteLater()
+
+
 def _message(kind, title: str, msg: str) -> None:
     box = _fluent_box(title, msg, cancel=None)
     if box is not None:
-        box.exec()
+        _exec_once(box)
         return
     {"info": QMessageBox.information, "warning": QMessageBox.warning,
      "error": QMessageBox.critical}[kind](None, title, msg)
@@ -154,7 +163,7 @@ def error(title: str, msg: str) -> None:
 def ask_yes_no(title: str, msg: str) -> bool:
     box = _fluent_box(title, msg, cancel="No", yes="Yes")
     if box is not None:
-        return bool(box.exec())
+        return bool(_exec_once(box))
     return QMessageBox.question(None, title, msg) == QMessageBox.Yes
 
 
@@ -168,9 +177,14 @@ def ask_password(title: str = "Password required",
         text, ok = QInputDialog.getText(None, title, prompt, QLineEdit.Password)
         return text if ok and text else None
     dlg = _PasswordDialog(title, prompt, parent)
-    if dlg.exec() and dlg.edit.text():
-        return dlg.edit.text()
-    return None
+    text = ""
+    try:
+        if _exec_once(dlg):
+            text = dlg.edit.text()
+    finally:
+        # Emptied as well as deleted: no typed password stays behind.
+        dlg.edit.clear()
+    return text or None
 
 
 class _PasswordDialog(MessageBoxBase):

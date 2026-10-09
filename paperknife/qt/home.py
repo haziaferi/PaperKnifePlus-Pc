@@ -2,22 +2,25 @@
 paperknife.qt.home
 The Home page: quick actions and the recent-files grid.
 
-Thumbnails are rendered here with PyMuPDF straight into a QPixmap
-(paperknife.recent.get_thumb returns a CTkImage, which Qt cannot use), one
-per event-loop turn so a long history never holds the window.
+Thumbnails are rendered here with PyMuPDF (paperknife.recent.get_thumb
+returns a CTkImage, which Qt cannot use) on a worker thread: the file is
+looked at and rendered into a QImage there, and the QPixmap is made on the
+UI thread, so a file on an offline share or a huge scan never holds the
+window while the stat or the render runs.
 """
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 import pymupdf as fitz
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, CardWidget, FlowLayout, PushButton, TransparentPushButton
 
-from . import dialogs
+from . import bridge, dialogs
 from . import theme
 from .pages import ToolPage, group_title, muted_caption
 from ..recent import RECENT, time_ago
@@ -36,34 +39,54 @@ _THUMB_CACHE: dict[tuple, QPixmap | None] = {}
 _THUMB_CACHE_MAX = 64
 
 
-def render_thumb(path: str, box=THUMB_BOX) -> QPixmap | None:
-    """The first page of *path* fitted into *box* (logical px), rendered at
-    2x for sharpness at 200 % scaling; None when it cannot be read."""
+def _thumb_key(path: str, box=THUMB_BOX) -> tuple | None:
+    """The cache key of *path* (it changes with the file); None when the file
+    cannot be reached.  Safe on a worker thread."""
     try:
         mtime = os.stat(path).st_mtime_ns
     except OSError:
         return None
-    key = (path, tuple(box), mtime)
-    if key in _THUMB_CACHE:
-        return _THUMB_CACHE[key]
-    if len(_THUMB_CACHE) >= _THUMB_CACHE_MAX:
-        _THUMB_CACHE.pop(next(iter(_THUMB_CACHE)))
-    pm = None
+    return (path, tuple(box), mtime)
+
+
+def _render_image(path: str, box=THUMB_BOX) -> QImage | None:
+    """The first page fitted into *box* (logical px) at 2x, as a QImage (no
+    QPixmap: this runs on a worker thread); None when it cannot be read."""
     try:
         with fitz.open(path) as doc:
             if doc.is_encrypted or len(doc) == 0:
-                raise ValueError("no preview")
+                return None
             page = doc[0]
             zoom = 2 * min(box[0] / page.rect.width, box[1] / page.rect.height)
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride,
-                         QImage.Format_RGB888).copy()
+            return QImage(pix.samples, pix.width, pix.height, pix.stride,
+                          QImage.Format_RGB888).copy()
+    except Exception:
+        return None
+
+
+def _cache_pixmap(key: tuple, img: QImage | None) -> QPixmap | None:
+    """UI thread: the QPixmap for *img*, remembered under *key*."""
+    pm = None
+    if img is not None:
         pm = QPixmap.fromImage(img)
         pm.setDevicePixelRatio(2.0)
-    except Exception:
-        pm = None
+    if len(_THUMB_CACHE) >= _THUMB_CACHE_MAX:
+        _THUMB_CACHE.pop(next(iter(_THUMB_CACHE)))
     _THUMB_CACHE[key] = pm
     return pm
+
+
+def render_thumb(path: str, box=THUMB_BOX) -> QPixmap | None:
+    """The first page of *path* fitted into *box* (logical px), rendered at
+    2x for sharpness at 200 % scaling; None when it cannot be read.
+    UI thread, blocking (HomePage renders on a worker instead)."""
+    key = _thumb_key(path, box)
+    if key is None:
+        return None
+    if key in _THUMB_CACHE:
+        return _THUMB_CACHE[key]
+    return _cache_pixmap(key, _render_image(path, box))
 
 
 def _framed(pm: QPixmap) -> QPixmap:
@@ -80,6 +103,36 @@ def _framed(pm: QPixmap) -> QPixmap:
 
 def _short(name: str, n: int = 22) -> str:
     return name if len(name) <= n else name[:n - 3] + "…"
+
+
+def _thumb_worker(jobs, stop: threading.Event) -> None:
+    """Worker: stat and render each recent file, posting the result to the UI
+    thread one card at a time; stops when a newer refresh started."""
+    for card, path in jobs:
+        if stop.is_set():
+            return
+        key = _thumb_key(path)
+        if key is None:
+            bridge.post(_show_thumb, stop, card, None, None, False)
+        elif key in _THUMB_CACHE:
+            bridge.post(_show_thumb, stop, card, key, None, True)
+        else:
+            bridge.post(_show_thumb, stop, card, key, _render_image(path), False)
+
+
+def _show_thumb(stop, card, key, img, cached) -> None:
+    """UI thread: put a worker's thumbnail on its card (if it still exists)."""
+    if stop.is_set() or not _is_valid(card):
+        return
+    if key is None:
+        pm = None
+    elif cached and key in _THUMB_CACHE:
+        pm = _THUMB_CACHE[key]
+    elif cached:                         # evicted meanwhile: render it here
+        pm = render_thumb(card.path)
+    else:
+        pm = _cache_pixmap(key, img)
+    card.show_thumb(pm)
 
 
 class RecentCard(CardWidget):
@@ -115,7 +168,9 @@ class RecentCard(CardWidget):
         self.clicked.connect(lambda: on_open(self.path))
 
     def load_thumb(self):
-        pm = render_thumb(self.path)
+        self.show_thumb(render_thumb(self.path))
+
+    def show_thumb(self, pm: QPixmap | None):
         if pm is not None:
             self.thumb.setPixmap(_framed(pm))
         else:
@@ -127,7 +182,7 @@ class HomePage(ToolPage):
         super().__init__("PaperKnife+ PC", "100 % local  ·  no cloud  ·  no tracking",
                          window=window)
         self.setObjectName("home")
-        self._pending: list[RecentCard] = []
+        self._thumb_stop = threading.Event()      # set: the running thumbnail pass is stale
 
         # Quick actions
         self.body.addWidget(group_title("Quick actions"))
@@ -191,17 +246,12 @@ class HomePage(ToolPage):
             c = RecentCard(e, lambda p: self._open_tool("ReaderTool", p), self.content)
             self.grid.addWidget(c)
             self.cards.append(c)
-        self._pending = list(self.cards)
-        QTimer.singleShot(0, self._next_thumb)
-
-    def _next_thumb(self):
-        while self._pending:
-            c = self._pending.pop(0)
-            if _is_valid(c):
-                c.load_thumb()
-                break
-        if self._pending:
-            QTimer.singleShot(0, self._next_thumb)
+        self._thumb_stop.set()
+        self._thumb_stop = stop = threading.Event()
+        jobs = [(c, c.path) for c in self.cards]
+        if jobs:
+            threading.Thread(target=_thumb_worker, args=(jobs, stop),
+                             name="home-thumbs", daemon=True).start()
 
     def clear_history(self):
         if dialogs.ask_yes_no("Clear history", "Remove all recent file entries?"):

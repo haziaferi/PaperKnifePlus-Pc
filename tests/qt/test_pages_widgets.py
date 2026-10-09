@@ -125,6 +125,23 @@ def test_organiser_renders_thumbs_a_few_per_turn(qapp):
     page.close()
 
 
+def test_organiser_page_moved_while_rendering_still_gets_its_thumb(qapp):
+    # R1-25: the queue held row numbers; a page moved into the rendered
+    # prefix kept a blank tile and another page was rendered twice.
+    page, calls = _organiser(n=40)
+    page._render_some()                          # one tick: rows 0-3
+    page.select(30)
+    page.move(-30)                               # an unrendered page to the front
+    for _ in range(50):
+        pump(0.02)
+        if not page.rendering():
+            break
+    blank = [page.grid.item(i).data(0x0100) for i in range(page.grid.count())
+             if page.grid.item(i).icon().isNull()]
+    assert blank == [] and sorted(calls) == list(range(40))
+    page.close()
+
+
 def test_organiser_selection_enables_actions_and_moves_a_block(qapp):
     from qfluentwidgets import FluentIcon as FIF
     page, _ = _organiser()
@@ -206,3 +223,195 @@ def test_a_fixed_width_field_sits_at_the_left(qapp):
     pump(0.1)
     assert narrow.x() == wide.x() and wide.width() > 200
     page.close()
+
+
+def _ctrl_wheel(view, dx: int, dy: int):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    ev = QWheelEvent(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(dx, dy),
+                     Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
+    view.wheelEvent(ev)
+
+
+def _page_view(qapp, tmp_path, monkeypatch):
+    import pymupdf as fitz
+    from qt_harness import make_pdf
+    from paperknife.qt import pageview
+    renders = []
+    real = pageview.render
+    monkeypatch.setattr(pageview, "render", lambda *a, **k: (renders.append(1), real(*a, **k))[1])
+    doc = fitz.open(make_pdf(tmp_path / "z.pdf", 1))
+    view = pageview.PageView()
+    view.show_page(doc[0])
+    zooms = []
+    view.zoomed.connect(zooms.append)
+    return view, doc, renders, zooms
+
+
+def test_ctrl_sideways_wheel_does_not_zoom(qapp, tmp_path, monkeypatch):
+    # R1-13: a horizontal tilt / touchpad pan with Ctrl held zoomed out.
+    view, doc, renders, zooms = _page_view(qapp, tmp_path, monkeypatch)
+    before = view.zoom
+    n = len(renders)
+    _ctrl_wheel(view, 120, 0)
+    assert view.zoom == before and zooms == [] and len(renders) == n
+    doc.close()
+
+
+def test_ctrl_wheel_at_the_zoom_limit_does_not_rerender(qapp, tmp_path, monkeypatch):
+    # R1-13: at 3.0 every Ctrl+wheel up re-rendered an identical page.
+    from paperknife.qt.pageview import ZOOM_MAX
+    view, doc, renders, zooms = _page_view(qapp, tmp_path, monkeypatch)
+    view.set_zoom(ZOOM_MAX)
+    n = len(renders)
+    _ctrl_wheel(view, 0, 120)
+    view.set_zoom(ZOOM_MAX + 1)
+    assert view.zoom == ZOOM_MAX and len(renders) == n and zooms == []
+    doc.close()
+
+
+def _workspace(qapp, monkeypatch):
+    import pymupdf as fitz
+    from paperknife.qt import pageview
+    from paperknife.qt.pages import WorkspacePage
+    renders = []
+    real = pageview.render
+    monkeypatch.setattr(pageview, "render", lambda *a, **k: (renders.append(1), real(*a, **k))[1])
+
+    class P(WorkspacePage):
+        def draw_overlay(self, page):
+            self.view.add_rect(fitz.Rect(50, 50, 200, 100), "#FF0000")
+    p = P("t")
+    p.resize(1000, 700)
+    p.show()
+    p._doc = fitz.open()
+    p._doc.new_page()
+    p._pg = 0
+    p.show_current()
+    return p, renders
+
+
+def test_ctrl_wheel_zoom_renders_once_and_keeps_the_overlay(qapp, monkeypatch):
+    # R1-22: a notch rendered three times and the overlay blinked out until
+    # the slider's timer redrew it (never, when the slider value held).
+    from paperknife.qt.pageview import ZOOM_MAX
+    p, renders = _workspace(qapp, monkeypatch)
+    renders.clear()
+    _ctrl_wheel(p.view, 0, 120)
+    assert len(p.view._overlays) == 1           # drawn with the page, no gap
+    pump(0.4)
+    assert len(renders) == 1 and len(p.view._overlays) == 1
+    assert p.zoom_slider.value() == round(p.view.zoom * 100)
+    p.zoom_slider.setValue(int(ZOOM_MAX * 100))
+    pump(0.4)
+    renders.clear()
+    _ctrl_wheel(p.view, 0, 120)                 # at the limit
+    pump(0.4)
+    assert renders == [] and len(p.view._overlays) == 1
+    p.close()
+
+
+def test_zoom_slider_rest_renders_the_page_once(qapp, monkeypatch):
+    # R1-23: set_zoom rendered and show_current rendered again.
+    p, renders = _workspace(qapp, monkeypatch)
+    renders.clear()
+    p.zoom_slider.setValue(220)
+    pump(0.4)
+    assert p.view.zoom == 2.2
+    assert len(renders) == 1 and len(p.view._overlays) == 1
+    p.close()
+
+
+def _ink(icon):
+    from PySide6.QtCore import QSize
+    img = icon.pixmap(QSize(36, 36)).toImage()
+    px = [img.pixelColor(x, y) for x in range(img.width()) for y in range(img.height())]
+    px = [c for c in px if c.alpha() > 200]
+    return px[0].name() if px else None
+
+
+def test_workspace_follows_a_theme_switch(qapp):
+    # R1-24: rail / panel glyphs and the page ground kept the theme the page
+    # was built in: near-black icons on a dark rail after Light -> Dark.
+    from paperknife.qt import theme
+    from paperknife.qt.pages import WorkspacePage
+    p = WorkspacePage("t")
+    btn = p.add_rail("k", 0xE70F, "tip", lambda: None)
+    p.panel_begin("Panel")
+    hide = p._panel_hide_btn if hasattr(p, "_panel_hide_btn") else None
+    try:
+        theme.apply_appearance("dark")
+        pump(0.05)
+        text, bg = theme.hex_color("text"), theme.hex_color("page_bg")
+        assert _ink(btn.icon()) == text
+        assert _ink(p.reopen_btn.icon()) == text
+        assert hide is not None and _ink(hide.icon()) == text
+        assert p.view.backgroundBrush().color().name() == bg
+        assert theme.hex_color("accent") in p.split.styleSheet()
+    finally:
+        theme.apply_appearance("light")
+        pump(0.05)
+    assert _ink(btn.icon()) == theme.hex_color("text")
+    assert p.view.backgroundBrush().color().name() == theme.hex_color("page_bg")
+    p.deleteLater()
+
+
+def test_master_detail_ctrl_click_deselect_updates_tools_and_detail(qapp):
+    # R1-26: Ctrl+click on the selected entry cleared the selection without
+    # moving currentRow: Remove stayed enabled and on_select never heard.
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from paperknife.qt.pages import MasterDetailPage
+    calls = []
+
+    class P(MasterDetailPage):
+        def on_select(self, i):
+            calls.append(i)
+    p = P("t")
+    p.resize(900, 600)
+    p.show()
+    b = p.add_tool("Remove", None, lambda: None, needs_selection=True)
+    p.set_items(["a", "b", "c"], keep=1)
+    pump(0.02)
+    calls.clear()
+
+    def ctrl_click(i):
+        rect = p.list.visualItemRect(p.list.item(i))
+        QTest.mouseClick(p.list.viewport(), Qt.LeftButton, Qt.ControlModifier, rect.center())
+        pump(0.02)
+    ctrl_click(1)
+    assert p.current() is None and not b.isEnabled() and calls == [None]
+    ctrl_click(1)
+    assert p.current() == 1 and b.isEnabled() and calls == [None, 1]
+    p.close()
+
+
+def test_context_panel_quick_show_then_hide_ends_hidden(qapp, monkeypatch):
+    # R1-27: a second show_context within SLIDE_MS left the first animation
+    # running; touching the right edge and leaving at once opened the panel.
+    from paperknife.qt.pages import SLIDE_MS
+    p, _ = _workspace(qapp, monkeypatch)
+    p.show_context(False)
+    pump(SLIDE_MS / 1000 + 0.2)
+    assert p.split.sizes()[1] == 0 and p.reopen_btn.isVisible()
+    p.show_context(True)
+    pump(0.03)
+    p.show_context(False)
+    pump(SLIDE_MS / 1000 + 0.2)
+    assert p.split.sizes()[1] == 0
+    assert p.reopen_btn.isVisible()
+    p.close()
+
+
+def test_context_panel_slides_leave_no_animation_behind(qapp, monkeypatch):
+    # R1-27 (verifier): every show_context also leaked one animation object.
+    from PySide6.QtCore import QVariantAnimation
+    from paperknife.qt.pages import SLIDE_MS
+    p, _ = _workspace(qapp, monkeypatch)
+    for on in (False, True, False, True):
+        p.show_context(on)
+        pump(SLIDE_MS / 1000 + 0.1)
+    pump(0.05)
+    assert [a for a in p.findChildren(QVariantAnimation) if type(a) is QVariantAnimation] == []
+    assert p.split.sizes()[1] > 0 and not p.reopen_btn.isVisible()
+    p.close()

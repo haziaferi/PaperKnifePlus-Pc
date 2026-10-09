@@ -9,6 +9,8 @@ system) and applies it with the accent.
 """
 from __future__ import annotations
 
+import functools
+
 from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QGuiApplication, QIcon,
                            QIconEngine, QImage, QPainter, QPixmap)
@@ -120,6 +122,7 @@ def setup_fonts(app: QApplication) -> None:
 
 
 # ── Segoe Fluent Icons ────────────────────────────────────────────────────────
+@functools.cache        # the font list costs ~7 ms; a paint must not pay it
 def icon_font_family() -> str:
     families = set(QFontDatabase.families())
     for fam in _ICON_FONTS:

@@ -150,6 +150,31 @@ def test_a_page_smaller_than_its_margins_is_skipped_with_a_warning(window, dialo
     assert window.status_role == "warning"
 
 
+def test_margins_larger_than_every_page_are_refused_without_saving(window, dialogs, tmp_path):
+    # R45-3: nothing was cropped, an identical copy was written and the box
+    # said "Cropped PDF saved".
+    doc = fitz.open()
+    doc.new_page(width=200, height=200)
+    doc.save(tmp_path / "in.pdf")
+    doc.close()
+    out = tmp_path / "out.pdf"
+    page = _page(window)
+    page.file.set_path(str(tmp_path / "in.pdf"))
+    for edit in page.margins.values():
+        edit.setText("150")
+    page.page_range.setText("")
+    page.reset.setChecked(False)
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert not out.exists()
+    assert dialogs.saves == [str(out)], "the save dialog was not needed"
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
+    assert dialogs.warnings() == [
+        ("warning", "Crop", "No page was cropped: the margins are larger than every "
+                            "selected page.")]
+
+
 def test_crop_can_overwrite_its_input(window, dialogs, tmp_path):
     src = make_pdf(tmp_path / "in.pdf")
     _crop(window, dialogs, src, src, top=50)

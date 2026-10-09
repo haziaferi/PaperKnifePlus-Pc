@@ -209,3 +209,27 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     assert opened and opened[0].is_closed
     with fitz.open(out) as doc:
         assert doc.needs_pass
+
+
+def test_passwords_do_not_stay_in_the_fields_after_the_job(window, dialogs, tmp_path):
+    # R45-5: the passwords stayed for the session, and the eye button shows them.
+    src = make_pdf(tmp_path / "in.pdf")
+    page = _protect(window, dialogs, src, str(tmp_path / "p.pdf"), user="secret",
+                    owner="boss", current="old")
+    assert (page.pw1.text(), page.pw2.text(), page.cur_pw.text()) == ("", "", "")
+    page.cur_pw.setText("secret")
+    dialogs.save(str(tmp_path / "u.pdf"))
+    page.file.set_path(str(tmp_path / "p.pdf"))
+    page.unprotect()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+    assert page.cur_pw.text() == ""
+
+
+def test_passwords_are_cleared_when_the_page_is_left(window, tmp_path):
+    page = _page(window)
+    page.pw1.setText("secret")
+    page.pw2.setText("boss")
+    page.cur_pw.setText("old")
+    window.show_page("home")
+    assert (page.pw1.text(), page.pw2.text(), page.cur_pw.text()) == ("", "", "")

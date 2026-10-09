@@ -316,6 +316,7 @@ class ToolPage(QWidget):
         self.window_ = window
         self.placement = action_placement()
         self._compact = False
+        self._ctx_before_compact = True     # the panel as the user left it
         self._buttons: list = []
 
         v = QVBoxLayout(self)
@@ -449,11 +450,14 @@ class ToolPage(QWidget):
 
     # ── window modes (the shell calls these) ──
     def set_compact(self, on: bool):
-        """Compact Mode: the header and any context panel are hidden."""
+        """Compact Mode: the header and any context panel are hidden; leaving
+        it brings the panel back only if it was shown when Compact Mode began."""
+        if self.has_context() and on and not self._compact:
+            self._ctx_before_compact = self.context_shown()
         self._compact = on
         self.header.setVisible(not on)
         if self.has_context():
-            self.show_context(not on)
+            self.show_context(False if on else self._ctx_before_compact)
 
     def reveal_header(self, on: bool):
         """In Compact Mode the top edge brings the header back for a while."""
@@ -529,9 +533,7 @@ class WorkspacePage(ToolPage):
 
         self.split = QSplitter(Qt.Horizontal)
         self.split.setHandleWidth(6)
-        accent = theme.hex_color("accent")
-        self.split.setStyleSheet("QSplitter::handle { background: transparent; }"
-                                 f"QSplitter::handle:hover {{ background: {accent}; }}")
+        self._style_split()
         self.split.setChildrenCollapsible(True)
         mid = QWidget()
         mv = QVBoxLayout(mid)
@@ -557,7 +559,7 @@ class WorkspacePage(ToolPage):
         self.zoom_slider.setValue(int(self.view.zoom * 100))
         self.zoom_slider.setFixedWidth(140)
         self.zoom_slider.valueChanged.connect(self._zoom_changed)
-        self.view.zoomed.connect(lambda z: self.zoom_slider.setValue(int(z * 100)))
+        self.view.zoomed.connect(self._wheel_zoomed)
         strip.addWidget(self.zoom_slider)
         self.reopen_btn = TransparentToolButton(theme.glyph_icon(0xE76B, 14))
         self.reopen_btn.setToolTip("Show panel")
@@ -585,6 +587,28 @@ class WorkspacePage(ToolPage):
         self._panel_w = PANEL_W
         self._zoom_timer = None
         self.panel_body = None
+        self._panel_hide_btn = None
+        # The glyph pixmaps, the page ground and the splitter accent are
+        # baked for one theme: redo them when Preferences or Windows switch it.
+        from qfluentwidgets import qconfig
+        qconfig.themeChangedFinished.connect(self._apply_theme)
+
+    def _style_split(self):
+        accent = theme.hex_color("accent")
+        self.split.setStyleSheet("QSplitter::handle { background: transparent; }"
+                                 f"QSplitter::handle:hover {{ background: {accent}; }}")
+
+    def _apply_theme(self):
+        from PySide6.QtGui import QBrush
+        self.view.setBackgroundBrush(QBrush(theme.color("page_bg")))
+        self._style_split()
+        for i in range(self.rail.count()):
+            w = self.rail.itemAt(i).widget()
+            if w is not None and hasattr(w, "pk_glyph"):
+                w.setIcon(theme.glyph_icon(w.pk_glyph, 18))
+        self.reopen_btn.setIcon(theme.glyph_icon(0xE76B, 14))
+        if self._panel_hide_btn is not None:
+            self._panel_hide_btn.setIcon(theme.glyph_icon(0xE76C, 14))
 
     # ── rail ──
     def add_rail(self, key: str, glyph: int, tip: str, slot, toggle: bool = True):
@@ -632,6 +656,7 @@ class WorkspacePage(ToolPage):
         hide.setToolTip("Hide panel")
         hide.clicked.connect(lambda: self.show_context(False))
         top.addWidget(hide)
+        self._panel_hide_btn = hide
         bv.addLayout(top)
         if desc:
             d = muted_caption(desc)
@@ -680,19 +705,32 @@ class WorkspacePage(ToolPage):
 
     def show_context(self, on: bool):
         target = self._panel_w if on else 0
-        total = sum(self.split.sizes())
+        # One slide at a time: a second call within SLIDE_MS takes over from
+        # where the running one is instead of fighting it over setSizes.
+        old = getattr(self, "_panel_anim", None)
+        if old is not None:
+            self._panel_anim = None
+            old.stop()
         start = self.split.sizes()[1]
         if start == target:
+            if old is not None:
+                self.reopen_btn.setVisible(target == 0)
             return
         a = self._QVariantAnimation(self)
         a.setDuration(SLIDE_MS)
         a.setStartValue(start)
         a.setEndValue(target)
         a.setEasingCurve(self._QEasingCurve.OutCubic)
-        a.valueChanged.connect(lambda w: self.split.setSizes([total - int(w), int(w)]))
+
+        def step(w):
+            total = sum(self.split.sizes())       # now, not when the slide began
+            self.split.setSizes([total - int(w), int(w)])
+        a.valueChanged.connect(step)
         a.finished.connect(lambda: self.reopen_btn.setVisible(target == 0))
-        a.start()
+        # Deleted when it stops, so a page that slides often keeps none.
+        a.finished.connect(lambda: self._panel_anim is a and setattr(self, "_panel_anim", None))
         self._panel_anim = a
+        a.start(self._QVariantAnimation.DeleteWhenStopped)
 
     # ── pages ──
     def page_count(self) -> int:
@@ -717,14 +755,24 @@ class WorkspacePage(ToolPage):
         self.page_label.setText(f"{self._pg + 1} / {len(doc)}")
         self.draw_overlay(doc[self._pg])
 
+    def _wheel_zoomed(self, z: float):
+        # Ctrl+wheel set the view's zoom without rendering: move the slider
+        # quietly and draw the page with its overlay once.
+        self.zoom_slider.blockSignals(True)
+        self.zoom_slider.setValue(int(round(z * 100)))
+        self.zoom_slider.blockSignals(False)
+        if self._zoom_timer is not None:
+            self._zoom_timer.stop()
+        self.show_current()
+
     def _zoom_changed(self, v: int):
         # Render once the slider rests: a render costs ~30 ms.
         from PySide6.QtCore import QTimer
         if self._zoom_timer is None:
             self._zoom_timer = QTimer(self, singleShot=True, interval=120)
             self._zoom_timer.timeout.connect(
-                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100),
-                         self.show_current()))
+                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100, render=False),
+                         self.show_current()))     # one render: page and overlay
         self._zoom_timer.start()
 
     # hooks for subclasses
@@ -1232,7 +1280,9 @@ class OrganiserPage(ToolPage):
             it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             it.setFlags(it.flags() | Qt.ItemIsDragEnabled)
             self.grid.addItem(it)
-        self._queue = list(range(self.grid.count()))
+        # The items themselves, not their rows: a move or a drag reorders the
+        # rows while the queue drains.
+        self._queue = [self.grid.item(i) for i in range(self.grid.count())]
         if self._queue:
             self._timer.start()
         self._show_grid_state()
@@ -1265,9 +1315,8 @@ class OrganiserPage(ToolPage):
             if not self._queue:
                 self._timer.stop()
                 return
-            i = self._queue.pop(0)
-            it = self.grid.item(i)
-            if it is not None and self._render is not None:
+            it = self._queue.pop(0)
+            if self._render is not None and self.grid.row(it) >= 0:
                 it.setIcon(self._thumb_icon(it.data(Qt.UserRole)))
 
     def rendering(self) -> bool:
@@ -1367,6 +1416,8 @@ class MasterDetailPage(ToolPage):
         self.list = ListWidget(self.list_card)
         self.list.setFrameShape(QFrame.NoFrame)
         self.list.currentRowChanged.connect(self._row_changed)
+        self.list.itemSelectionChanged.connect(self._selection_changed)
+        self._shown: int | None = None          # what on_select last heard
         lv.addWidget(self.list, 1)
         self.empty_label = muted_caption(empty_text)
         self.empty_label.setAlignment(Qt.AlignCenter)
@@ -1466,14 +1517,24 @@ class MasterDetailPage(ToolPage):
 
     def _row_changed(self, r: int):
         self._refresh()
-        self.on_select(r if 0 <= r < self.list.count() else None)
+        self._shown = r if 0 <= r < self.list.count() else None
+        self.on_select(self._shown)
+
+    def _selection_changed(self):
+        # Ctrl+click on the selected entry deselects it (and a second one
+        # selects it again) without moving currentRow.
+        self._refresh()
+        cur = self.current()
+        if cur != self._shown:
+            self._shown = cur
+            self.on_select(cur)
 
     def _refresh(self):
         n = self.list.count()
         self.list.setVisible(bool(n))
         self.empty_label.setVisible(not n)
         self.count_label.setText(f"{n} entr{'ies' if n != 1 else 'y'}" if n else "")
-        has = 0 <= self.list.currentRow() < n
+        has = self.current() is not None
         for b in self._tools:
             if getattr(b, "pk_needs_selection", False):
                 b.setEnabled(has)

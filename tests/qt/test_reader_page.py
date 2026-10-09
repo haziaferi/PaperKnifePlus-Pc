@@ -254,3 +254,17 @@ def _open_unsettled(window, tmp_path):
     src = make_pdf(tmp_path / "doc.pdf", pages=1)
     assert window.open_tool("ReaderTool", src)
     return window.current_page(), src
+
+
+def test_ctrl_sideways_wheel_does_not_zoom_the_reader(window):
+    # R1-13: the Reader's view made the same zoom-out of a delta-0 wheel.
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    window.open_tool("ReaderTool")
+    page = window.current_page()
+    zooms = []
+    page.view.zoomed.connect(zooms.append)
+    ev = QWheelEvent(QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(120, 0),
+                     Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
+    page.view.wheelEvent(ev)
+    assert zooms == []

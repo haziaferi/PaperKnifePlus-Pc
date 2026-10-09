@@ -17,13 +17,14 @@ MainWindow: the FluentWindow shell that replaces paperknife/app.py's App.
 from __future__ import annotations
 
 import gc
+import json
 import os
 import time
 from pathlib import Path
 
 import pymupdf as fitz
-from PySide6.QtCore import (QByteArray, QEasingCurve, QEvent, QPoint, QPropertyAnimation, Qt,
-                            QTimer)
+from PySide6.QtCore import (QByteArray, QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect,
+                            Qt, QTimer)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QHBoxLayout,
                                QLineEdit, QPlainTextEdit, QTextEdit, QVBoxLayout, QWidget)
@@ -33,7 +34,7 @@ from qfluentwidgets.components.navigation.navigation_panel import NavigationDisp
 from qfluentwidgets.components.navigation.navigation_widget import NavigationWidget
 
 from . import bridge, dialogs, pages, theme
-from ..job_queue import CancellableJob
+from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
 
@@ -46,8 +47,10 @@ EDGE = 8                # px from the window edge that counts as "the edge"
 OUTSIDE_X, OUTSIDE_Y = 200, 100   # pointer this far outside still counts
 POLL_MS = 40            # edge watcher interval (runs only when needed)
 CLOSE_WAIT_S = 15       # how long close waits for a cancelled job
+BUSY_MSG = "Another job is still running. Wait for it to finish or cancel it first."
 
 GEOMETRY_KEY = "qt_window_geometry"
+STALE_PARTS_KEY = "qt_stale_parts"
 NAV_EXPAND_WIDTH = 212
 NAV_MIN_EXPAND_WINDOW = 900
 BOTTOM_SECTIONS = ("SETTINGS",)
@@ -153,12 +156,12 @@ class MainWindow(FluentWindow):
         self._build_timers()
         self.titleBar.installEventFilter(self)
 
+        self._stale_parts = _remove_stale_parts(PREFS.get(STALE_PARTS_KEY, []))
+
+        self._normal_rect = QRect(self.geometry())   # the last un-maximized place
         geo = PREFS.get(GEOMETRY_KEY, "")
         if geo:
-            try:
-                self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
-            except (UnicodeError, ValueError):
-                pass
+            self._restore_place(geo)
 
         self._ready = True              # Qt events before this point skip our handlers
         self.show_page("home")
@@ -481,8 +484,7 @@ class MainWindow(FluentWindow):
 
         One job at a time: while one runs this warns and returns None."""
         if self._current_job and self._current_job.is_running:
-            dialogs.warning("Busy", "Another job is still running. Wait for it to finish "
-                                    "or cancel it first.")
+            dialogs.warning("Busy", BUSY_MSG)
             return None
 
         # As in the Tk app: collect here, on the main thread, so the
@@ -527,6 +529,9 @@ class MainWindow(FluentWindow):
         )
         self._current_job = job
         return job.start()
+
+    def job_running(self) -> bool:
+        return bool(self._current_job and self._current_job.is_running)
 
     def _if_alive(self, cb):
         if self._alive:
@@ -623,7 +628,9 @@ class MainWindow(FluentWindow):
     # ══════════════════════════════════════════════════════════════════════════
     def toggle_nav(self):
         """Ctrl+Alt+S: collapse or expand the navigation (in Compact Mode:
-        bring it in or send it away)."""
+        bring it in or send it away).  Ignored while a job holds the view."""
+        if self._locked:
+            return
         if self.compact:
             self._reveal_side(not self._side_shown)
             return
@@ -634,6 +641,8 @@ class MainWindow(FluentWindow):
             self.navigationInterface.expand()
 
     def toggle_compact(self):
+        if self._locked:                # the held page is not re-laid out mid-job
+            return
         self.set_compact(not self.compact)
 
     def set_compact(self, on: bool):
@@ -829,10 +838,58 @@ class MainWindow(FluentWindow):
         super().resizeEvent(e)          # FluentWindow moves the title bar to (46, 0)
         if not self.__dict__.get("_ready"):
             return
+        self._note_normal_rect()
         self._place_title_bar()
         if self.compact and self._side_shown:
             nav = self.navigationInterface
             nav.resize(nav.width(), self.height())
+
+    def moveEvent(self, e):
+        super().moveEvent(e)
+        self._note_normal_rect()
+
+    def _note_normal_rect(self):
+        # Only a plain window's rect: a maximized frameless window reports a
+        # normal geometry inset by its resize border, which saved and
+        # restored moved and shrank the window 8 px a side every session.
+        if self.windowState() == Qt.WindowNoState and self.__dict__.get("_ready"):
+            self._normal_rect = QRect(self.geometry())
+
+    # ── the window's place across sessions ──
+    def _restore_place(self, geo: str):
+        """Put the window where the last session left it: a JSON rect plus a
+        maximized flag (an older base64 saveGeometry() still restores)."""
+        try:
+            d = json.loads(geo)
+        except ValueError:
+            d = None
+        if not isinstance(d, dict):
+            try:
+                self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
+            except (UnicodeError, ValueError):
+                pass
+            return
+        try:
+            r = QRect(int(d["x"]), int(d["y"]), int(d["w"]), int(d["h"]))
+        except (KeyError, TypeError, ValueError):
+            return
+        if r.width() <= 0 or r.height() <= 0:
+            return
+        if not _on_a_screen(r):              # its monitor is gone: bring it back
+            avail = QApplication.primaryScreen().availableGeometry()
+            r.moveTopLeft(avail.topLeft())
+        self.setGeometry(r)
+        self._normal_rect = QRect(self.geometry())
+        if d.get("maximized") is True:
+            self.setWindowState(self.windowState() | Qt.WindowMaximized)
+
+    def place_pref(self) -> str:
+        """What _finish_close stores: the un-maximized rect and the state."""
+        if self.windowState() == Qt.WindowNoState:
+            self._normal_rect = QRect(self.geometry())
+        r = self._normal_rect
+        return json.dumps({"x": r.x(), "y": r.y(), "w": r.width(), "h": r.height(),
+                           "maximized": self.isMaximized()})
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -901,12 +958,40 @@ class MainWindow(FluentWindow):
                 page.deactivate()
             except Exception:
                 pass
-        setattr(PREFS, GEOMETRY_KEY, bytes(self.saveGeometry().toBase64()).decode("ascii"))
+        setattr(PREFS, GEOMETRY_KEY, self.place_pref())
+        # A job still writing past CLOSE_WAIT_S dies with the process before
+        # atomic_output can delete its temp file: the next start removes it.
+        stale = set(self.__dict__.get("_stale_parts", [])) | set(live_parts())
+        setattr(PREFS, STALE_PARTS_KEY, sorted(p for p in stale if os.path.exists(p)))
         try:
             PREFS.save()
         except OSError:
             pass
         self._alive = False
+
+
+def _on_a_screen(rect: QRect) -> bool:
+    """Whether some of *rect* lies on a connected screen's work area."""
+    return any(s.availableGeometry().intersects(rect) for s in QApplication.screens())
+
+
+def _remove_stale_parts(paths) -> list[str]:
+    """Delete the temp files a killed job left (only atomic_output's own
+    hidden ".<stem>-XXXX<ext>.part" names); the ones that cannot go yet."""
+    left = []
+    for p in paths if isinstance(paths, list) else []:
+        if not isinstance(p, str):
+            continue
+        name = os.path.basename(p)
+        if not (name.startswith(".") and name.endswith(".part")):
+            continue
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            left.append(p)
+    return left
 
 
 class _Overlay(QWidget):

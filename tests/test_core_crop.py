@@ -61,3 +61,25 @@ def test_crop_cancelled_writes_nothing_and_closes_the_document(tmp_path):
     assert core.crop_pdf(doc, str(out), [0, 1], (10, 10, 10, 10), False, stop) is None
     assert not out.exists()
     assert doc.is_closed
+
+
+@pytest.mark.parametrize("rotate", [0, 90])
+@pytest.mark.parametrize("reset", [False, True])
+@pytest.mark.parametrize("margins", [(10, 10, 10, 10), (60, 0, 60, 0), (0, 160, 0, 160),
+                                     (150, 150, 150, 150)])
+def test_croppable_counts_what_crop_pdf_crops(tmp_path, rotate, reset, margins):
+    # R45-3: the Qt page refuses up front when nothing would be cropped.
+    doc = fitz.open()
+    doc.new_page(width=300, height=100)
+    doc.new_page(width=100, height=300)
+    for p in doc:
+        p.set_rotation(rotate)
+    doc[0].set_cropbox(fitz.Rect(0, 0, 200, 100))   # reset matters for page 1
+    src = tmp_path / "in.pdf"
+    doc.save(src)
+    doc.close()
+    with fitz.open(src) as d:
+        want = core.croppable(d, [0, 1], margins, reset)
+    got = core.crop_pdf(fitz.open(src), str(tmp_path / "out.pdf"), [0, 1], margins, reset,
+                        threading.Event())
+    assert want == got

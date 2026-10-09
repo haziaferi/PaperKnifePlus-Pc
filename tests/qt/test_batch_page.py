@@ -8,6 +8,7 @@ import pymupdf as fitz
 import pytest
 from PIL import Image
 
+from qfluentwidgets import PushButton
 from qt_harness import make_pdf, pump, wait_job
 
 
@@ -168,6 +169,21 @@ def test_batch_watermark_is_diagonal_and_honours_text_and_opacity(window, dialog
         dirs = [ln["dir"] for b in pg.get_text("dict")["blocks"] for ln in b.get("lines", [])
                 if any("DRAFT" in s["text"] for s in ln["spans"])]
         assert dirs and all(abs(abs(dx) - abs(dy)) < 0.01 and dx and dy for dx, dy in dirs)
+
+
+
+@pytest.mark.parametrize("text", ["", "   "])
+def test_batch_watermark_refuses_empty_text_up_front(window, dialogs, tmp_path, text):
+    # R45-11: an empty text wrote unchanged copies reported ✓; the single-file
+    # Watermark page refuses it with "Enter watermark text.".
+    in_dir, out_dir = _folders(tmp_path)
+    make_pdf(in_dir / "a.pdf", pages=1)
+    page = _run(window, _page(window), in_dir, out_dir, "Watermark")
+    page.controls["text"].setText(text)
+    page.run()
+    wait_job(window)
+    assert dialogs.warnings() == [("warning", "Batch", "Enter watermark text.")]
+    assert list(out_dir.iterdir()) == []
 
 
 def _stamp_size(path):
@@ -339,3 +355,45 @@ def test_leaving_the_tool_mid_way_keeps_the_page_usable(window, dialogs, tmp_pat
     pump(0.05)
     assert window.current_page() is page and page.in_dir == str(in_dir)
     assert _go(window, page) == ["✓  a.pdf"]
+
+
+def test_run_or_a_new_folder_during_a_batch_keeps_its_results(window, dialogs, tmp_path,
+                                                              monkeypatch):
+    # R45-10: Run Batch (or Ctrl+O / a dropped folder) during a batch wiped
+    # the rows with their notes, then said Busy; later notes were dropped.
+    import threading
+    from paperknife.core import batch as core
+    in_dir, out_dir = _folders(tmp_path)
+    for n in "abc":
+        make_pdf(in_dir / f"{n}.pdf", pages=1)
+    other = tmp_path / "other"
+    other.mkdir()
+    make_pdf(other / "z.pdf", pages=1)
+    release, first = threading.Event(), threading.Event()
+
+    def slow(src, out_dir, opts, stop):
+        first.set()
+        if src.endswith("b.pdf"):
+            release.wait(10)
+        return True
+    monkeypatch.setitem(core.OPS, "PDF → TXT", slow)
+    page = _run(window, _page(window), in_dir, out_dir, "PDF → TXT")
+    page.run()
+    assert first.wait(5)
+    for _ in range(50):
+        pump(0.02)
+        if page.rows[0].note.text() == "✓  a.pdf":
+            break
+    rows = list(page.rows)
+    page.run()
+    dialogs.dirs.append(str(other))
+    page.open()
+    assert page.accept_drop(str(other)) is True
+    dialogs.dirs.append(str(other))
+    browse = [b for b in page.findChildren(PushButton) if b.text() == "Browse…"][0]
+    browse.click()                       # the input folder's Browse
+    assert page.rows == rows and page.in_dir == str(in_dir)
+    assert [m[1] for m in dialogs.warnings()] == ["Busy"] * 4
+    release.set()
+    wait_job(window)
+    assert [r.note.text() for r in page.rows] == ["✓  a.pdf", "✓  b.pdf", "✓  c.pdf"]

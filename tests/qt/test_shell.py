@@ -319,32 +319,137 @@ def test_home_lists_recent_files_and_clears(window, dialogs, tmp_path):
     assert home.cards == [] and home.empty_label.isVisibleTo(home)
 
 
+
+def test_home_thumbnails_are_read_off_the_ui_thread(window, monkeypatch, tmp_path):
+    # R1-10: an offline share's stat timeout or a huge scan's render held the
+    # window; the file is now looked at and rendered on a worker.
+    import os
+    from paperknife.qt import home as hmod
+    seen = {"stat": [], "open": []}
+
+    class Os:
+        def __getattr__(self, name):
+            return getattr(os, name)
+
+        def stat(self, path, *a, **k):
+            if str(path).endswith("offthread.pdf"):
+                seen["stat"].append(threading.current_thread())
+            return os.stat(path, *a, **k)
+
+    class Fitz:
+        def __getattr__(self, name):
+            return getattr(hmod.__dict__["_real_fitz"], name)
+
+        def open(self, *a, **k):
+            if a and str(a[0]).endswith("offthread.pdf"):
+                seen["open"].append(threading.current_thread())
+            return hmod.__dict__["_real_fitz"].open(*a, **k)
+    monkeypatch.setitem(hmod.__dict__, "_real_fitz", hmod.fitz)
+    monkeypatch.setattr(hmod, "os", Os())
+    monkeypatch.setattr(hmod, "fitz", Fitz())
+    p = make_pdf(tmp_path / "offthread.pdf", 1)
+    window.open_pdf_safe(p).close()
+    window.show_page("CompressTool")
+    window.show_page("home")
+    home = window.current_page()
+    card = next(c for c in home.cards if c.name_label.text() == "offthread.pdf")
+    for _ in range(50):
+        pump(0.02)
+        if card.thumb.pixmap() is not None and not card.thumb.pixmap().isNull():
+            break
+    assert card.thumb.pixmap() is not None and not card.thumb.pixmap().isNull()
+    assert seen["stat"] and threading.main_thread() not in seen["stat"]
+    assert seen["open"] and threading.main_thread() not in seen["open"]
+
+
 # ── geometry and close ────────────────────────────────────────────────────────
+def _new_window():
+    from paperknife.qt.shell import MainWindow
+    return MainWindow()
+
+
+def _discard_window(w):
+    w._close_ok = True
+    w._alive = False
+    w.close()
+    w.deleteLater()
+
+
 def test_geometry_saved_under_new_key(window, monkeypatch):
     from paperknife.prefs import PREFS, PREFS_PATH
     PREFS.window_geometry = "800x600+0+0"          # the Tk key: left alone
-    window.resize(1234, 777)
+    window.setGeometry(10, 20, 1100, 750)
     window._finish_close()
     data = json.loads(PREFS_PATH.read_text(encoding="utf-8"))
-    geo = data["qt_window_geometry"]
-    assert geo and base64.b64decode(geo)
+    assert json.loads(data["qt_window_geometry"]) == {
+        "x": 10, "y": 20, "w": 1100, "h": 750, "maximized": False}
     assert data["window_geometry"] == "800x600+0+0"
+    w2 = _new_window()
+    try:
+        assert w2.geometry().getRect() == (10, 20, 1100, 750) and not w2.isMaximized()
+    finally:
+        _discard_window(w2)
 
-    # The offscreen screen is small, so restoreGeometry clamps the size; check
-    # that the new window restores exactly the bytes that were saved.
+
+def test_geometry_of_a_maximized_session_keeps_the_normal_rect(window, monkeypatch):
+    # R1-21: saveGeometry() of the maximized frameless window stored a rect
+    # inset by the 8 px resize border, so each maximized session moved the
+    # window 8 px and shrank it 16 px.  (The inset itself needs the Windows
+    # platform: review/probes/fa_r1_21_geometry_win.py.)
+    from qframelesswindow.utils import win32_utils
+    from paperknife.prefs import PREFS
+    # qframelesswindow asks Win32 about the window on every state change,
+    # and an offscreen window has no Win32 handle.
+    monkeypatch.setattr(win32_utils, "isMaximized", lambda _hwnd: False)
+    window.setGeometry(10, 20, 1100, 750)
+    pump(0.02)
+    window.showMaximized()
+    pump(0.05)
+    window._finish_close()
+    stored = json.loads(PREFS.get("qt_window_geometry"))
+    assert stored == {"x": 10, "y": 20, "w": 1100, "h": 750, "maximized": True}
+    w2 = _new_window()
+    try:
+        assert w2.windowState() & Qt.WindowMaximized
+        assert w2._normal_rect.getRect() == (10, 20, 1100, 750)
+        w2.show()
+        pump(0.05)
+        w2._finish_close()
+        assert json.loads(PREFS.get("qt_window_geometry")) == stored   # no creep
+    finally:
+        _discard_window(w2)
+
+
+def test_geometry_off_every_screen_comes_back(qapp, dialogs):
+    from PySide6.QtWidgets import QApplication
+    from paperknife.prefs import PREFS
+    PREFS.qt_window_geometry = json.dumps({"x": -9000, "y": 20, "w": 1100, "h": 750,
+                                           "maximized": False})
+    w = _new_window()
+    try:
+        avail = QApplication.primaryScreen().availableGeometry()
+        assert w.geometry().topLeft() == avail.topLeft()
+        assert w.geometry().size().toTuple() == (1100, 750)
+    finally:
+        _discard_window(w)
+
+
+def test_geometry_from_an_older_version_still_restores(qapp, dialogs, monkeypatch):
+    from paperknife.prefs import PREFS
     from paperknife.qt.shell import MainWindow
+    w = _new_window()
+    blob = bytes(w.saveGeometry())
+    _discard_window(w)
+    PREFS.qt_window_geometry = base64.b64encode(blob).decode("ascii")
     restored = []
     real = MainWindow.restoreGeometry
     monkeypatch.setattr(MainWindow, "restoreGeometry",
                         lambda self, ba: (restored.append(bytes(ba)), real(self, ba))[1])
-    w2 = MainWindow()
+    w2 = _new_window()
     try:
-        assert restored == [base64.b64decode(geo)]
+        assert restored == [blob]
     finally:
-        w2._close_ok = True
-        w2._alive = False
-        w2.close()
-        w2.deleteLater()
+        _discard_window(w2)
 
 
 def test_close_with_job_asks_and_waits(window, dialogs):
@@ -377,6 +482,46 @@ def test_close_with_job_asks_and_waits(window, dialogs):
     assert [m[0] for m in dialogs.msgs].count("ask_yes_no") == 2
 
 
+def test_quit_past_the_close_deadline_leaves_no_part_file(window, dialogs, monkeypatch,
+                                                          tmp_path):
+    # R1-17: the window closed at CLOSE_WAIT_S with a save still writing; the
+    # daemon worker died at exit and its hidden .part file stayed in the
+    # user's output folder.  The next start removes it.
+    import os
+    from paperknife.job_queue import atomic_output
+    from paperknife.qt import shell
+    monkeypatch.setattr(shell, "CLOSE_WAIT_S", 0.3)
+    release, written, parts = threading.Event(), threading.Event(), []
+
+    def work(stop):                     # a save that never looks at stop
+        with atomic_output(str(tmp_path / "out.pdf")) as tmp:
+            parts.append(tmp)
+            with open(tmp, "wb") as f:
+                f.write(b"%PDF-1.7 partial")
+            written.set()
+            release.wait(10)
+    window.run_job(work, "Saving", cancellable=False)
+    assert written.wait(5)
+    dialogs.asks.append(True)
+    window.close()
+    for _ in range(100):
+        pump(0.05)
+        if not window.isVisible():
+            break
+    assert not window.isVisible()
+    assert os.path.exists(parts[0])     # what the killed worker would leave
+    w2 = shell.MainWindow()             # the next start
+    try:
+        assert not os.path.exists(parts[0])
+        assert list(tmp_path.iterdir()) == []
+    finally:
+        release.set()
+        w2._close_ok = True
+        w2._alive = False
+        w2.close()
+        w2.deleteLater()
+
+
 def test_late_job_callback_after_close_is_dropped(window):
     release = threading.Event()
     seen = []
@@ -395,3 +540,69 @@ def test_poll_positions_are_window_relative(window):
     # sanity for the mode tests: the simulated pointer maps back exactly
     g = window.mapToGlobal(QPoint(5, 6))
     assert window.mapFromGlobal(g) == QPoint(5, 6)
+
+
+# ── dialogs: a closed dialog does not stay behind ──
+@pytest.fixture
+def dialog_parent(qapp, monkeypatch):
+    """The real paperknife.qt.dialogs over a plain shown window."""
+    from PySide6.QtWidgets import QWidget
+    from paperknife.qt import dialogs as dmod
+    w = QWidget()
+    w.resize(600, 400)
+    w.show()
+    monkeypatch.setattr(dmod, "_parent", lambda: w)
+    yield w
+    w.close()
+    w.deleteLater()
+    pump(0.02)
+
+
+def _answer_password(parent, text):
+    from paperknife.qt import dialogs as dmod
+
+    def fill():
+        for d in parent.findChildren(dmod._PasswordDialog):
+            if d.isVisible():
+                d.edit.setText(text)
+                d.yesButton.click()
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(50, fill)
+
+
+def test_password_dialog_keeps_no_password_after_closing(dialog_parent):
+    # R1-5: every password typed stayed in a hidden PasswordLineEdit.
+    from paperknife.qt import dialogs as dmod
+    for _ in range(3):
+        _answer_password(dialog_parent, "s3cret")
+        assert dmod.ask_password() == "s3cret"
+    left = [d.edit.text() for d in dialog_parent.findChildren(dmod._PasswordDialog)]
+    assert "s3cret" not in left
+    pump(0.05)
+    assert dialog_parent.findChildren(dmod._PasswordDialog) == []
+
+
+def _click_box(parent, button: str):
+    from PySide6.QtCore import QTimer
+    from qfluentwidgets import MessageBox
+
+    def click():
+        for b in parent.findChildren(MessageBox):
+            if b.isVisible():
+                getattr(b, button).click()
+    QTimer.singleShot(50, click)
+
+
+def test_message_boxes_are_deleted_after_closing(dialog_parent):
+    # R1-6: every info/warning/error/ask_yes_no left a hidden MessageBox.
+    from qfluentwidgets import MessageBox
+    from paperknife.qt import dialogs as dmod
+    for fn in (dmod.info, dmod.warning, dmod.error):
+        _click_box(dialog_parent, "yesButton")
+        fn("Title", "Message")
+    _click_box(dialog_parent, "yesButton")
+    assert dmod.ask_yes_no("Title", "Question?") is True
+    _click_box(dialog_parent, "cancelButton")
+    assert dmod.ask_yes_no("Title", "Question?") is False
+    pump(0.05)
+    assert dialog_parent.findChildren(MessageBox) == []

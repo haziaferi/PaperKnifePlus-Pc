@@ -36,6 +36,16 @@ def _GONE_ERRORS() -> tuple[type[BaseException], ...]:
     return (RuntimeError, tk.TclError) if tk is not None else (RuntimeError,)
 
 
+_LIVE_PARTS: set[str] = set()       # temp files an atomic_output still owns
+
+
+def live_parts() -> list[str]:
+    """The temp files atomic_output has created and not yet moved or deleted
+    (a worker still writing; the Qt shell records them when it quits before
+    the worker ends, so the next start can remove them)."""
+    return sorted(_LIVE_PARTS)
+
+
 @contextlib.contextmanager
 def atomic_output(path: str) -> Iterator[str]:
     """Yield a temporary path beside *path*; on a clean exit move it onto
@@ -51,6 +61,7 @@ def atomic_output(path: str) -> Iterator[str]:
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.stem}-",
                                suffix=target.suffix + ".part")
     os.close(fd)
+    _LIVE_PARTS.add(tmp)
     try:
         yield tmp
         # A worker that returned early on cancel never wrote the file.
@@ -66,6 +77,8 @@ def atomic_output(path: str) -> Iterator[str]:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
+    finally:
+        _LIVE_PARTS.discard(tmp)
 
 
 class CancellableJob:

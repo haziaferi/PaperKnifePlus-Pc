@@ -24,6 +24,7 @@ class MetadataPage(DocHolder, ToolPage):
                          "View and edit the PDF's document properties · Ctrl+S to save",
                          tool=tool, window=window)
         self._loaded: dict[str, str] = {}
+        self._path = ""                     # the file self._doc was opened from
         self.file = file_card(on_change=self._load)
         self.body.addWidget(self.file)
         self.body.addSpacing(16)
@@ -49,18 +50,23 @@ class MetadataPage(DocHolder, ToolPage):
     def _load(self, path: str):
         if not path:
             return
-        self._close_doc()
         doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
         if doc is None:
-            self._reset()
+            # Keep what was open and the fields typed; the card goes back to it.
+            if self._doc is not None:
+                self.file.set_path(self._path, notify=False)
+            else:
+                self._reset()
             return
-        self._doc = doc
+        self._close_doc()
+        self._doc, self._path = doc, path
         self._loaded = core.read_metadata(doc)
         for key, _ in core.FIELDS:
             self.fields[key].setText(self._loaded[key])
 
     def _reset(self):
         self._close_doc()
+        self._path = ""
         self._loaded = {}
         self.file.clear()
         self.clear()

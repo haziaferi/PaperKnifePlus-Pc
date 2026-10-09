@@ -60,6 +60,9 @@ class ContinuousView(QGraphicsView):
 
     def wheelEvent(self, e):
         if e.modifiers() & Qt.ControlModifier:
+            if e.angleDelta().y() == 0:     # sideways tilt / pan: scroll, never zoom
+                super().wheelEvent(e)
+                return
             step = 1.1 if e.angleDelta().y() > 0 else 1 / 1.1
             self.zoomed.emit(max(ZOOM_MIN, min(ZOOM_MAX, self.zoom * step)))
             e.accept()

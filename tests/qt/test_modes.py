@@ -71,6 +71,50 @@ def test_compact_hides_nav_and_header(window):
     assert window.current_page().header.isVisible()
 
 
+def test_mode_shortcuts_ignored_while_locked(window):
+    # R1-20: run_job(lock=True) promises shortcuts are ignored, but Ctrl+Alt+C
+    # re-laid out the held page and Ctrl+Alt+S slid the navigation in.
+    import threading
+    from qt_harness import wait_job
+    release = threading.Event()
+    window.run_job(lambda stop: release.wait(5), "Working", lock=True)
+    panel = window.navigationInterface.panel
+    mode = panel.displayMode
+    window.toggle_compact()
+    assert window.compact is False
+    window.toggle_nav()
+    pump(0.3)
+    assert panel.displayMode == mode
+    release.set()
+    wait_job(window)
+    window.set_compact(True)
+    release.clear()
+    window.run_job(lambda stop: release.wait(5), "Working", lock=True)
+    window.toggle_nav()
+    assert window._side_shown is False
+    window.toggle_compact()
+    assert window.compact is True
+    release.set()
+    wait_job(window)
+
+
+@pytest.mark.parametrize("hidden", [True, False])
+def test_leaving_compact_restores_the_panel_as_it_was(window, hidden):
+    # R1-28: leaving Compact Mode re-opened a panel the user had hidden.
+    window.open_tool("ReaderTool")
+    page = window.current_page()
+    if hidden:
+        page.show_context(False)
+        pump(pages.SLIDE_MS / 1000 + 0.2)
+    assert page.context_shown() is not hidden
+    window.toggle_compact()
+    pump(pages.SLIDE_MS / 1000 + 0.2)
+    assert not page.context_shown()
+    window.toggle_compact()
+    pump(pages.SLIDE_MS / 1000 + 0.2)
+    assert page.context_shown() is not hidden
+
+
 def test_left_edge_reveals_nav_and_it_leaves_after_keep(window):
     window.set_compact(True)
     at(window, window.width() // 2, 400)

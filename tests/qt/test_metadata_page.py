@@ -195,6 +195,31 @@ def test_a_refused_password_leaves_the_page_empty(window, dialogs, tmp_path):
     assert page._doc is not None and page.file.path() == src
 
 
+
+@pytest.mark.parametrize("how", ["cancelled password", "unreadable file"])
+def test_a_file_that_does_not_open_keeps_the_open_one_and_its_fields(window, dialogs,
+                                                                     tmp_path, how):
+    # R45-19: the open document was closed before the new one was tried, so a
+    # cancelled prompt or a broken file threw away the document and every
+    # field typed; Rotate, Split by Bookmarks and TOC keep the previous one.
+    page = _page(window)
+    a = _pdf_with_meta(tmp_path / "a.pdf", title="A title")
+    page.file.set_path(a)
+    held = page._doc
+    page.fields["title"].setText("Typed title")
+    page.fields["author"].setText("Typed author")
+    if how == "cancelled password":
+        b = make_pdf(tmp_path / "b.pdf", password="pw")     # no password queued
+    else:
+        b = str(tmp_path / "b.pdf")
+        (tmp_path / "b.pdf").write_bytes(b"not a pdf")
+    page.file.set_path(b)
+    assert page._doc is held and not held.is_closed
+    assert page.file.path() == a
+    assert page.fields["title"].text() == "Typed title"
+    assert page.fields["author"].text() == "Typed author"
+
+
 def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, tmp_path):
     page = _page(window)
     src = make_pdf(tmp_path / "in.pdf", pages=2)

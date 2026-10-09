@@ -12,6 +12,8 @@ Safe at the edges:
 - the callback touches a widget that was closed and deleted meanwhile: the
   RuntimeError PySide raises for a deleted C++ object is swallowed, so a job
   that ends after its window closed does nothing instead of printing a trace.
+- any other exception a callback raises is shown to the user (status line
+  and an error box, as a failed job is) instead of reaching only stderr.
 A call from the main thread is queued too (like after(0)), never run inline.
 """
 from __future__ import annotations
@@ -45,7 +47,28 @@ class _Bridge(QObject):
             # "Internal C++ object (...) already deleted": the window or the
             # widget the callback updates is gone; nothing left to update.
             if "already deleted" not in str(exc):
-                raise
+                _report(exc)
+        except Exception as exc:
+            # A Qt slot's exception only reaches stderr, and the windowed
+            # build has none: tell the user the way a failed job does.
+            _report(exc)
+
+
+def _report(exc: BaseException) -> None:
+    """Show an exception a posted callback raised: the status line and an
+    error box, as run_job's on_error does; the trace still goes to stderr."""
+    import traceback
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    try:
+        from PySide6.QtWidgets import QApplication
+        from . import dialogs
+        for top in QApplication.topLevelWidgets():
+            if callable(getattr(top, "set_status", None)) and getattr(top, "_alive", True):
+                top.set_status(f"Error: {exc}", "danger")
+                break
+        dialogs.error("Error", str(exc))
+    except Exception:                   # reporting must never take the loop down
+        traceback.print_exc()
 
 
 _lock = threading.Lock()
