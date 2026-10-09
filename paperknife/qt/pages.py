@@ -701,9 +701,12 @@ class WorkspacePage(ToolPage):
     brings it back.
 
     Subclasses: add_rail(key, glyph, tip, slot), panel_begin(title, desc) then
-    add widgets to self.panel_body, set_doc / show_current for the document."""
+    add widgets to self.panel_body, set_doc / show_current for the document.
+    view_cls: the centre view's class (PageView), built with the page ground
+    colour; rail=False hides the rail and its divider (a viewer has no tools)."""
 
-    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None):
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
+                 view_cls=None, rail: bool = True):
         from PySide6.QtWidgets import QSplitter
         from qfluentwidgets import FluentIcon as FIF
         from .pageview import PageView
@@ -719,7 +722,11 @@ class WorkspacePage(ToolPage):
         self.rail.setSpacing(4)
         self.rail.addStretch(1)
         h.addWidget(rail_w)
-        h.addWidget(Divider(vertical=True))
+        rail_divider = Divider(vertical=True)
+        h.addWidget(rail_divider)
+        if not rail:
+            rail_w.hide()
+            rail_divider.hide()
 
         self.split = QSplitter(Qt.Horizontal)
         self.split.setHandleWidth(6)
@@ -729,7 +736,7 @@ class WorkspacePage(ToolPage):
         mv = QVBoxLayout(mid)
         mv.setContentsMargins(0, 0, 0, 0)
         mv.setSpacing(0)
-        self.view = PageView(theme.hex_color("page_bg"))
+        self.view = (view_cls or PageView)(theme.hex_color("page_bg"))
         mv.addWidget(self.view, 1)
         mv.addWidget(Divider())
         strip = QHBoxLayout()

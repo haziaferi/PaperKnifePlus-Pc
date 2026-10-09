@@ -20,7 +20,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 from qfluentwidgets import BodyLabel
 
 from ...core import reader as core_reader
-from .. import bridge, theme
+from .. import bridge
 from ..pages import WorkspacePage, register_page
 
 TITLE = "Read / Preview"
@@ -73,7 +73,8 @@ class ContinuousView(QGraphicsView):
 @register_page("ReaderTool")
 class ReaderPage(WorkspacePage):
     def __init__(self, tool=None, window=None):
-        super().__init__(TITLE, SUBTITLE, tool=tool, window=window)
+        super().__init__(TITLE, SUBTITLE, tool=tool, window=window, view_cls=ContinuousView,
+                         rail=False)
         self._doc = None
         self._doc_lock = None
         self._path = ""
@@ -94,21 +95,7 @@ class ReaderPage(WorkspacePage):
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
 
-        # The centre is a continuous column, not the one-page view.
-        old = self.view
-        self.view = ContinuousView(theme.hex_color("page_bg"))
-        old.parentWidget().layout().replaceWidget(old, self.view)
-        old.hide()
-        old.setParent(None)
-        old.deleteLater()
         self.view.moved.connect(self._update_viewport)
-        self.view.zoomed.connect(lambda z: self.zoom_slider.setValue(int(round(z * 100))))
-
-        # A viewer has no tools: no rail.
-        rail = self.rail.parentWidget()
-        frame = rail.parentWidget().layout()
-        rail.hide()
-        frame.itemAt(frame.indexOf(rail) + 1).widget().hide()     # the rail's divider
 
         self.zoom_slider.blockSignals(True)
         self.zoom_slider.setValue(int(round(self._zoom * 100)))
@@ -199,6 +186,10 @@ class ReaderPage(WorkspacePage):
     # ── zoom ─────────────────────────────────────────────────────────────────
     def apply_zoom(self, z: float):
         self.set_zoom(z)
+
+    def _wheel_zoomed(self, z: float):
+        # Ctrl+wheel moves the slider; the zoom is applied once it rests.
+        self.zoom_slider.setValue(int(round(z * 100)))
 
     def set_zoom(self, z: float):
         z = max(ZOOM_MIN, min(ZOOM_MAX, float(z)))
