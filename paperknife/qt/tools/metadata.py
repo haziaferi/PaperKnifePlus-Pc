@@ -10,13 +10,12 @@ from pathlib import Path
 from qfluentwidgets import LineEdit
 
 from ...core import metadata as core
-from ...core.doc_state import DocHolder
 from .. import dialogs
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import HeldDoc, ToolPage, card, file_card, group_title, register_page, setting_row
 
 
 @register_page("MetadataTool")
-class MetadataPage(DocHolder, ToolPage):
+class MetadataPage(HeldDoc, ToolPage):
     save_name = "with_metadata.pdf"
 
     def __init__(self, tool=None, window=None):
@@ -24,7 +23,6 @@ class MetadataPage(DocHolder, ToolPage):
                          "View and edit the PDF's document properties · Ctrl+S to save",
                          tool=tool, window=window)
         self._loaded: dict[str, str] = {}
-        self._path = ""                     # the file self._doc was opened from
         self.file = file_card(on_change=self._load)
         self.body.addWidget(self.file)
         self.body.addSpacing(16)
@@ -44,31 +42,22 @@ class MetadataPage(DocHolder, ToolPage):
         self.primary("Save", self.save)
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        self.file.choose()
-
     def _load(self, path: str):
         if not path:
             return
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.open_held(path)
         if doc is None:
             # Keep what was open and the fields typed; the card goes back to it.
-            if self._doc is not None:
-                self.file.set_path(self._path, notify=False)
-            else:
+            if self._doc is None:
                 self._reset()
             return
-        self._close_doc()
-        self._doc, self._path = doc, path
         self._loaded = core.read_metadata(doc)
         for key, _ in core.FIELDS:
             self.fields[key].setText(self._loaded[key])
 
     def _reset(self):
-        self._close_doc()
-        self._path = ""
+        self.release_held()
         self._loaded = {}
-        self.file.clear()
         self.clear()
 
     def deactivate(self):

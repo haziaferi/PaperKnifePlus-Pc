@@ -14,7 +14,6 @@ A tool's Qt page registers itself by the tool's class name:
             ...
 
 and MainWindow.page_for(tool) builds it the first time the tool is opened.
-A tool with no registered page gets a PlaceholderPage.
 
 Optional hooks the shell calls when a page defines them:
     open() / save() / undo()     Ctrl+O / Ctrl+S / Ctrl+Z
@@ -29,15 +28,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout,
+                               QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
+                            RadioButton, Slider,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
-                            TitleLabel, setCustomStyleSheet)
+                            SubtitleLabel, TitleLabel, TransparentPushButton,
+                            TransparentToggleToolButton,
+                            TransparentToolButton, setCustomStyleSheet)
 
 from . import dialogs
 from . import theme
+from ..core.doc_state import DocHolder
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 QT_PAGES: dict[str, type] = {}
@@ -125,14 +129,20 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
     take the room the control leaves, for a narrow column such as a
     CollectionPage's settings.
+
+    The control also carries the row's labels and the line above it:
+    control.title_label, control.desc_label (None without *desc*) and
+    control.divider (None for the first row).
     """
     lay = group.layout()
     rows = int(group.property("pk_rows") or 0)
+    divider = None
     if rows == 0:
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
     else:
-        lay.addWidget(Divider())
+        divider = Divider()
+        lay.addWidget(divider)
     row = QWidget(group)
     row.setObjectName("settingRow")
     row.setMinimumHeight(ROW_MIN_HEIGHT)
@@ -149,6 +159,7 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     tv.addStretch(1)
     name = BodyLabel(title, texts)
     tv.addWidget(name)
+    d = None
     if desc:
         d = muted_caption(desc, texts)
         d.setWordWrap(True)
@@ -166,8 +177,60 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     h.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
     lay.addWidget(row)
     group.setProperty("pk_rows", rows + 1)
-    row.title_label = name
+    control.title_label, control.desc_label, control.divider = name, d, divider
     return control
+
+
+class RadioChoice(QButtonGroup):
+    """A one-of-N choice: self.buttons maps each value to its RadioButton."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.buttons: dict = {}
+
+    def value(self):
+        return next(v for v, rb in self.buttons.items() if rb.isChecked())
+
+    def set(self, value):
+        self.buttons[value].setChecked(True)
+
+
+def radio_rows(group: QWidget, choices, default, *, row=setting_row,
+               parent=None) -> RadioChoice:
+    """One setting row per (value, title, desc) in *choices* in *group* (a
+    card()), each with a radio button; *default* is checked.  *row* makes a
+    row (a page's own setting_row)."""
+    choice = RadioChoice(parent)
+    for value, title, desc in choices:
+        rb = RadioButton("")
+        rb.setChecked(value == default)
+        choice.addButton(rb)
+        row(group, title, desc).layout().addWidget(rb)
+        choice.buttons[value] = rb
+    return choice
+
+
+def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
+                    width: int = 220, label_width: int = 64, fixed: bool = True):
+    """A horizontal Slider from *lo* to *hi* at *value* and, beside it, a
+    label of fixed *label_width* showing the value and *unit* (s.value_label),
+    both added to *row* (a setting_row's control).  The slider is *width*
+    wide, or at least that wide when not *fixed*."""
+    s = Slider(Qt.Horizontal)
+    s.setRange(lo, hi)
+    if fixed:
+        s.setFixedWidth(width)
+    else:
+        s.setMinimumWidth(width)
+    lbl = BodyLabel()
+    lbl.setFixedWidth(label_width)
+    s.valueChanged.connect(lambda v: lbl.setText(f"{v}{unit}"))
+    s.setValue(value)
+    lbl.setText(f"{s.value()}{unit}")
+    s.value_label = lbl
+    row.layout().addWidget(s)
+    row.layout().addWidget(lbl)
+    return s
 
 
 def spin_box(lo: int, hi: int, value: int, width: int = 160):
@@ -296,6 +359,76 @@ class FileCard(SimpleCardWidget):
 
 def file_card(on_change=None, exts=(".pdf",)) -> FileCard:
     return FileCard(on_change, exts)
+
+
+class HeldDoc(DocHolder):
+    """A page that keeps its file card's (self.file) document open in
+    self._doc; self._src is the file it was read from."""
+    _src: str = ""
+
+    def open_held(self, path: str, title: str | None = None):
+        """Open *path* as the held document and close the one before; with
+        *title*, the file name becomes the subtitle.  When it cannot be opened
+        the document already open stays and the card goes back to its file.
+        The new document, or None."""
+        doc = self.window_.open_pdf_safe(path)
+        if doc is None:
+            self.file.set_path(self._src if self._doc is not None else "", notify=False)
+            return None
+        self._close_doc()
+        self._doc, self._src = doc, path
+        if title is not None:
+            self.set_title(title, Path(path).name)
+        return doc
+
+    def release_held(self, title: str | None = None, subtitle: str = ""):
+        """Close the held document and empty the card; with *title*, put the
+        page's own subtitle back."""
+        self._close_doc()
+        self._src = ""
+        self.file.clear()
+        if title is not None:
+            self.set_title(title, subtitle)
+
+
+class WorkspaceDoc(DocHolder):
+    """The document a WorkspacePage edits, held in self._doc."""
+
+    def open_document(self, path: str, title: str):
+        """Open *path* in place of the document shown, at page 1 with no undo
+        history; the file name becomes the subtitle.  The new document, or
+        None (the old one stays) when it cannot be opened."""
+        doc = self.window_.open_pdf_safe(path)
+        if doc is None:
+            return None
+        self._close_doc()
+        self._doc, self._pg, self._undo_stack = doc, 0, []
+        self.set_title(title, Path(path).name)
+        return doc
+
+    def save(self):
+        """Ctrl+S: save the document to a file the user chooses (save_name
+        offered); the box says "<saved_what> saved"."""
+        if self._doc is None:
+            return dialogs.warning("Save", "Open a PDF first.")
+        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
+        if not out:
+            return
+        win = self.window_
+
+        def done(kind, _value):
+            # A save over the open file goes on from an in-memory copy of it.
+            self.show_current()
+            if kind == "done":
+                win.set_status(f"✓  Saved → {Path(out).name}", "success")
+                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
+
+        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
+                    lock=True, then=done, cancellable=False)
+
+
+class Refusal(Exception):
+    """Raised by run_on_file's prepare(doc): its message is shown as a warning."""
 
 
 # ── The page frame ────────────────────────────────────────────────────────────
@@ -440,7 +573,83 @@ class ToolPage(QWidget):
         (a file chip, a page counter); it stays in the header either way."""
         self.header_actions.insertWidget(0, w, 0, Qt.AlignTop)
 
-    # ── drops ──
+    # ── the single-file run ──
+    def chosen_file(self, title: str, missing: str = "Select a PDF first.") -> str:
+        """The file card's path; "" after warning *missing* when none is chosen."""
+        src = self.file.path()
+        if not src:
+            dialogs.warning(title, missing)
+        return src
+
+    def run_on_file(self, title: str, work, label, report, *, src: str | None = None,
+                    save: tuple | None = None, prepare=None, open_doc=None, ended=None,
+                    cancellable: bool = True, working: str | None = None,
+                    warning_box: bool = False, ask_first: bool = False):
+        """Run *work* on the chosen file: the file card's (or *src*, already
+        checked), opened, prepare(doc), the output asked for, then
+        work(doc, out, stop, progress) in a job (it closes doc) and, when the
+        job is done, report(result, out) -> (role, status, box title, box text).
+
+        save: (default name, extension, filters) asks for a file; None asks
+        for a folder.  label: the job's label, or a callable giving it after
+        prepare.  prepare(doc): a ValueError's message is shown as an error,
+        a Refusal's as a warning; either closes doc and stops.  open_doc(src)
+        -> doc | None replaces window.open_pdf_safe.  ended(kind) runs however
+        the job ended, before report."""
+        if src is None:
+            src = self.chosen_file(title)
+            if not src:
+                return
+        win = self.window_
+
+        def ask():
+            return dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
+
+        out = ask() if ask_first else None
+        if ask_first and not out:
+            return
+        doc = open_doc(src) if open_doc is not None else win.open_pdf_safe(src)
+        if doc is None:
+            return
+        if prepare is not None:
+            try:
+                prepare(doc)
+            except Refusal as e:
+                doc.close()
+                return dialogs.warning(title, str(e))
+            except ValueError as e:
+                doc.close()
+                return dialogs.error(title, str(e))
+        if not ask_first:
+            out = ask()
+            if not out:
+                return doc.close()
+        progress = win.progress_callback()
+
+        def then(kind, result):
+            if ended is not None:
+                ended(kind)
+            if kind != "done":
+                return
+            role, status, box_title, text = report(result, out)
+            win.set_status(status, role)
+            box = dialogs.warning if warning_box and role == "warning" else dialogs.info
+            box(box_title, text)
+
+        if working:
+            win.set_status(working)
+        if win.run_job(lambda stop: work(doc, out, stop, progress),
+                       label if isinstance(label, str) else label(),
+                       then=then, cancellable=cancellable) is None:
+            doc.close()
+
+    # ── shell hooks ──
+    def open(self):
+        """Ctrl+O: Choose file on the first visible file card."""
+        for fc in self.findChildren(FileCard):
+            if fc.isVisibleTo(self):
+                return fc.choose()
+
     def accept_drop(self, path: str) -> bool:
         """Give a dropped file to the first visible file card that takes it."""
         for fc in self.findChildren(FileCard):
@@ -464,7 +673,7 @@ class ToolPage(QWidget):
         if self._compact:
             self.header.setVisible(on)
 
-    # Context panel: a workspace page (phase 3) overrides these four.
+    # Context panel: a workspace page overrides these four.
     def has_context(self) -> bool:
         return False
 
@@ -478,19 +687,7 @@ class ToolPage(QWidget):
         pass
 
 
-class PlaceholderPage(ToolPage):
-    """What a tool shows until its Qt page is written."""
-
-    def __init__(self, tool=None, window=None, title: str | None = None):
-        name = title or plain_label(getattr(tool, "label", "") or type(tool).__name__)
-        super().__init__(name, "", tool=tool, window=window)
-        self.note = muted_caption(f"{name} is being moved to the new interface.")
-        self.note.setObjectName("placeholderNote")
-        self.body.addWidget(self.note)
-        self.body.addStretch(1)
-
-
-# ── Group templates: phase 3 ──────────────────────────────────────────────────
+# ── Group templates ───────────────────────────────────────────────────────────
 PANEL_W, PANEL_MIN, PANEL_MAX, SLIDE_MS = 280, 220, 480, 250
 
 
@@ -504,20 +701,16 @@ class WorkspacePage(ToolPage):
     brings it back.
 
     Subclasses: add_rail(key, glyph, tip, slot), panel_begin(title, desc) then
-    add widgets to self.panel_body, set_doc / show_current for the document."""
+    add widgets to self.panel_body, set_doc / show_current for the document.
+    view_cls: the centre view's class (PageView), built with the page ground
+    colour; rail=False hides the rail and its divider (a viewer has no tools)."""
 
-    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None):
-        from PySide6.QtCore import QEasingCurve, QVariantAnimation
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
+                 view_cls=None, rail: bool = True):
         from PySide6.QtWidgets import QSplitter
-        from qfluentwidgets import (Slider, SubtitleLabel, TransparentToggleToolButton,
-                                    TransparentToolButton)
         from qfluentwidgets import FluentIcon as FIF
         from .pageview import PageView
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False)
-        self._QEasingCurve, self._QVariantAnimation = QEasingCurve, QVariantAnimation
-        self._TransparentToolButton = TransparentToolButton
-        self._ToggleButton = TransparentToggleToolButton
-        self._SubtitleLabel = SubtitleLabel
 
         frame = SimpleCardWidget()
         h = QHBoxLayout(frame)
@@ -529,7 +722,11 @@ class WorkspacePage(ToolPage):
         self.rail.setSpacing(4)
         self.rail.addStretch(1)
         h.addWidget(rail_w)
-        h.addWidget(Divider(vertical=True))
+        rail_divider = Divider(vertical=True)
+        h.addWidget(rail_divider)
+        if not rail:
+            rail_w.hide()
+            rail_divider.hide()
 
         self.split = QSplitter(Qt.Horizontal)
         self.split.setHandleWidth(6)
@@ -539,7 +736,7 @@ class WorkspacePage(ToolPage):
         mv = QVBoxLayout(mid)
         mv.setContentsMargins(0, 0, 0, 0)
         mv.setSpacing(0)
-        self.view = PageView(theme.hex_color("page_bg"))
+        self.view = (view_cls or PageView)(theme.hex_color("page_bg"))
         mv.addWidget(self.view, 1)
         mv.addWidget(Divider())
         strip = QHBoxLayout()
@@ -612,7 +809,7 @@ class WorkspacePage(ToolPage):
 
     # ── rail ──
     def add_rail(self, key: str, glyph: int, tip: str, slot, toggle: bool = True):
-        cls = self._ToggleButton if toggle else self._TransparentToolButton
+        cls = TransparentToggleToolButton if toggle else TransparentToolButton
         btn = cls(theme.glyph_icon(glyph, 18))
         btn.setFixedSize(40, 40)
         btn.setToolTip(tip)
@@ -650,9 +847,9 @@ class WorkspacePage(ToolPage):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(self._SubtitleLabel(title))
+        top.addWidget(SubtitleLabel(title))
         top.addStretch(1)
-        hide = self._TransparentToolButton(theme.glyph_icon(0xE76C, 14))
+        hide = TransparentToolButton(theme.glyph_icon(0xE76C, 14))
         hide.setToolTip("Hide panel")
         hide.clicked.connect(lambda: self.show_context(False))
         top.addWidget(hide)
@@ -673,12 +870,7 @@ class WorkspacePage(ToolPage):
 
     def panel_field(self, label: str) -> QHBoxLayout:
         """A small label above its control, as a narrow panel stacks them."""
-        self.panel_body.addSpacing(12)
-        self.panel_body.addWidget(muted_caption(label))
-        row = FieldRow()
-        row.setSpacing(8)
-        self.panel_body.addLayout(row)
-        return row
+        return _field_row(self.panel_body, label)
 
     def _clamp(self, *_):
         w = self.split.sizes()[1]
@@ -716,11 +908,11 @@ class WorkspacePage(ToolPage):
             if old is not None:
                 self.reopen_btn.setVisible(target == 0)
             return
-        a = self._QVariantAnimation(self)
+        a = QVariantAnimation(self)
         a.setDuration(SLIDE_MS)
         a.setStartValue(start)
         a.setEndValue(target)
-        a.setEasingCurve(self._QEasingCurve.OutCubic)
+        a.setEasingCurve(QEasingCurve.OutCubic)
 
         def step(w):
             total = sum(self.split.sizes())       # now, not when the slide began
@@ -730,7 +922,20 @@ class WorkspacePage(ToolPage):
         # Deleted when it stops, so a page that slides often keeps none.
         a.finished.connect(lambda: self._panel_anim is a and setattr(self, "_panel_anim", None))
         self._panel_anim = a
-        a.start(self._QVariantAnimation.DeleteWhenStopped)
+        a.start(QVariantAnimation.DeleteWhenStopped)
+
+    # ── document ──
+    def open(self):
+        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
+        if path:
+            self.open_path(path)
+
+    def accept_drop(self, path: str) -> bool:
+        """A dropped PDF is opened (open_path)."""
+        if not str(path).lower().endswith(".pdf"):
+            return False
+        self.open_path(path)
+        return True
 
     # ── pages ──
     def page_count(self) -> int:
@@ -766,14 +971,57 @@ class WorkspacePage(ToolPage):
         self.show_current()
 
     def _zoom_changed(self, v: int):
-        # Render once the slider rests: a render costs ~30 ms.
+        # Apply once the slider rests: a render costs ~30 ms.
         from PySide6.QtCore import QTimer
         if self._zoom_timer is None:
             self._zoom_timer = QTimer(self, singleShot=True, interval=120)
             self._zoom_timer.timeout.connect(
-                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100, render=False),
-                         self.show_current()))     # one render: page and overlay
+                lambda: self.apply_zoom(self.zoom_slider.value() / 100))
         self._zoom_timer.start()
+
+    def apply_zoom(self, z: float):
+        """The zoom slider rested at *z*: one render, page and overlay."""
+        self.view.set_zoom(z, render=False)
+        self.show_current()
+
+    # ── rubber band ──
+    def enable_band(self, style, on_release, *, drag_needs_doc: bool = False):
+        """Draw a rubber band while the page is dragged: style() -> (shape,
+        colour) for view.add_scene_shape, read at each move.  When the mouse
+        is released over an open document the band goes and
+        on_release(start, end, click) runs with the scene points; click: the
+        mouse moved less than 4 px.  drag_needs_doc: no band without a document."""
+        self._band_style, self._band_done = style, on_release
+        self._band_needs_doc = drag_needs_doc
+        self._start = None
+        self._band = None
+        self.view.pressed.connect(self._press)
+        self.view.dragged.connect(self._drag)
+        self.view.released.connect(self._mouse_up)
+
+    def _press(self, xy):
+        self._start = xy
+        if self._band is not None:
+            self.view.remove(self._band)
+            self._band = None
+
+    def _drag(self, xy):
+        if self._start is None or (self._band_needs_doc and self._doc is None):
+            return
+        if self._band is not None:
+            self.view.remove(self._band)
+        (x0, y0), (shape, colour) = self._start, self._band_style()
+        self._band = self.view.add_scene_shape(shape, x0, y0, xy[0], xy[1], colour)
+
+    def _mouse_up(self, xy):
+        if self._start is None or self._doc is None:
+            return
+        start, self._start = self._start, None
+        if self._band is not None:
+            self.view.remove(self._band)
+            self._band = None
+        click = abs(xy[0] - start[0]) < 4 and abs(xy[1] - start[1]) < 4
+        self._band_done(start, xy, click)
 
     # hooks for subclasses
     def on_page(self):
@@ -804,6 +1052,49 @@ def _clear_layout(layout):
 
 
 SETTINGS_W = 360            # collection: width of the settings column
+
+
+def _settings_column(owner: QWidget, name: str):
+    """The settings column at a template's right: (scroll area, its QVBoxLayout)."""
+    sa = SingleDirectionScrollArea(owner, Qt.Vertical)
+    sa.setWidgetResizable(True)
+    sa.enableTransparentBackground()
+    sa.setFrameShape(QFrame.NoFrame)
+    sa.setFixedWidth(SETTINGS_W)
+    sw = QWidget()
+    sw.setObjectName(name)
+    sw.setStyleSheet(f"QWidget#{name} {{ background: transparent; }}")
+    lay = QVBoxLayout(sw)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(8)
+    sa.setWidget(sw)
+    return sa, lay
+
+
+def column_setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
+    """A setting row sized for a settings column (the name takes the room)."""
+    return setting_row(group, title, desc, label_width=0)
+
+
+def _field_row(lay: QVBoxLayout, label: str) -> QHBoxLayout:
+    """A small label above its control, as a narrow column stacks them."""
+    lay.addSpacing(12)
+    lay.addWidget(muted_caption(label))
+    row = FieldRow()
+    row.setSpacing(8)
+    lay.addLayout(row)
+    return row
+
+
+def _tool_button(text: str, icon, slot, needs_selection: bool = False,
+                 parent=None) -> TransparentPushButton:
+    """A toolbar / context-bar button; pk_needs_selection marks one that is
+    enabled only while something is selected."""
+    b = (TransparentPushButton(icon, text, parent) if icon is not None
+         else TransparentPushButton(text, parent))
+    b.clicked.connect(slot)
+    b.pk_needs_selection = needs_selection
+    return b
 
 
 class CollectionRow(QWidget):
@@ -881,14 +1172,16 @@ class CollectionPage(ToolPage):
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
                  exts=(".pdf",), add_text: str = "Add PDFs", empty_text: str = "",
-                 settings: bool = True, toolbar: bool = True, parent=None):
+                 settings: bool = True, toolbar: bool = True, filter_label: str | None = None,
+                 open_title: str | None = None, parent=None):
         from PySide6.QtGui import QKeySequence, QShortcut
         from qfluentwidgets import FluentIcon as FIF
-        from qfluentwidgets import TransparentPushButton
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
         self.exts = tuple(e.lower() for e in (exts or ()))
         self.add_text = add_text
+        self.filter_label = filter_label or ("PDF" if self.exts == (".pdf",) else "Supported files")
+        self.open_title = open_title or add_text
         self.rows: list[CollectionRow] = []
         self._sel: int | None = None
 
@@ -907,8 +1200,7 @@ class CollectionPage(ToolPage):
         self.add_btn = self.up_btn = self.down_btn = self.remove_btn = None
         if toolbar:
             def tb(text, icon, slot):
-                b = TransparentPushButton(icon, text, bar)
-                b.clicked.connect(slot)
+                b = _tool_button(text, icon, slot, parent=bar)
                 self.toolbar.addWidget(b)
                 return b
             self.add_btn = tb(add_text, FIF.ADD, self.open)
@@ -944,20 +1236,8 @@ class CollectionPage(ToolPage):
         self.settings_area = None
         self.settings = None
         if settings:
-            sa = SingleDirectionScrollArea(self, Qt.Vertical)
-            sa.setWidgetResizable(True)
-            sa.enableTransparentBackground()
-            sa.setFrameShape(QFrame.NoFrame)
-            sa.setFixedWidth(SETTINGS_W)
-            sw = QWidget()
-            sw.setObjectName("collectionSettings")
-            sw.setStyleSheet("QWidget#collectionSettings { background: transparent; }")
-            self.settings = QVBoxLayout(sw)
-            self.settings.setContentsMargins(0, 0, 0, 0)
-            self.settings.setSpacing(8)
-            sa.setWidget(sw)
-            self.settings_area = sa
-            cols.addWidget(sa)
+            self.settings_area, self.settings = _settings_column(self, "collectionSettings")
+            cols.addWidget(self.settings_area)
         self.body.addLayout(cols, 1)
 
         for keys, d in (("Alt+Up", -1), ("Alt+Down", 1)):
@@ -969,9 +1249,7 @@ class CollectionPage(ToolPage):
         what = "PDFs" if self.exts == (".pdf",) else "files"
         return f"Drop {what} here, or use {self.add_text}."
 
-    @staticmethod
-    def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
-        return setting_row(group, title, desc, label_width=0)
+    setting_row = staticmethod(column_setting_row)
 
     # ── hooks a tool may override ──
     def make_extra(self, path: str) -> QWidget | None:
@@ -979,9 +1257,7 @@ class CollectionPage(ToolPage):
 
     def add_tool(self, text: str, icon, slot):
         """Another toolbar button (after Remove)."""
-        from qfluentwidgets import TransparentPushButton
-        b = TransparentPushButton(icon, text)
-        b.clicked.connect(slot)
+        b = _tool_button(text, icon, slot)
         self.toolbar.insertWidget(self.toolbar.count() - 2, b)
         return b
 
@@ -1064,11 +1340,10 @@ class CollectionPage(ToolPage):
     def open(self):
         if self.exts:
             pats = " ".join(f"*{e}" for e in self.exts)
-            label = "PDF" if self.exts == (".pdf",) else "Supported files"
-            filters = [(label, pats), ("All", "*.*")]
+            filters = [(self.filter_label, pats), ("All", "*.*")]
         else:
             filters = None
-        self.add_paths(dialogs.ask_open_many(self.add_text, filters))
+        self.add_paths(dialogs.ask_open_many(self.open_title, filters))
 
     def delete(self):
         self.remove_selected()
@@ -1219,22 +1494,11 @@ class OrganiserPage(ToolPage):
         self.settings_area = None
         self.settings = None
         if settings:
-            sa = SingleDirectionScrollArea(self, Qt.Vertical)
-            sa.setWidgetResizable(True)
-            sa.enableTransparentBackground()
-            sa.setFrameShape(QFrame.NoFrame)
-            sa.setFixedWidth(SETTINGS_W)
-            sw = QWidget()
-            sw.setObjectName("organiserSettings")
-            sw.setStyleSheet("QWidget#organiserSettings { background: transparent; }")
-            self.settings = QVBoxLayout(sw)
-            self.settings.setContentsMargins(0, 0, 0, 0)
-            self.settings.setSpacing(8)
-            sa.setWidget(sw)
-            self.settings_area = sa
-            cols.addWidget(sa)
+            self.settings_area, self.settings = _settings_column(self, "organiserSettings")
+            cols.addWidget(self.settings_area)
         self.body.addLayout(cols, 1)
 
+        self._centre: QWidget | None = None
         self._render = None
         self._label = None
         self._queue: list = []
@@ -1243,19 +1507,14 @@ class OrganiserPage(ToolPage):
         self._show_grid_state()
         self._selection_changed()
 
-    @staticmethod
-    def setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
-        return setting_row(group, title, desc, label_width=0)
+    setting_row = staticmethod(column_setting_row)
 
     # ── what a subclass fills ──
     def load(self, path: str):
         """The file card changed; open *path* and call set_pages()."""
 
     def add_action(self, text: str, icon, slot, needs_selection: bool = True):
-        from qfluentwidgets import TransparentPushButton
-        b = TransparentPushButton(icon, text) if icon is not None else TransparentPushButton(text)
-        b.clicked.connect(slot)
-        b.pk_needs_selection = needs_selection
+        b = _tool_button(text, icon, slot, needs_selection)
         self.context_bar.insertWidget(len(self._actions), b)
         self._actions.append(b)
         self._selection_changed()
@@ -1296,7 +1555,7 @@ class OrganiserPage(ToolPage):
         self._selection_changed()
 
     def _show_grid_state(self):
-        if getattr(self, "_centre", None) is not None:
+        if self._centre is not None:
             return
         empty = self.grid.count() == 0
         self.grid.setVisible(not empty)
@@ -1361,7 +1620,7 @@ class OrganiserPage(ToolPage):
     def _selection_changed(self):
         has = bool(self.grid.selectedItems())
         for b in self._actions:
-            if getattr(b, "pk_needs_selection", True):
+            if b.pk_needs_selection:
                 b.setEnabled(has)
         n = len(self.grid.selectedItems())
         self.hint_label.setText(self._hint if not n else
@@ -1389,10 +1648,9 @@ class MasterDetailPage(ToolPage):
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
                  empty_text: str = "Open a PDF to see its entries", parent=None):
-        from qfluentwidgets import ListWidget, SubtitleLabel
+        from qfluentwidgets import ListWidget
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
-        self._SubtitleLabel = SubtitleLabel
         self.file = file_card(self.load)
         self.body.addWidget(self.file)
         self.body.addSpacing(8)
@@ -1446,10 +1704,7 @@ class MasterDetailPage(ToolPage):
         """The selection changed (None = nothing selected)."""
 
     def add_tool(self, text: str, icon, slot, needs_selection: bool = False):
-        from qfluentwidgets import TransparentPushButton
-        b = TransparentPushButton(icon, text) if icon is not None else TransparentPushButton(text)
-        b.clicked.connect(slot)
-        b.pk_needs_selection = needs_selection
+        b = _tool_button(text, icon, slot, needs_selection)
         self.toolbar.insertWidget(len(self._tools), b)
         self._tools.append(b)
         self._refresh()
@@ -1469,7 +1724,7 @@ class MasterDetailPage(ToolPage):
         self._detail_box = box
         bv = box.layout()
         bv.setSpacing(4)
-        bv.addWidget(self._SubtitleLabel(title))
+        bv.addWidget(SubtitleLabel(title))
         if desc:
             d = muted_caption(desc)
             d.setWordWrap(True)
@@ -1483,12 +1738,7 @@ class MasterDetailPage(ToolPage):
         return self.detail
 
     def detail_field(self, label: str) -> QHBoxLayout:
-        self.detail.addSpacing(12)
-        self.detail.addWidget(muted_caption(label))
-        row = FieldRow()
-        row.setSpacing(8)
-        self.detail.addLayout(row)
-        return row
+        return _field_row(self.detail, label)
 
     # ── entries ──
     def count(self) -> int:
@@ -1536,7 +1786,7 @@ class MasterDetailPage(ToolPage):
         self.count_label.setText(f"{n} entr{'ies' if n != 1 else 'y'}" if n else "")
         has = self.current() is not None
         for b in self._tools:
-            if getattr(b, "pk_needs_selection", False):
+            if b.pk_needs_selection:
                 b.setEnabled(has)
 
     def accept_drop(self, path: str) -> bool:

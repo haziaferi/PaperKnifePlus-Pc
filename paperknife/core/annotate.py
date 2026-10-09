@@ -4,6 +4,9 @@ from __future__ import annotations
 import pymupdf as fitz
 
 KINDS = ("highlight", "underline", "strikeout", "rect", "line", "note", "freetext")
+# text markup kind -> the fitz.Page method that adds it
+_MARKUP = {"highlight": "add_highlight_annot", "underline": "add_underline_annot",
+           "strikeout": "add_strikeout_annot"}
 
 
 def add(page, kind: str, p0, p1, color, opacity: float, text: str = ""):
@@ -13,18 +16,8 @@ def add(page, kind: str, p0, p1, color, opacity: float, text: str = ""):
     note's or text box's content.  Returns the annotation, or None for an unknown kind."""
     rect = fitz.Rect(p0[0], p0[1], p1[0], p1[1]).normalize()
     ann = None
-    if kind == "highlight":
-        ann = page.add_highlight_annot(rect)
-        ann.set_colors(stroke=color)
-        ann.set_opacity(opacity)
-        ann.update()
-    elif kind == "underline":
-        ann = page.add_underline_annot(rect)
-        ann.set_colors(stroke=color)
-        ann.set_opacity(opacity)
-        ann.update()
-    elif kind == "strikeout":
-        ann = page.add_strikeout_annot(rect)
+    if kind in _MARKUP:
+        ann = getattr(page, _MARKUP[kind])(rect)
         ann.set_colors(stroke=color)
         ann.set_opacity(opacity)
         ann.update()

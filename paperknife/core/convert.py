@@ -164,7 +164,6 @@ def rtf_escape(text: str) -> str:
     return "".join(out)
 
 
-# ── PDF -> document ───────────────────────────────────────────────────────────
 def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                quality: int = 92) -> bool:
     """Convert *doc* (closed here) to *fmt* at *out*.  Returns False if cancelled,
@@ -285,7 +284,6 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
     return True
 
 
-# ── document -> PDF ───────────────────────────────────────────────────────────
 def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
     """Convert the *fmt* file *src* to a PDF at *out*.  Returns the notes on
     fallbacks that changed what was typeset, or None if cancelled."""
@@ -424,18 +422,16 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
     return notes
 
 
-# ── extract embedded images ───────────────────────────────────────────────────
 @dataclass
 class Extracted:
     count: int        # images written
     scanned: int      # unique image xrefs looked at
-    failed: int       # images that could not be decoded or written
+    failed: int       # images that could not be decoded
 
 
 def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> Extracted | None:
     """Write every embedded image of *doc* (closed here) at least *min_px* on both
     sides into *out_dir*, as "Original", "PNG" or "JPEG".  None if cancelled."""
-    from PIL import Image as _Image
     seen, count, failed = set(), 0, 0
     total = len(doc)
     with doc:
@@ -448,6 +444,8 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                 if xref in seen:
                     continue
                 seen.add(xref)
+                # Only decoding counts as a failed image; a write error (disk
+                # full, a locked file) is the job's error.
                 try:
                     base = doc.extract_image(xref)
                     w, h = base["width"], base["height"]
@@ -456,7 +454,7 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                     data = base["image"]
                     ext  = base["ext"]
                     if fmt == "PNG":
-                        img = _Image.open(io.BytesIO(data))
+                        img = Image.open(io.BytesIO(data))
                         if img.mode not in ("1", "L", "LA", "I", "P", "RGB", "RGBA"):
                             img = img.convert("RGB")      # PNG cannot store CMYK
                         buf = io.BytesIO()
@@ -464,16 +462,17 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                         data = buf.getvalue()
                         ext  = "png"
                     elif fmt == "JPEG":
-                        img = _Image.open(io.BytesIO(data)).convert("RGB")
+                        img = Image.open(io.BytesIO(data)).convert("RGB")
                         buf = io.BytesIO()
                         img.save(buf, "JPEG", quality=92)
                         data = buf.getvalue()
                         ext  = "jpg"
-                    # An image of another PDF extracted here may have the same xref.
-                    fname = unused_path(os.path.join(out_dir, f"img_{xref:05d}.{ext}"))
-                    with atomic_output(fname) as tmp:
-                        Path(tmp).write_bytes(data)
-                    count += 1
                 except Exception:
                     failed += 1
+                    continue
+                # An image of another PDF extracted here may have the same xref.
+                fname = unused_path(os.path.join(out_dir, f"img_{xref:05d}.{ext}"))
+                with atomic_output(fname) as tmp:
+                    Path(tmp).write_bytes(data)
+                count += 1
     return Extracted(count, len(seen), failed)

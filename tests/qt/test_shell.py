@@ -120,15 +120,6 @@ def test_ctrl_k_focuses_search(window):
         window.focusWidget(), "search field did not take focus"
 
 
-def test_unported_tool_gets_placeholder(window, monkeypatch):
-    # An empty registry stands for "not ported yet", so this holds as tools are ported.
-    monkeypatch.setattr(pages, "QT_PAGES", {})
-    assert window.show_page("CompressTool")
-    page = window.current_page()
-    assert isinstance(page, pages.PlaceholderPage)
-    assert page.title_label.text() == "Compress"
-
-
 def test_registered_page_class_is_used_and_hooks_run(window, hook_page):
     assert hook_page.calls == ["activate"]
     assert window.show_page("home")
@@ -324,7 +315,7 @@ def test_home_thumbnails_are_read_off_the_ui_thread(window, monkeypatch, tmp_pat
     # R1-10: an offline share's stat timeout or a huge scan's render held the
     # window; the file is now looked at and rendered on a worker.
     import os
-    from paperknife.qt import home as hmod
+    from paperknife import recent as hmod      # home renders through recent.thumb_image
     seen = {"stat": [], "open": []}
 
     class Os:

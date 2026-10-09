@@ -12,9 +12,8 @@ import pymupdf as fitz
 from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
 from ...core import redact as core_redact
-from ...core.doc_state import DocHolder
-from .. import bridge, dialogs, theme
-from ..pages import WorkspacePage, muted_caption, register_page
+from .. import dialogs, theme
+from ..pages import WorkspaceDoc, WorkspacePage, muted_caption, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"box": 0xE739, "search": 0xE721, "undo": 0xE7A7}
@@ -29,7 +28,7 @@ WARN_BODY = ("Content under redaction boxes is completely destroyed — "
 
 
 @register_page("RedactTool")
-class RedactPage(DocHolder, WorkspacePage):
+class RedactPage(WorkspaceDoc, WorkspacePage):
     save_name = "redacted.pdf"
 
     def __init__(self, tool=None, window=None):
@@ -41,17 +40,14 @@ class RedactPage(DocHolder, WorkspacePage):
         self._pending: list = []
         # phrase burned out of page content -> match whole words only (drawn boxes)
         self._secrets: dict[str, bool] = {}
-        self._start = None
-        self._band = None
         for key, (name, _desc) in TOOLS.items():
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo last (Ctrl+Z)", self.undo, toggle=False)
         self.secondary("Open", self.open)
         self.primary("Apply and save", self.save, danger=True)
-        self.view.pressed.connect(self._press)
-        self.view.dragged.connect(self._drag)
-        self.view.released.connect(self._mouse_up)
+        self.enable_band(lambda: ("rect", theme.hex_color("danger")), self._add_box,
+                         drag_needs_doc=True)
         self.set_kind("box")
         self.show_current()
 
@@ -118,27 +114,12 @@ class RedactPage(DocHolder, WorkspacePage):
                                   else f"Page {pg + 1} · box")
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
-        if doc is None:
+        if self.open_document(path, "Redact") is None:
             return
-        self._close_doc()
-        self._doc, self._pg = doc, 0
         self._pending, self._secrets = [], {}
-        self.set_title("Redact", Path(path).name)
         self.build_panel()
         self.show_current()
-
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
 
     def deactivate(self):
         self._close_doc()
@@ -148,31 +129,10 @@ class RedactPage(DocHolder, WorkspacePage):
         self.show_current()
 
     # ── mouse ────────────────────────────────────────────────────────────────
-    def _press(self, xy):
-        self._start = xy
-        if self._band is not None:
-            self.view.remove(self._band)
-            self._band = None
-
-    def _drag(self, xy):
-        if self._start is None or self._doc is None:
+    def _add_box(self, start, end, click: bool):
+        if click:
             return
-        if self._band is not None:
-            self.view.remove(self._band)
-        x0, y0 = self._start
-        self._band = self.view.add_scene_shape("rect", x0, y0, xy[0], xy[1],
-                                               theme.hex_color("danger"))
-
-    def _mouse_up(self, xy):
-        if self._start is None or self._doc is None:
-            return
-        (x0, y0), (cx, cy) = self._start, xy
-        self._start = None
-        if self._band is not None:
-            self.view.remove(self._band)
-            self._band = None
-        if abs(cx - x0) < 4 and abs(cy - y0) < 4:
-            return
+        (x0, y0), (cx, cy) = start, end
         r = fitz.Rect(self.view.scene_to_page(x0, y0),
                       self.view.scene_to_page(cx, cy)).normalize()
         self._pending.append((self._pg, r, None))
@@ -211,7 +171,7 @@ class RedactPage(DocHolder, WorkspacePage):
 
         win.run_job(
             lambda stop: core_redact.find_phrase(
-                self._doc, needle, stop, lambda v: bridge.post(win.set_progress, v)),
+                self._doc, needle, stop, win.progress_callback()),
             f"Searching for '{needle}'…", lock=True, then=done)
 
     # ── undo / delete ────────────────────────────────────────────────────────
@@ -253,7 +213,7 @@ class RedactPage(DocHolder, WorkspacePage):
 
         def work(stop):
             core_redact.apply_boxes(self._doc, pending, fill, stop,
-                                    lambda v: bridge.post(win.set_progress, v), modes, found)
+                                    win.progress_callback(), modes, found)
             if stop.is_set() and len(modes) < pages:
                 return None             # the boxes of the pages not done stay pending
             # Every page is redacted in memory now, even if Cancel came during the

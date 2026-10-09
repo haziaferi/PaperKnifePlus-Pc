@@ -3,12 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QButtonGroup
-from qfluentwidgets import ComboBox, RadioButton
+from qfluentwidgets import ComboBox
 
 from ...core import enhance as core_enhance
-from .. import bridge, dialogs
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import ToolPage, card, file_card, group_title, radio_rows, register_page, setting_row
 
 SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]     # the CTk menu's order
 ORIENTATIONS = ["Portrait", "Landscape", "Keep original"]
@@ -38,65 +36,35 @@ class NormalisePage(ToolPage):
         self.body.addWidget(group_title("Orientation"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.orient_group = QButtonGroup(self)
-        self.orients: dict[str, RadioButton] = {}
-        for val in ORIENTATIONS:
-            holder = setting_row(group, val)
-            rb = RadioButton("")
-            rb.setChecked(val == "Portrait")
-            self.orient_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.orients[val] = rb
+        self.orient_group = radio_rows(group, [(v, v, "") for v in ORIENTATIONS], "Portrait",
+                                       parent=self)
+        self.orients = self.orient_group.buttons
 
         self.body.addWidget(group_title("Scale mode"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.scale_group = QButtonGroup(self)
-        self.scales: dict[str, RadioButton] = {}
-        for val, name, desc in SCALES:
-            holder = setting_row(group, name, desc)
-            rb = RadioButton("")
-            rb.setChecked(val == "fit")
-            self.scale_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.scales[val] = rb
+        self.scale_group = radio_rows(group, SCALES, "fit", parent=self)
+        self.scales = self.scale_group.buttons
 
         self.body.addStretch(1)
         self.primary("Normalise Pages", self.run)
 
     @property
     def orient(self) -> str:
-        return next(v for v, rb in self.orients.items() if rb.isChecked())
+        return self.orient_group.value()
 
     @property
     def stretch(self) -> bool:
-        return self.scales["stretch"].isChecked()
-
-    def open(self):
-        self.file.choose()
+        return self.scale_group.value() == "stretch"
 
     def run(self):
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("Normalise", "Select a PDF first.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("normalised.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
         size, orient, stretch = self.size.currentText(), self.orient, self.stretch
 
-        def work(stop):
-            return core_enhance.normalise_pdf(doc, out, size, orient, stretch, stop,
-                                              lambda v: bridge.post(win.set_progress, v))
+        def work(doc, out, stop, progress):
+            return core_enhance.normalise_pdf(doc, out, size, orient, stretch, stop, progress)
 
-        def then(kind, result):
-            if kind != "done" or not result:
-                return
-            win.set_status(f"✓  Normalised → {Path(out).name}", "success")
-            dialogs.info("Done", f"Normalised PDF saved:\n{out}")
-
-        if win.run_job(work, "Normalising pages…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Normalise", work, "Normalising pages…",
+            lambda _r, out: ("success", f"✓  Normalised → {Path(out).name}",
+                             "Done", f"Normalised PDF saved:\n{out}"),
+            save=("normalised.pdf", ".pdf", [("PDF", "*.pdf")]))

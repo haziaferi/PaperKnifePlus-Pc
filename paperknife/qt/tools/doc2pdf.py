@@ -43,7 +43,7 @@ class Doc2PdfPage(ToolPage):
         group = card(padding=0)
         self.body.addWidget(group)
         row = setting_row(group, "Input format", INFO["TXT"])
-        self.fmt_info = row.parent().findChildren(CaptionLabel)[0]
+        self.fmt_info = row.desc_label
         self.fmt = ComboBox()
         self.fmt.addItems(core_convert.FORMATS)
         self.fmt.setCurrentText("TXT")
@@ -76,9 +76,6 @@ class Doc2PdfPage(ToolPage):
         return self.fmt.currentText()
 
     # ── actions ──
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.file.path()
         if not src:

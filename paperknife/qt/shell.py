@@ -5,8 +5,8 @@ MainWindow: the FluentWindow shell that replaces paperknife/app.py's App.
 - Navigation from tool_base.TOOLS grouped by tool.section (first-seen order,
   registry order inside a group), Home first, Preferences at the bottom,
   a search box (Ctrl+K / Ctrl+F) filtering by label.
-- Pages are built on first use by page_for(tool): a class registered in
-  pages.QT_PAGES under the tool's class name, else a PlaceholderPage.
+- Pages are built on first use by page_for(tool): the class registered in
+  pages.QT_PAGES under the tool's class name.
 - Status bar with colour roles, a progress strip with Cancel, run_job with
   the CTk app's semantics, lock=True holding the page and navigation.
 - Window modes: Ctrl+Alt+S collapses / expands the navigation; Ctrl+Alt+C
@@ -37,9 +37,9 @@ from . import bridge, dialogs, pages, theme
 from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
+from .pages import SLIDE_MS      # sidebar / panel slide
 
 # ── Timings (Zen defaults, refs/zen.md) ───────────────────────────────────────
-SLIDE_MS = 250          # sidebar / panel slide
 TOP_SLIDE_MS = 150      # title bar slide
 KEEP_MS = 150           # sidebar stays after the pointer leaves
 TOP_HIDE_MS = 1000      # title bar hides after the pointer leaves
@@ -308,11 +308,8 @@ class MainWindow(FluentWindow):
     # PAGES AND NAVIGATION
     # ══════════════════════════════════════════════════════════════════════════
     def page_for(self, tool) -> QWidget:
-        """The Qt page for *tool*: its registered class, else a placeholder."""
-        cls = pages.QT_PAGES.get(type(tool).__name__)
-        if cls is not None:
-            return cls(tool, self)
-        return pages.PlaceholderPage(tool, self)
+        """The Qt page for *tool*: its registered class."""
+        return pages.QT_PAGES[type(tool).__name__](tool, self)
 
     def _ensure_page(self, key: str) -> QWidget:
         page = self._pages.get(key)
@@ -339,7 +336,7 @@ class MainWindow(FluentWindow):
             return False
         old = self.current_page()
         if key != self._current_key and old is not None:
-            if self.compact and hasattr(old, "set_compact"):
+            if self.compact:
                 old.set_compact(False)
             if hasattr(old, "deactivate"):
                 old.deactivate()
@@ -350,7 +347,7 @@ class MainWindow(FluentWindow):
         self.stackedWidget.setCurrentWidget(self._hosts[key], popOut=False)
         self.navigationInterface.setCurrentItem(key)
         if changed:
-            if self.compact and hasattr(page, "set_compact"):
+            if self.compact:
                 page.set_compact(True)
             if hasattr(page, "activate"):
                 page.activate()
@@ -452,6 +449,11 @@ class MainWindow(FluentWindow):
     def set_progress(self, value: float):
         """0.0 - 1.0; call on the main thread (bridge.post from a worker)."""
         self.progress.setValue(int(1000 * max(0.0, min(1.0, float(value)))))
+
+    def progress_callback(self, scale: float = 1.0):
+        """A worker's progress(fraction): posts set_progress(fraction * scale)
+        to the main thread."""
+        return lambda v: bridge.post(self.set_progress, v * scale)
 
     def _prog_show(self, label: str, cancellable: bool = True):
         self.progress.setValue(0)
@@ -663,7 +665,7 @@ class MainWindow(FluentWindow):
             self.hBoxLayout.insertWidget(0, nav)
             nav.show()
         page = self.current_page()
-        if hasattr(page, "set_compact"):
+        if page is not None:
             page.set_compact(on)
         self._place_title_bar()
         self._update_edge_watch()
@@ -722,7 +724,7 @@ class MainWindow(FluentWindow):
         tb.raise_()
         self._slide("top", tb, QPoint(tb.x(), 0), TOP_SLIDE_MS)
         page = self.current_page()
-        if self.compact and hasattr(page, "reveal_header"):
+        if self.compact and page is not None:
             page.reveal_header(True)
         self._set_top_margin()
 
@@ -733,7 +735,7 @@ class MainWindow(FluentWindow):
         tb = self.titleBar
         self._slide("top", tb, QPoint(tb.x(), -tb.height()), TOP_SLIDE_MS)
         page = self.current_page()
-        if self.compact and hasattr(page, "reveal_header"):
+        if self.compact and page is not None:
             page.reveal_header(False)
         self._set_top_margin()
 
@@ -762,8 +764,7 @@ class MainWindow(FluentWindow):
         if self._autohide_title:
             tb_h = self.titleBar.height()
             page = self.current_page()
-            if self.compact and page is not None and getattr(page, "header", None) is not None \
-                    and page.header.isVisible():
+            if self.compact and page is not None and page.header.isVisible():
                 tb_h = max(tb_h, page.mapTo(self, page.header.geometry().bottomLeft()).y())
             if 0 <= x <= w and -OUTSIDE_Y <= y <= EDGE:
                 self._show_top()
@@ -788,7 +789,7 @@ class MainWindow(FluentWindow):
             self._reveal_side(True)
 
         page = self.current_page()
-        if page is not None and hasattr(page, "has_context") and page.has_context():
+        if page is not None and page.has_context():
             if self._ctx_revealed:
                 if x < w - page.context_width() - 10:
                     if not self._keep_ctx_timer.isActive():

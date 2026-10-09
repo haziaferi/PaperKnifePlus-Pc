@@ -4,14 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup
-from qfluentwidgets import BodyLabel, InfoBar, InfoBarPosition, LineEdit, RadioButton, Slider
+from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 
 from ...core import ocr as core_ocr
 from ...prefs import PREFS, pref_dpi
-from .. import bridge, dialogs
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
-                     setting_row)
+from .. import bridge
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, muted_caption,
+                     radio_rows, register_page, setting_row)
 
 MODES = [("overlay", "Overlay", "invisible text layer"),
          ("text", "Text-only PDF", "")]
@@ -56,29 +55,15 @@ class OCRPage(ToolPage):
         row.layout().addWidget(self.lang)
 
         row = setting_row(group, "Render DPI")
-        dpi = pref_dpi(72, 400)
-        self.dpi = Slider(Qt.Horizontal)
-        self.dpi.setRange(72, 400)
-        self.dpi.setValue(dpi)
-        self.dpi.setMinimumWidth(200)
-        self.dpi_label = BodyLabel(f"{dpi} DPI")
-        self.dpi_label.setFixedWidth(64)
-        self.dpi.valueChanged.connect(lambda v: self.dpi_label.setText(f"{int(v)} DPI"))
-        row.layout().addWidget(self.dpi)
-        row.layout().addWidget(self.dpi_label)
+        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400), " DPI", width=200,
+                                   fixed=False)
+        self.dpi_label = self.dpi.value_label
 
         self.body.addWidget(group_title("Output mode"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.mode_group = QButtonGroup(self)
-        self.modes: dict[str, RadioButton] = {}
-        for val, name, desc in MODES:
-            holder = setting_row(group, name, desc)
-            rb = RadioButton("")
-            rb.setChecked(val == "overlay")
-            self.mode_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.modes[val] = rb
+        self.mode_group = radio_rows(group, MODES, "overlay", parent=self)
+        self.modes = self.mode_group.buttons
 
         self.log = muted_caption("")
         self.log.setContentsMargins(0, 8, 0, 0)
@@ -86,7 +71,7 @@ class OCRPage(ToolPage):
 
     @property
     def text_only(self) -> bool:
-        return self.modes["text"].isChecked()
+        return self.mode_group.value() == "text"
 
     def open(self):
         if self.available:
@@ -95,34 +80,21 @@ class OCRPage(ToolPage):
     def run(self):
         if not self.available:
             return
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("OCR", "Select a PDF first.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
         lang = self.lang.text().strip() or "eng"
         dpi = int(self.dpi.value())
         text_only = self.text_only
         log = self.log
 
-        def work(stop):
+        def work(doc, out, stop, progress):
             return core_ocr.ocr_pdf(
-                doc, out, lang, dpi, text_only, stop,
-                lambda v: bridge.post(win.set_progress, v),
+                doc, out, lang, dpi, text_only, stop, progress,
                 lambda n, t: bridge.post(log.setText, f"OCR — page {n} / {t}"))
 
-        def then(kind, total):
-            if kind != "done" or total is None:
-                return
+        def report(total, out):
             log.setText(f"✓  Done — {total} page(s) processed")
-            win.set_status(f"✓  OCR complete — {total} page(s) → {Path(out).name}", "success")
-            dialogs.info("OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
+            return ("success", f"✓  OCR complete — {total} page(s) → {Path(out).name}",
+                    "OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
 
-        win.set_status(f"Starting OCR ({lang}, {dpi} DPI)…")
-        if win.run_job(work, f"OCR — {dpi} DPI · lang={lang}", then=then) is None:
-            doc.close()
+        self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report,
+                         save=("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")]),
+                         working=f"Starting OCR ({lang}, {dpi} DPI)…")

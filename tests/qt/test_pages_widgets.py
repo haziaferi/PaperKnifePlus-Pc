@@ -251,7 +251,8 @@ def _page_view(qapp, tmp_path, monkeypatch):
     real = pageview.render
     monkeypatch.setattr(pageview, "render", lambda *a, **k: (renders.append(1), real(*a, **k))[1])
     doc = fitz.open(make_pdf(tmp_path / "z.pdf", 1))
-    view = pageview.PageView()
+    from paperknife.qt import theme
+    view = pageview.PageView(theme.hex_color("page_bg"))
     view.show_page(doc[0])
     zooms = []
     view.zoomed.connect(zooms.append)

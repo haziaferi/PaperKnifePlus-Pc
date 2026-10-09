@@ -6,8 +6,7 @@ from pathlib import Path
 from qfluentwidgets import LineEdit
 
 from ...core import organise
-from ...pages import PageRangeError, parse_ranges
-from .. import bridge, dialogs
+from ...pages import parse_ranges
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 
@@ -32,40 +31,25 @@ class SplitPage(ToolPage):
         self.body.addStretch(1)
         self.primary("Split", self.run)
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
-        src = self.file.path()
+        src = self.chosen_file("Split")
         if not src:
-            return dialogs.warning("Split", "Select a PDF first.")
-        ranges_str = self.ranges.text().strip()
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
             return
-        total = len(doc)
-        try:
-            groups = (parse_ranges(ranges_str, total) if ranges_str
-                      else [(i, i) for i in range(total)])
-        except PageRangeError as e:
-            doc.close()
-            return dialogs.error("Split", str(e))
-        out_dir = dialogs.ask_dir()
-        if not out_dir:
-            return doc.close()
+        ranges_str = self.ranges.text().strip()
         base = Path(src).stem
+        groups: list = []
 
-        def work(stop):
+        def prepare(doc):
+            total = len(doc)
+            groups[:] = (parse_ranges(ranges_str, total) if ranges_str
+                         else [(i, i) for i in range(total)])
+
+        def work(doc, out_dir, stop, progress):
             with doc:                   # the job owns the document from here
-                organise.split_ranges(doc, groups, out_dir, base, stop,
-                                      lambda v: bridge.post(win.set_progress, v))
+                organise.split_ranges(doc, groups, out_dir, base, stop, progress)
 
-        def then(kind, _value):
-            if kind != "done":
-                return
-            win.set_status(f"✓  Split into {len(groups)} file(s) → {out_dir}", "success")
-            dialogs.info("Done", f"Created {len(groups)} file(s) in:\n{out_dir}")
-
-        if win.run_job(work, f"Splitting into {len(groups)} file(s)…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Split", work, lambda: f"Splitting into {len(groups)} file(s)…",
+            lambda _v, out_dir: ("success", f"✓  Split into {len(groups)} file(s) → {out_dir}",
+                                 "Done", f"Created {len(groups)} file(s) in:\n{out_dir}"),
+            src=src, prepare=prepare)

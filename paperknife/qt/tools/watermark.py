@@ -3,19 +3,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame
-from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
+from qfluentwidgets import LineEdit, PushButton
 
 from ...core import enhance as core_enhance
-from .. import bridge, dialogs
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from .. import dialogs
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, register_page,
+                     setting_row)
 
 DEFAULT_COLOR = (128, 128, 128)          # the CTk tool's #808080 swatch
 
 
 def _hex(rgb) -> str:
-    return "#%02x%02x%02x" % tuple(int(v) for v in rgb)
+    return "#%02x%02x%02x" % rgb
 
 
 @register_page("WatermarkTool")
@@ -37,26 +37,14 @@ class WatermarkPage(ToolPage):
         row.layout().addWidget(self.text)
 
         row = setting_row(group, "Font size")
-        self.size = Slider(Qt.Horizontal)
-        self.size.setRange(18, 120)
-        self.size.setValue(60)
-        self.size.setMinimumWidth(200)
-        self.size_label = BodyLabel("60 pt")
-        self.size_label.setFixedWidth(52)
-        self.size.valueChanged.connect(lambda v: self.size_label.setText(f"{int(v)} pt"))
-        row.layout().addWidget(self.size)
-        row.layout().addWidget(self.size_label)
+        self.size = labelled_slider(row, 18, 120, 60, " pt", width=200, label_width=52,
+                                    fixed=False)
+        self.size_label = self.size.value_label
 
         row = setting_row(group, "Opacity")
-        self.opacity = Slider(Qt.Horizontal)
-        self.opacity.setRange(5, 100)
-        self.opacity.setValue(25)
-        self.opacity.setMinimumWidth(200)
-        self.opacity_label = BodyLabel("25%")
-        self.opacity_label.setFixedWidth(52)
-        self.opacity.valueChanged.connect(lambda v: self.opacity_label.setText(f"{int(v)}%"))
-        row.layout().addWidget(self.opacity)
-        row.layout().addWidget(self.opacity_label)
+        self.opacity = labelled_slider(row, 5, 100, 25, "%", width=200, label_width=52,
+                                       fixed=False)
+        self.opacity_label = self.opacity.value_label
 
         row = setting_row(group, "Colour")
         self.color = DEFAULT_COLOR
@@ -80,43 +68,28 @@ class WatermarkPage(ToolPage):
     def pick_color(self):
         rgb = dialogs.ask_color(self.color)
         if rgb:
-            self.color = tuple(int(v) for v in rgb[:3])
+            self.color = rgb
             self._show_color()
-
-    # ── hooks ──
-    def open(self):
-        self.file.choose()
 
     # ── the action ──
     def run(self):
-        src = self.file.path()
-        text = self.text.text().strip()
+        src = self.chosen_file("Watermark")
         if not src:
-            return dialogs.warning("Watermark", "Select a PDF first.")
+            return
+        text = self.text.text().strip()
         if not text:
             return dialogs.warning("Watermark", "Enter watermark text.")
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("watermarked.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
         size = int(self.size.value())
         opacity = self.opacity.value() / 100.0
         color = tuple(c / 255 for c in self.color)
 
-        def work(stop):
-            return core_enhance.watermark_pdf(
-                doc, out, text, size, opacity, color, stop,
-                lambda v: bridge.post(win.set_progress, v)) is not None
+        def work(doc, out, stop, progress):
+            return core_enhance.watermark_pdf(doc, out, text, size, opacity, color, stop,
+                                              progress)
 
-        def then(kind, result):
-            if kind != "done" or not result:
-                return
-            win.set_status(f"✓  Watermarked → {Path(out).name}", "success")
-            dialogs.info("Done", f"Watermarked PDF saved:\n{out}")
-
-        win.set_status("Applying watermark…")
-        if win.run_job(work, "Applying watermark…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Watermark", work, "Applying watermark…",
+            lambda _r, out: ("success", f"✓  Watermarked → {Path(out).name}",
+                             "Done", f"Watermarked PDF saved:\n{out}"),
+            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]),
+            working="Applying watermark…")

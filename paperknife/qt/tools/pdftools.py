@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import pdftools as core
-from .. import dialogs
 from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
 
 
@@ -22,8 +21,8 @@ class PdfToolsPage(ToolPage):
         self.file = file_card()
         self.body.addWidget(self.file)
         self.body.addSpacing(16)
-        # PDF/A and Linearise were removed: PyMuPDF 1.28 has no save(pdfa=)
-        # and save(linear=True) raises "Linearisation is no longer supported".
+        # No PDF/A or Linearise: PyMuPDF 1.28 has no save(pdfa=) and
+        # save(linear=True) raises "Linearisation is no longer supported".
         # One operation, so a row that explains it and no choice to make.
         self.body.addWidget(group_title("Operation"))
         group = card(padding=0)
@@ -35,32 +34,11 @@ class PdfToolsPage(ToolPage):
         self.body.addStretch(1)
         self.primary("Repair", self.run)
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
-        src = self.file.path()
-        if not src:
-            return dialogs.warning("PDF Tools", "Select a PDF first.")
-        win = self.window_
-        # MuPDF rebuilds a broken xref while opening; the garbage/clean save
-        # then writes a fresh, consistent file from what it recovered.
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save("repaired.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
-
-        def work(stop):
-            return core.repair_pdf(doc, out)
-
-        def then(kind, repaired):
-            if kind != "done":
-                return
+        def report(repaired, out):
             status, text = repair_report(repaired, out)
-            win.set_status(status, "success")
-            dialogs.info("Done", text)
+            return "success", status, "Done", text
 
-        if win.run_job(work, "Repairing…", then=then, cancellable=False) is None:
-            doc.close()
+        self.run_on_file("PDF Tools", lambda doc, out, stop, _p: core.repair_pdf(doc, out),
+                         "Repairing…", report,
+                         save=("repaired.pdf", ".pdf", [("PDF", "*.pdf")]), cancellable=False)

@@ -26,15 +26,14 @@ class DocHolder:
     _pg: int = 0
 
     def _close_doc(self) -> None:
-        doc = getattr(self, "_doc", None)
+        doc = self._doc
         if doc is not None:
             doc.close()
             self._doc = None
 
-    # ── Saving the document held in self._doc ─────────────────────────────────
     def _holds(self, path: str) -> bool:
         """True when self._doc was read from the file at *path*."""
-        doc = getattr(self, "_doc", None)
+        doc = self._doc
         return doc is not None and same_file(doc.name, path)
 
     def _release(self, path: str) -> None:
@@ -63,7 +62,6 @@ class DocHolder:
             self._doc = fitz.open("pdf", doc.tobytes())
             doc.close()
 
-    # ── Whole-document undo for the editing tools ─────────────────────────────
     # apply_redactions rewrites page resources as well as content, so undo
     # restores a serialised copy.  MuPDF's journal cannot be used: get_text on
     # a rotated page writes /Rotate outside an operation, which it refuses.

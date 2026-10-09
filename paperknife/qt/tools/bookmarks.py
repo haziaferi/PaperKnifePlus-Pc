@@ -1,16 +1,13 @@
 """Split by Bookmarks — a page organiser (group B) whose centre is the outline."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QFrame, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, RadioButton, SingleDirectionScrollArea, StrongBodyLabel
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from qfluentwidgets import BodyLabel, SingleDirectionScrollArea, StrongBodyLabel
 
 from ...core import organise
-from ...core.doc_state import DocHolder
-from .. import bridge, dialogs, theme
-from ..pages import (OrganiserPage, _clear_layout, card, group_title, muted_caption,
+from .. import dialogs, theme
+from ..pages import (HeldDoc, OrganiserPage, _clear_layout, card, group_title, muted_caption, radio_rows,
                      register_page)
 
 SUBTITLE = "Split a PDF at its chapter / section bookmarks"
@@ -19,12 +16,11 @@ LEVELS = [("Top-level only (level 1)", False), ("All bookmark levels", True)]
 
 
 @register_page("BookmarksTool")
-class BookmarksPage(DocHolder, OrganiserPage):
+class BookmarksPage(HeldDoc, OrganiserPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Split by Bookmarks", SUBTITLE, tool=tool, window=window,
                          settings=True, drag_reorder=False, hint="")
         self._toc: list = []
-        self._src = ""
 
         # Centre: the outline, read-only.
         area = SingleDirectionScrollArea(self, Qt.Vertical)
@@ -45,22 +41,16 @@ class BookmarksPage(DocHolder, OrganiserPage):
         self.settings.addWidget(group_title("Split at"))
         group = card(padding=0)
         self.settings.addWidget(group)
-        self.level_group = QButtonGroup(self)
-        self.radios: dict[bool, RadioButton] = {}
-        for title, all_levels in LEVELS:
-            row = self.setting_row(group, title)
-            rb = RadioButton("")
-            rb.setChecked(not all_levels)
-            self.level_group.addButton(rb)
-            row.layout().addWidget(rb)
-            self.radios[all_levels] = rb
+        self.level_group = radio_rows(group, [(v, title, "") for title, v in LEVELS], False,
+                                      row=self.setting_row, parent=self)
+        self.radios = self.level_group.buttons
         self.settings.addStretch(1)
 
         self.primary("Split", self.run)
 
     @property
     def all_levels(self) -> bool:
-        return self.radios[True].isChecked()
+        return self.level_group.value()
 
     # ── outline ──────────────────────────────────────────────────────────────
     def _show_message(self, text: str, role: str):
@@ -102,9 +92,6 @@ class BookmarksPage(DocHolder, OrganiserPage):
         return out
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        self.file.choose()
-
     def open_path(self, path: str):
         self.file.set_path(path)
 
@@ -112,22 +99,15 @@ class BookmarksPage(DocHolder, OrganiserPage):
         if not path:
             return
         # Kept open so a password entered here also covers the split.
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.open_held(path, "Split by Bookmarks")
         if doc is None:
-            self.file.set_path(self._src, notify=False)
             return
-        self._close_doc()
-        self._doc, self._src = doc, path
         self._toc = doc.get_toc()
-        self.set_title("Split by Bookmarks", Path(path).name)
         self._show_outline(self._toc)
 
     def deactivate(self):
-        self._close_doc()
-        self._src = ""
+        self.release_held("Split by Bookmarks", SUBTITLE)
         self._toc = []
-        self.file.clear()
-        self.set_title("Split by Bookmarks", SUBTITLE)
         self._show_message("Open a PDF to see its bookmarks", "muted")
 
     # ── split ────────────────────────────────────────────────────────────────
@@ -148,7 +128,7 @@ class BookmarksPage(DocHolder, OrganiserPage):
         def work(stop):
             return organise.split_chapters(
                 self._doc, entries, out_dir, stop,
-                lambda v: bridge.post(win.set_progress, v), release=self._release)
+                win.progress_callback(), release=self._release)
 
         def then(kind, count):
             if kind != "done":

@@ -1,15 +1,13 @@
 """Edit Text — a document workspace (group A): click a text block, edit it in the panel."""
 from __future__ import annotations
 
-from pathlib import Path
 
 import pymupdf as fitz
 from qfluentwidgets import PlainTextEdit, PushButton
 
 from ...core import text as core_text
-from ...core.doc_state import DocHolder
 from .. import dialogs, theme
-from ..pages import WorkspacePage, register_page
+from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"select": 0xE8E9, "undo": 0xE7A7}
@@ -17,7 +15,7 @@ HINT = "Click any text block to select it · edit the span · Ctrl+S to save"
 
 
 @register_page("EditTextTool")
-class EditTextPage(DocHolder, WorkspacePage):
+class EditTextPage(WorkspaceDoc, WorkspacePage):
     save_name = "edited.pdf"
     saved_what = "Edited PDF"
 
@@ -66,29 +64,14 @@ class EditTextPage(DocHolder, WorkspacePage):
         self.edit_box.setFocus()
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
-        if doc is None:
+        if self.open_document(path, "Edit Text") is None:
             return
-        self._close_doc()
         # A selection belongs to one page of one document: drop it when either
         # changes, or Apply Edit would write it into another file's block.
-        self._doc, self._pg, self._undo_stack = doc, 0, []
         self._blocks, self._sel_bi = [], None
-        self.set_title("Edit Text", Path(path).name)
         self.build_panel()
         self.show_current()
-
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
 
     def on_page(self):
         self._sel_bi = None
@@ -155,14 +138,13 @@ class EditTextPage(DocHolder, WorkspacePage):
 
         self._sel_bi = None
         self.build_panel()
-        if win is not None:
-            if own_font:
-                win.set_status("Edit applied — use Save to write to disk", "success")
-            else:
-                win.set_status(
-                    f"Edit applied in Helvetica: the block's font "
-                    f"'{core_text.block_style(block)[0]}' is not built in — use Save to write to disk",
-                    "warning")
+        if own_font:
+            win.set_status("Edit applied — use Save to write to disk", "success")
+        else:
+            win.set_status(
+                f"Edit applied in Helvetica: the block's font "
+                f"'{core_text.block_style(block)[0]}' is not built in — use Save to write to disk",
+                "warning")
         self.show_current()
 
     def undo(self):
@@ -172,23 +154,4 @@ class EditTextPage(DocHolder, WorkspacePage):
         self._sel_bi = None
         self.build_panel()
         self.show_current()
-        if self.window_ is not None:
-            self.window_.set_status("Undo applied", "success")
-
-    def save(self):
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        win = self.window_
-
-        def done(kind, _value):
-            # A save over the open file goes on from an in-memory copy of it.
-            self.show_current()
-            if kind == "done":
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
-
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False)
+        self.window_.set_status("Undo applied", "success")

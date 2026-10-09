@@ -4,14 +4,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QButtonGroup, QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, LineEdit, PushButton, RadioButton, Slider
+from PySide6.QtWidgets import QVBoxLayout, QWidget
+from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 
 from ...core import batch as core
 from ...prefs import DPI_RANGE, PREFS, pref_dpi
 from .. import bridge, dialogs
-from ..pages import CollectionPage, card, group_title, register_page, spin_box
+from ..pages import (CollectionPage, card, group_title, labelled_slider, radio_rows,
+                     register_page, spin_box)
 from .compress import LEVELS
 
 EMPTY_TEXT = ("Choose an input folder: its PDFs are listed here, "
@@ -58,7 +58,7 @@ class BatchPage(CollectionPage):
         btn = PushButton("Browse…")
         btn.clicked.connect(lambda: self._pick_dir(title, setter))
         row.layout().addWidget(btn)
-        return row.parent().findChildren(CaptionLabel)[0]
+        return row.desc_label
 
     def _pick_dir(self, title, setter):
         if setter == self._set_in_dir and self._busy():
@@ -105,16 +105,9 @@ class BatchPage(CollectionPage):
         group = card(padding=0)
         v.addWidget(group)
         if op == "Compress":
-            self.level_group = QButtonGroup(box)
-            self.radios: dict[str, RadioButton] = {}
-            chosen = PREFS.compress_level or "medium"
-            for val, title, desc in LEVELS:
-                row = self.setting_row(group, title, desc)
-                rb = RadioButton("")
-                rb.setChecked(val == chosen)
-                self.level_group.addButton(rb)
-                row.layout().addWidget(rb)
-                self.radios[val] = rb
+            self.level_group = radio_rows(group, LEVELS, PREFS.compress_level or "medium",
+                                          row=self.setting_row, parent=box)
+            self.radios = self.level_group.buttons
             self.controls["level"] = self.level_group
         elif op == "Watermark":
             row = self.setting_row(group, "Text")
@@ -128,15 +121,8 @@ class BatchPage(CollectionPage):
             row.layout().addWidget(size)
             self.controls["size"] = size
             row = self.setting_row(group, "Opacity")
-            opacity = Slider(Qt.Horizontal)
-            opacity.setRange(1, 100)
-            opacity.setValue(25)
-            opacity.setMinimumWidth(110)
-            label = BodyLabel("25%")
-            label.setFixedWidth(40)
-            opacity.valueChanged.connect(lambda val: label.setText(f"{int(val)}%"))
-            row.layout().addWidget(opacity)
-            row.layout().addWidget(label)
+            opacity = labelled_slider(row, 1, 100, 25, "%", width=110, label_width=40,
+                                      fixed=False)
             self.controls["opacity"] = opacity
         elif op == "OCR":
             row = self.setting_row(group, "Language")
@@ -157,7 +143,7 @@ class BatchPage(CollectionPage):
         opts = {}
         for key, w in self.controls.items():
             if key == "level":
-                opts[key] = next(v for v, rb in self.radios.items() if rb.isChecked())
+                opts[key] = w.value()
             elif key == "opacity":
                 opts[key] = w.value() / 100.0
             elif isinstance(w, LineEdit):

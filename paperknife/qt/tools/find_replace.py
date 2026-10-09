@@ -2,14 +2,12 @@
 and the hit count in the context panel, the hits drawn over the page."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import text as core_text
-from ...core.doc_state import DocHolder
-from .. import bridge, dialogs, theme
-from ..pages import WorkspacePage, register_page
+from .. import dialogs, theme
+from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
 # The CTk tool's HIT_CUR / HIT / HIT_EDGE; the fills are see-through so the
@@ -18,7 +16,7 @@ HIT_CUR, HIT, HIT_EDGE = "#80FFD700", "#80FFFACD", "#CCCCCC"
 
 
 @register_page("FindReplaceTool")
-class FindReplacePage(DocHolder, WorkspacePage):
+class FindReplacePage(WorkspaceDoc, WorkspacePage):
     save_name = "replaced.pdf"
     saved_what = "PDF"
 
@@ -62,27 +60,12 @@ class FindReplacePage(DocHolder, WorkspacePage):
         self.panel_body.addWidget(self.hit_label)
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
-        if doc is None:
+        if self.open_document(path, "Find & Replace") is None:
             return
-        self._close_doc()
-        self._doc, self._pg, self._undo_stack = doc, 0, []
         self._hits, self._hit_idx = [], -1
         self.hit_label.setText("")
-        self.set_title("Find & Replace", Path(path).name)
         self.show_current()
-
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
 
     def deactivate(self):
         self._close_doc()
@@ -91,10 +74,6 @@ class FindReplacePage(DocHolder, WorkspacePage):
         self.set_title("Find & Replace", "Open a PDF to start")
         self.show_current()
 
-    def _progress(self, scale: float = 1.0):
-        win = self.window_
-        return lambda v: bridge.post(win.set_progress, v * scale)
-
     # ── search ───────────────────────────────────────────────────────────────
     def find_all(self):
         if self._doc is None:
@@ -102,7 +81,7 @@ class FindReplacePage(DocHolder, WorkspacePage):
         needle = self.find_edit.text().strip()
         if not needle:
             return
-        progress = self._progress()
+        progress = self.window_.progress_callback()
 
         def work(stop):
             found = core_text.find_all(self._doc, needle, stop, progress)
@@ -154,7 +133,7 @@ class FindReplacePage(DocHolder, WorkspacePage):
                 "Replace", "The replacement contains characters no built-in font can draw.")
         win = self.window_
         state = {"count": 0, "snapshot": False}
-        first_half, second_half = self._progress(0.5), self._progress()
+        first_half, second_half = win.progress_callback(0.5), win.progress_callback()
 
         def work(stop):
             found = core_text.find_all(self._doc, needle, stop, first_half)
@@ -202,20 +181,3 @@ class FindReplacePage(DocHolder, WorkspacePage):
         self._hits, self._hit_idx = [], -1
         self.hit_label.setText("Replace undone")
         self.show_current()
-
-    def save(self):
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        win = self.window_
-
-        def then(kind, _value):
-            self.show_current()      # a save over the open file goes on from a copy
-            if kind == "done":
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
-
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=then, cancellable=False)

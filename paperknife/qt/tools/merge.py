@@ -7,7 +7,7 @@ from qfluentwidgets import LineEdit
 
 from ...core import organise
 from ...pages import PageRangeError, parse_ranges
-from .. import bridge, dialogs
+from .. import dialogs
 from ..pages import CollectionPage, register_page
 
 RANGE_PLACEHOLDER = "all  or  1-3, 5, 8-end"
@@ -67,12 +67,12 @@ class MergePage(CollectionPage):
             try:
                 return organise.merge(
                     [(src, groups) for _, src, groups in jobs], out, stop,
-                    lambda v: bridge.post(win.set_progress, v))
+                    win.progress_callback())
             finally:
                 close_all()
 
         def then(kind, pg_total):
-            if kind != "done" or pg_total is None:
+            if kind != "done":
                 return
             win.set_status(f"✓  Merged {n} file(s) · {pg_total} pages → "
                            f"{Path(out).name}", "success")

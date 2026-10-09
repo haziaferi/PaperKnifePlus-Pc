@@ -1,15 +1,13 @@
-"""Annotate — the document-workspace pilot (group A)."""
+"""Annotate — add, select and remove annotations on a page (document workspace, group A)."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from PySide6.QtWidgets import QFrame
 from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
 
 from ...core import annotate as core_annotate
-from ...core.doc_state import DocHolder
 from .. import dialogs
-from ..pages import WorkspacePage, register_page
+from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"highlight": 0xE7E6, "underline": 0xE8DC, "strikeout": 0xEDE0, "rect": 0xE739,
@@ -26,8 +24,9 @@ TOOLS = {
 
 
 @register_page("AnnotateTool")
-class AnnotatePage(DocHolder, WorkspacePage):
+class AnnotatePage(WorkspaceDoc, WorkspacePage):
     save_name = "annotated.pdf"
+    saved_what = "Annotated PDF"
 
     def __init__(self, tool=None, window=None):
         super().__init__("Annotate", "Open a PDF to start", tool=tool, window=window)
@@ -37,17 +36,14 @@ class AnnotatePage(DocHolder, WorkspacePage):
         self.note_text = "Note"
         self.sel_xref = None
         self._undo_stack: list = []
-        self._start = None
-        self._band = None
         for key, (name, _desc) in TOOLS.items():
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.secondary("Open", self.open)
         self.primary("Save", self.save)
-        self.view.pressed.connect(self._press)
-        self.view.dragged.connect(self._drag)
-        self.view.released.connect(self._mouse_up)
+        self.enable_band(lambda: ("line" if self.kind == "line" else "rect", "#2B4C8C"),
+                         self._add_at)
         self.set_kind("highlight")
         self.show_current()
 
@@ -106,26 +102,12 @@ class AnnotatePage(DocHolder, WorkspacePage):
             self._paint_swatch()
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
-        if path:
-            self.open_path(path)
-
     def open_path(self, path: str):
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
-        if doc is None:
+        if self.open_document(path, "Annotate") is None:
             return
-        self._close_doc()
-        self._doc, self._pg, self._undo_stack, self.sel_xref = doc, 0, [], None
-        self.set_title("Annotate", Path(path).name)
+        self.sel_xref = None
         self.build_panel()
         self.show_current()
-
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
 
     def on_page(self):
         self.sel_xref = None
@@ -139,31 +121,10 @@ class AnnotatePage(DocHolder, WorkspacePage):
         self.show_current()
 
     # ── mouse ────────────────────────────────────────────────────────────────
-    def _press(self, xy):
-        self._start = xy
-        if self._band is not None:
-            self.view.remove(self._band)
-            self._band = None
-
-    def _drag(self, xy):
-        if self._start is None:
-            return
-        if self._band is not None:
-            self.view.remove(self._band)
-        x0, y0 = self._start
-        self._band = self.view.add_scene_shape("line" if self.kind == "line" else "rect",
-                                               x0, y0, xy[0], xy[1], "#2B4C8C")
-
-    def _mouse_up(self, xy):
-        if self._start is None or self._doc is None:
-            return
-        (x0, y0), (cx, cy) = self._start, xy
-        self._start = None
-        if self._band is not None:
-            self.view.remove(self._band)
-            self._band = None
+    def _add_at(self, start, end, click: bool):
+        (x0, y0), (cx, cy) = start, end
         page = self._doc[self._pg]
-        if abs(cx - x0) < 4 and abs(cy - y0) < 4:
+        if click:
             # A click on an existing annotation selects it for Remove.
             pt = self.view.scene_to_page(x0, y0)
             hit = next((a for a in page.annots() if pt in a.rect), None)
@@ -180,8 +141,7 @@ class AnnotatePage(DocHolder, WorkspacePage):
             ann = core_annotate.add(page, self.kind, (p0.x, p0.y), (p1.x, p1.y), self.color,
                                     self.opacity / 100.0, self.note_text)
         except Exception as ex:
-            if self.window_ is not None:
-                self.window_.set_status(f"Annotation error: {ex}", "warning")
+            self.window_.set_status(f"Annotation error: {ex}", "warning")
         if ann is not None:
             self._undo_stack.append((self._pg, ann.xref))
         self.show_current()
@@ -214,20 +174,3 @@ class AnnotatePage(DocHolder, WorkspacePage):
         self.sel_xref = None
         self.build_panel()
         self.show_current()
-
-    def save(self):
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        win = self.window_
-
-        def done(kind, _value):
-            self.show_current()
-            if kind == "done":
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"Annotated PDF saved:\n{out}")
-
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False)

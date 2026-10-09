@@ -271,3 +271,18 @@ def test_doc_to_pdf_a_failing_slide_leaves_no_document_open(tmp_path, opened_doc
     with pytest.raises(RuntimeError):
         core.doc_to_pdf(str(src), "PPTX", str(tmp_path / "out.pdf"), threading.Event())
     assert opened_docs and all(d.is_closed for d in opened_docs)
+
+
+def test_extract_images_a_write_error_is_raised_not_counted_as_failed(tmp_path, monkeypatch):
+    # Disk full, a locked file or a read-only folder is the job's error, not
+    # "an image that could not be extracted".
+    src = _pdf_with_images(tmp_path / "imgs.pdf", [(200, 150)])
+
+    def disk_full(self, data):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(Path, "write_bytes", disk_full)
+    doc = fitz.open(src)
+    with pytest.raises(OSError, match="No space left"):
+        core.extract_images(doc, str(tmp_path), "Original", 50, threading.Event(),
+                            lambda v: None)
+    assert doc.is_closed

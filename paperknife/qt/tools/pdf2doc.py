@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, Slider
+from qfluentwidgets import CaptionLabel, ComboBox
 
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
-from .. import bridge, dialogs, theme
-from ..pages import Divider, ToolPage, card, file_card, group_title, register_page, setting_row
+from .. import theme
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider,
+                     register_page, setting_row)
 
 INFO = {
     "TXT":  "Extracts all selectable text from the PDF into a plain .txt file.",
@@ -39,21 +39,6 @@ DPI_RANGE = (72, 300)
 QUALITY_RANGE, QUALITY_DEFAULT = (50, 100), 92
 
 
-def _slider(lo: int, hi: int, value: int, unit: str, row) -> Slider:
-    s = Slider(Qt.Horizontal)
-    s.setRange(lo, hi)
-    s.setFixedWidth(220)
-    lbl = BodyLabel()
-    lbl.setFixedWidth(64)
-    s.valueChanged.connect(lambda v: lbl.setText(f"{v}{unit}"))
-    s.setValue(value)
-    lbl.setText(f"{s.value()}{unit}")
-    s.value_label = lbl
-    row.layout().addWidget(s)
-    row.layout().addWidget(lbl)
-    return s
-
-
 @register_page("Pdf2DocTool")
 class Pdf2DocPage(ToolPage):
     def __init__(self, tool=None, window=None):
@@ -68,7 +53,7 @@ class Pdf2DocPage(ToolPage):
         group = card(padding=0)
         self.body.addWidget(group)
         row = setting_row(group, "Output format", INFO["TXT"])
-        self.fmt_info = row.parent().findChildren(CaptionLabel)[0]
+        self.fmt_info = row.desc_label
         self.fmt = ComboBox()
         self.fmt.addItems(core_convert.FORMATS)
         self.fmt.setCurrentText("TXT")
@@ -85,14 +70,11 @@ class Pdf2DocPage(ToolPage):
         self.image_card = card(padding=0)
         self.body.addWidget(self.image_card)
         row = setting_row(self.image_card, "Resolution")
-        self.dpi_slider = _slider(*DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI", row)
+        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI")
         row = setting_row(self.image_card, "JPEG quality")
-        self.quality_slider = _slider(*QUALITY_RANGE, QUALITY_DEFAULT, "%", row)
-        lay = self.image_card.layout()
+        self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%")
         self.quality_row = row.parent()
-        self._quality_divider = next(
-            lay.itemAt(i).widget() for i in range(lay.count())
-            if isinstance(lay.itemAt(i).widget(), Divider))
+        self._quality_divider = row.divider
         self.body.addStretch(1)
         self.fmt.currentTextChanged.connect(self._fmt_changed)
         self._fmt_changed("TXT")
@@ -124,36 +106,21 @@ class Pdf2DocPage(ToolPage):
         return dpi, quality
 
     # ── actions ──
-    def open(self):
-        self.file.choose()
-
     def run(self):
-        src = self.file.path()
+        src = self.chosen_file("Convert")
         if not src:
-            return dialogs.warning("Convert", "Select a PDF first.")
+            return
         fmt = self.format
         ext, desc, default = OUT[fmt]
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        out = dialogs.ask_save(default, ext, [(desc, f"*{ext}"), ("All", "*.*")])
-        if not out:
-            return doc.close()
         dpi, quality = self.options()
 
-        def work(stop):
-            # Closes doc; False if cancelled (nothing written).
-            return core_convert.pdf_to_doc(doc, fmt, out, stop,
-                                           lambda v: bridge.post(win.set_progress, v),
+        def work(doc, out, stop, progress):
+            return core_convert.pdf_to_doc(doc, fmt, out, stop, progress,
                                            dpi=dpi, quality=quality)
 
-        def then(kind, ok):
-            if kind != "done" or not ok:
-                return
-            win.set_status(f"✓  PDF → {fmt}: {Path(out).name}", "success")
-            dialogs.info("Done", f"Saved:\n{out}")
-
-        win.set_status(f"Converting PDF → {fmt}…")
-        if win.run_job(work, f"Converting PDF → {fmt}…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Convert", work, f"Converting PDF → {fmt}…",
+            lambda _ok, out: ("success", f"✓  PDF → {fmt}: {Path(out).name}",
+                              "Done", f"Saved:\n{out}"),
+            src=src, save=(default, ext, [(desc, f"*{ext}"), ("All", "*.*")]),
+            working=f"Converting PDF → {fmt}…")

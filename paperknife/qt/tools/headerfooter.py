@@ -4,14 +4,13 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtWidgets import QButtonGroup
-from qfluentwidgets import ComboBox, LineEdit, RadioButton
+from qfluentwidgets import ComboBox, LineEdit
 
 from ...core import headerfooter as core_hf
-from ...pages import PageRangeError, selected_pages
+from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, register_page,
-                     setting_row)
+from ..pages import (ToolPage, card, file_card, group_title, muted_caption, radio_rows,
+                     register_page, setting_row)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
           "{date} for today's date")
@@ -45,15 +44,9 @@ class HeaderFooterPage(ToolPage):
         self.body.addWidget(group_title("Position"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.pos_group = QButtonGroup(self)
-        self.positions: dict[str, RadioButton] = {}
-        for val, label in POSITIONS:
-            holder = setting_row(group, label)
-            rb = RadioButton("")
-            rb.setChecked(val == "bottom-center")
-            self.pos_group.addButton(rb)
-            holder.layout().addWidget(rb)
-            self.positions[val] = rb
+        self.pos_group = radio_rows(group, [(v, label, "") for v, label in POSITIONS],
+                                    "bottom-center", parent=self)
+        self.positions = self.pos_group.buttons
 
         self.body.addWidget(group_title("Content"))
         group = card(padding=0)
@@ -91,19 +84,16 @@ class HeaderFooterPage(ToolPage):
 
     @property
     def pos(self) -> str:
-        return next(v for v, rb in self.positions.items() if rb.isChecked())
+        return self.pos_group.value()
 
     @property
     def font_name(self) -> str:
         return FONTS[self.font.currentIndex()][0]
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
-        src = self.file.path()
+        src = self.chosen_file("Header/Footer")
         if not src:
-            return dialogs.warning("Header/Footer", "Select a PDF first.")
+            return
         template = self.content.text().strip()
         if not template:
             return dialogs.warning("Header/Footer", "Enter content text.")
@@ -115,28 +105,17 @@ class HeaderFooterPage(ToolPage):
         range_str = self.page_range.text().strip()
         today = date.today().strftime("%Y-%m-%d")
 
-        win = self.window_
-        doc = win.open_pdf_safe(src)
-        if doc is None:
-            return
-        try:
-            pages = selected_pages(range_str, len(doc))
-        except PageRangeError as e:
-            doc.close()
-            return dialogs.error("Header/Footer", str(e))
-        out = dialogs.ask_save("stamped.pdf", ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return doc.close()
+        pages: list[int] = []
 
-        def work(stop):
+        def prepare(doc):
+            pages[:] = selected_pages(range_str, len(doc))
+
+        def work(doc, out, stop, progress):
             return core_hf.stamp_pdf(doc, out, pages, template, pos, font, size, margin,
                                      today, stop)
 
-        def then(kind, result):
-            if kind != "done" or not result:
-                return
-            win.set_status(f"✓  Stamped {len(pages)} page(s) → {Path(out).name}", "success")
-            dialogs.info("Done", f"PDF with header/footer saved:\n{out}")
-
-        if win.run_job(work, f"Stamping {len(pages)} page(s)…", then=then) is None:
-            doc.close()
+        self.run_on_file(
+            "Header/Footer", work, lambda: f"Stamping {len(pages)} page(s)…",
+            lambda _r, out: ("success", f"✓  Stamped {len(pages)} page(s) → {Path(out).name}",
+                             "Done", f"PDF with header/footer saved:\n{out}"),
+            src=src, save=("stamped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare)

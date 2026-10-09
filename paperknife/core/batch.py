@@ -4,17 +4,15 @@ import os
 from pathlib import Path
 
 import pymupdf as fitz
-from PIL import Image
 
 from ..job_queue import atomic_output
-from ..pages import render
 from ..prefs import DPI_RANGE
 from .convert import NoText
 from .enhance import compress_pdf, watermark_pdf
-from .ocr import add_text_layer, ocr_words
+from .ocr import ocr_pdf
 
-# ── Per-operation worker functions ────────────────────────────────────────────
-# Each accepts (src_path, out_dir, opts, stop) → out_path or raises.
+# Each worker takes (src_path, out_dir, opts, stop) → out_path, None if
+# cancelled, or raises.
 
 def open_input(src):
     # A batch cannot stop for a password prompt per file; name the cause
@@ -38,17 +36,11 @@ def _do_watermark(src, out_dir, opts, stop):
                          (0.5, 0.5, 0.5), stop)
 
 def _do_ocr(src, out_dir, opts, stop):
-    lang  = opts.get("lang", "eng")
-    scale = opts.get("dpi", 150) / 72.0
-    out   = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
-    with atomic_output(out) as tmp, open_input(src) as doc:
-        for page in doc:
-            if stop.is_set(): return None
-            pix = render(page, scale)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            add_text_layer(page, ocr_words(img, lang, scale))
-        doc.save(tmp, garbage=4, deflate=True, clean=True)    # as the OCR tool
-    return out
+    if stop.is_set(): return None
+    out = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
+    n = ocr_pdf(open_input(src), out, opts.get("lang", "eng"), opts.get("dpi", 150),
+                False, stop, lambda v: None)
+    return out if n is not None else None
 
 def _do_pdf2txt(src, out_dir, opts, stop):
     out = os.path.join(out_dir, Path(src).stem + ".txt")
