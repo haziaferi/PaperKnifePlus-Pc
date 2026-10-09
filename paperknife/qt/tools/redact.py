@@ -91,7 +91,8 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self.panel_body.addSpacing(16)
         warn = BodyLabel(WARN_TITLE)
         warn.setWordWrap(True)
-        warn.setStyleSheet(f"color: {theme.hex_color('warning')}; font-weight: 600;")
+        theme.keep_styled(warn, lambda w: w.setStyleSheet(
+            f"color: {theme.hex_color('warning')}; font-weight: 600;"))
         self.panel_body.addWidget(warn)
         body = muted_caption(WARN_BODY)
         body.setWordWrap(True)
@@ -107,8 +108,8 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
     def _refresh_boxes(self):
         n = len(self._pending)
         self.pending_label.setText(f"{n} box{'es' if n != 1 else ''} pending")
-        self.pending_label.setStyleSheet(
-            f"color: {theme.hex_color('danger')};" if n else "")
+        theme.keep_styled(self.pending_label, lambda w: w.setStyleSheet(
+            f"color: {theme.hex_color('danger')};" if len(self._pending) else ""))
         self.box_list.clear()
         for pg, _r, phrase in self._pending:
             self.box_list.addItem(f"Page {pg + 1} · '{phrase}'" if phrase

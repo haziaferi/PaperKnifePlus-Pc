@@ -56,7 +56,7 @@ class BookmarksPage(HeldDoc, OrganiserPage):
     def _show_message(self, text: str, role: str):
         _clear_layout(self.outline)
         lbl = BodyLabel(text)
-        lbl.setTextColor(*theme.pair(role))
+        theme.label_role(lbl, role)
         lbl.setAlignment(Qt.AlignCenter)
         lbl.setContentsMargins(0, 20, 0, 20)
         self.outline.addWidget(lbl)
@@ -73,7 +73,7 @@ class BookmarksPage(HeldDoc, OrganiserPage):
                 lbl = StrongBodyLabel(text)
             else:
                 lbl = BodyLabel(text)
-                lbl.setTextColor(*theme.pair("muted"))
+                theme.label_role(lbl, "muted")
             self.outline.addWidget(lbl)
         if len(toc) > SHOWN:
             more = muted_caption(f"… and {len(toc) - SHOWN} more bookmarks")

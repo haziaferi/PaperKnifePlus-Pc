@@ -98,7 +98,7 @@ class Divider(QWidget):
 
 def muted_caption(text: str = "", parent=None) -> CaptionLabel:
     lbl = CaptionLabel(text, parent)
-    lbl.setTextColor(*theme.pair("muted"))
+    theme.label_role(lbl, "muted")
     return lbl
 
 
@@ -573,7 +573,7 @@ class ToolPage(QWidget):
                         f"color:{fg};}}"
                         f"PrimaryPushButton:hover{{background-color:{hv};border-color:{hv};}}"
                         f"PrimaryPushButton:pressed{{background-color:{hv};}}")
-            setCustomStyleSheet(btn, qss(False), qss(True))
+            theme.keep_styled(btn, lambda b: setCustomStyleSheet(b, qss(False), qss(True)))
         if slot is not None:
             btn.clicked.connect(slot)
         self._place(btn, True)
@@ -1155,14 +1155,17 @@ class CollectionRow(QWidget):
 
     def set_note(self, text: str, role: str = "muted"):
         self.note.setText(text)
-        self.note.setTextColor(*theme.pair(role))
+        theme.label_role(self.note, role)
         self.note.setVisible(bool(text))
 
     def set_selected(self, on: bool):
         self.selected = on
-        if on:
-            a = theme.color("accent")
-            bg = f"rgba({a.red()},{a.green()},{a.blue()},40)"
+        theme.keep_styled(self, CollectionRow._style_selected)
+
+    def _style_selected(self):
+        if self.selected:
+            c = theme.color("selection")
+            bg = f"rgba({c.red()},{c.green()},{c.blue()},{c.alpha()})"
             self.setStyleSheet(f"QWidget#collectionRow {{ background: {bg}; border-radius: 4px; }}")
         else:
             self.setStyleSheet("QWidget#collectionRow { background: transparent; }")
@@ -1384,7 +1387,7 @@ def _thumb_delegate():
     hover = a faint backing.  (qfluentwidgets' ListWidget delegate paints
     list rows only, clipping icons in IconMode.)"""
     from PySide6.QtCore import QRect, QRectF, QSize
-    from PySide6.QtGui import QColor, QPen
+    from PySide6.QtGui import QPen
     from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
     class ThumbDelegate(QStyledItemDelegate):
@@ -1399,7 +1402,7 @@ def _thumb_delegate():
             hover = bool(option.state & QStyle.State_MouseOver)
             accent = theme.color("accent")
             if sel or hover:
-                bg = QColor(accent)
+                bg = theme.color("selection")
                 bg.setAlpha(46 if sel else 18)
                 p.setPen(Qt.NoPen)
                 p.setBrush(bg)

@@ -123,9 +123,11 @@ class RecentCard(CardWidget):
 
     def show_thumb(self, pm: QPixmap | None):
         if pm is not None:
+            theme.keep_styled(self.thumb, None)      # a real thumbnail: no glyph to redo
             self.thumb.setPixmap(_framed(pm))
         else:
-            self.thumb.setPixmap(theme.glyph_icon(0xE8A5, 40, "muted").pixmap(40, 40))
+            theme.keep_styled(self.thumb, lambda t: t.setPixmap(
+                theme.glyph_icon(0xE8A5, 40, "muted").pixmap(40, 40)))
 
 
 class HomePage(ToolPage):

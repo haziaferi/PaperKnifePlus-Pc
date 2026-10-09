@@ -1,14 +1,22 @@
 """
 paperknife.qt.theme
-Fluent theme setup, the colour tokens and the Segoe Fluent Icons helpers.
+Fluent theme setup, the colour palette and the Segoe Fluent Icons helpers.
 
-EVERY colour the Qt interface uses is in COLORS below, as a (light, dark)
-pair; nothing else in paperknife.qt writes a hex literal.  apply_appearance() reads PREFS["appearance"] (light / dark /
-system) and applies it with the accent.
+EVERY colour the Qt interface shows comes from the active palette
+(palettes.py: role -> (light, dark)); nothing else in paperknife.qt writes
+a hex literal.  The app's own code reads roles through color() / hex_color()
+/ pair() / label_role(); the colours QFluentWidgets draws itself are routed
+to roles by fluent_route.py.  The palette is chosen by env PK_PALETTE
+(default "today", today's look) and switched at run time by
+apply_palette(name).  apply_appearance() reads PREFS["appearance"]
+(light / dark / system) and applies it.
 """
 from __future__ import annotations
 
 import functools
+import os
+import sys
+import weakref
 
 from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import (QColor, QFont, QFontDatabase, QGuiApplication, QIcon,
@@ -17,31 +25,32 @@ from PySide6.QtWidgets import QApplication
 from qfluentwidgets import Theme, isDarkTheme, setFontFamilies, setTheme, setThemeColor
 from qfluentwidgets.common.icon import FluentIconBase
 
-# ── Colour tokens: name -> (light, dark) ──────────────────────────────────────
-# Accent: Oxford blue.  Status roles are what the status bar uses.
-COLORS: dict[str, tuple[str, str]] = {
-    "accent":       ("#2B4C8C", "#4468A5"),
-    "accent_hover": ("#1E3566", "#35528A"),
-    "on_accent":    ("#FFFFFF", "#FFFFFF"),
-    "text":         ("#1C1A17", "#E8DEC8"),
-    "muted":        ("#6B645B", "#A89D90"),
-    "success":      ("#2D6A4F", "#6FBF97"),
-    "warning":      ("#9A5A00", "#E0A84A"),
-    "danger":       ("#9B1B1B", "#E57373"),
-    "danger_hover": ("#7A1414", "#C85C5C"),
-    "on_danger":    ("#FFFFFF", "#000000"),   # dark: the light red needs dark text (AA)
-    "surface":      ("#F3F3F3", "#202020"),   # behind a revealed title bar
-    "divider":      ("#14000000", "#1FFFFFFF"),  # ARGB: thin row dividers
-    "overlay":      ("#33FFFFFF", "#33000000"),  # ARGB: the locked-page veil
-    "drop_zone":    ("#0A000000", "#0FFFFFFF"),  # ARGB: empty file card
-    "page_bg":      ("#F0EBE3", "#242019"),   # behind a rendered PDF page
-    "thumb_border": ("#1F000000", "#2EFFFFFF"),
-}
+from . import fluent_route, palettes
+
+# ── Palette ───────────────────────────────────────────────────────────────────
+def _initial_palette() -> str:
+    name = os.environ.get("PK_PALETTE", "").strip() or palettes.DEFAULT
+    if name not in palettes.PALETTES:
+        print(f"PK_PALETTE={name!r} is not a palette ({', '.join(palettes.PALETTES)}); "
+              f"using {palettes.DEFAULT!r}", file=sys.stderr)
+        name = palettes.DEFAULT
+    return name
+
+
+_palette_name = _initial_palette()
+# The active palette, name -> (light, dark).  Rebound by apply_palette().
+COLORS: dict[str, tuple[str, str]] = palettes.PALETTES[_palette_name]
+fluent_route.set_active(COLORS)
+fluent_route.install()
 
 STATUS_ROLES = ("muted", "success", "warning", "danger")
 
 FONT_FAMILIES = ["Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei"]
 _ICON_FONTS = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+
+
+def palette_name() -> str:
+    return _palette_name
 
 
 def color(name: str, dark: bool | None = None) -> QColor:
@@ -61,6 +70,66 @@ def hex_color(name: str, dark: bool | None = None) -> str:
 def pair(name: str) -> tuple[QColor, QColor]:
     light_hex, dark_hex = COLORS[name]
     return QColor(light_hex), QColor(dark_hex)
+
+
+def label_role(label, role: str) -> None:
+    """Colour a Fluent label with *role*; it follows apply_palette()."""
+    label.setTextColor(*pair(role))
+    label._pk_role = role
+
+
+_styled: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def keep_styled(widget, fn) -> None:
+    """Run fn(widget) now and again after every palette switch (for style
+    sheets the app writes from roles).  fn None forgets the widget."""
+    if fn is None:
+        _styled.pop(widget, None)
+        return
+    _styled[widget] = fn
+    fn(widget)
+
+
+def apply_palette(name: str) -> None:
+    """Switch the whole interface to palette *name* and repaint what is open
+    (the library's style sheets, the colours it keeps on widgets, labels,
+    the app's own style sheets and pages - their themeChangedFinished
+    handlers run, as on a light / dark switch)."""
+    global _palette_name, COLORS
+    if name not in palettes.PALETTES:
+        raise KeyError(f"no palette {name!r} (have {', '.join(palettes.PALETTES)})")
+    old = COLORS
+    _palette_name = name
+    COLORS = palettes.PALETTES[name]
+    fluent_route.set_active(COLORS)
+    _icon_cache.clear()
+    if QApplication.instance() is None:
+        return
+    from qfluentwidgets import qconfig
+    from qfluentwidgets.common.style_sheet import updateStyleSheet
+    updateStyleSheet(lazy=False)
+    fluent_route.retint(old, COLORS)
+    for w, fn in list(_styled.items()):
+        try:
+            fn(w)
+        except RuntimeError:
+            pass
+    for w in QApplication.topLevelWidgets():
+        window_follows_palette(w)
+    qconfig.themeChangedFinished.emit()
+    for w in QApplication.allWidgets():
+        w.update()
+
+
+def window_follows_palette(win) -> None:
+    """A palette that moves the window role turns Mica off (Mica would cover
+    the colour); under a palette that keeps it, Mica is left as it is."""
+    if not hasattr(win, "setMicaEffectEnabled"):
+        return
+    moved = any(fluent_route.delta("window", d) is not None for d in (False, True))
+    if moved and win.isMicaEffectEnabled():
+        win.setMicaEffectEnabled(False)
 
 
 # ── Appearance ────────────────────────────────────────────────────────────────
@@ -92,7 +161,9 @@ def apply_appearance(mode: str | None = None) -> Theme:
         mode = PREFS.get("appearance", "light")
     theme = resolve_appearance(mode)
     setTheme(theme, lazy=True)
-    setThemeColor(color("accent", theme == Theme.DARK), lazy=True)
+    # Fluent derives its accent family from today's accent; the accent_fill /
+    # accent_hover / accent_pressed roles move that family (fluent_route).
+    setThemeColor(QColor(palettes.TODAY["accent"][theme == Theme.DARK]), lazy=True)
     want_follow = mode == "system"
     hints = QGuiApplication.styleHints()
     if want_follow and not _following_system and hasattr(hints, "colorSchemeChanged"):

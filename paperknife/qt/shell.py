@@ -117,6 +117,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self, tools=None):
         super().__init__()
+        theme.window_follows_palette(self)
         bridge.install()
         from .._version import __version__
         self.setWindowTitle(f"PaperKnife+ PC  v{__version__}")
@@ -189,7 +190,7 @@ class MainWindow(FluentWindow):
         ph.setContentsMargins(16, 6, 12, 6)
         ph.setSpacing(12)
         self.job_label = CaptionLabel("", self.progress_strip)
-        self.job_label.setTextColor(*theme.pair("muted"))
+        theme.label_role(self.job_label, "muted")
         self.progress = ProgressBar(self.progress_strip, useAni=False)
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
@@ -207,7 +208,7 @@ class MainWindow(FluentWindow):
         sh = QHBoxLayout(self.status_bar)
         sh.setContentsMargins(16, 4, 16, 6)
         self.status_label = CaptionLabel("Ready", self.status_bar)
-        self.status_label.setTextColor(*theme.pair("muted"))
+        theme.label_role(self.status_label, "muted")
         sh.addWidget(self.status_label, 1)
         bv.addWidget(self.status_bar)
 
@@ -441,7 +442,7 @@ class MainWindow(FluentWindow):
             role = "muted"
         self._status_seq += 1
         self.status_role = role
-        self.status_label.setTextColor(*theme.pair(role))
+        theme.label_role(self.status_label, role)
         self.status_label.setText(msg)
 
     def status_text(self) -> str:

@@ -50,7 +50,7 @@ class Doc2PdfPage(ToolPage):
         self.fmt.setMinimumWidth(160)
         row.layout().addWidget(self.fmt)
         self.missing = CaptionLabel("")
-        self.missing.setTextColor(*theme.pair("warning"))
+        theme.label_role(self.missing, "warning")
         self.missing.setWordWrap(True)
         self.missing.setContentsMargins(0, 4, 0, 0)
         self.body.addWidget(self.missing)
