@@ -22,8 +22,8 @@ class PdfToolsPage(ToolPage):
         self.file = file_card()
         self.body.addWidget(self.file)
         self.body.addSpacing(16)
-        # PDF/A and Linearise were removed: PyMuPDF 1.28 has no save(pdfa=)
-        # and save(linear=True) raises "Linearisation is no longer supported".
+        # No PDF/A or Linearise: PyMuPDF 1.28 has no save(pdfa=) and
+        # save(linear=True) raises "Linearisation is no longer supported".
         # One operation, so a row that explains it and no choice to make.
         self.body.addWidget(group_title("Operation"))
         group = card(padding=0)
@@ -43,8 +43,6 @@ class PdfToolsPage(ToolPage):
         if not src:
             return dialogs.warning("PDF Tools", "Select a PDF first.")
         win = self.window_
-        # MuPDF rebuilds a broken xref while opening; the garbage/clean save
-        # then writes a fresh, consistent file from what it recovered.
         doc = win.open_pdf_safe(src)
         if doc is None:
             return

@@ -2,9 +2,8 @@
 paperknife.qt.theme
 Fluent theme setup, the colour tokens and the Segoe Fluent Icons helpers.
 
-The colour scheme is decided later, so EVERY colour the Qt interface uses is
-in COLORS below, as a (light, dark) pair; nothing else in paperknife.qt writes
-a hex literal.  apply_appearance() reads PREFS["appearance"] (light / dark /
+EVERY colour the Qt interface uses is in COLORS below, as a (light, dark)
+pair; nothing else in paperknife.qt writes a hex literal.  apply_appearance() reads PREFS["appearance"] (light / dark /
 system) and applies it with the accent.
 """
 from __future__ import annotations
@@ -19,7 +18,7 @@ from qfluentwidgets import Theme, isDarkTheme, setFontFamilies, setTheme, setThe
 from qfluentwidgets.common.icon import FluentIconBase
 
 # ── Colour tokens: name -> (light, dark) ──────────────────────────────────────
-# Accent: Oxford blue for now.  Status roles are what the status bar uses.
+# Accent: Oxford blue.  Status roles are what the status bar uses.
 COLORS: dict[str, tuple[str, str]] = {
     "accent":       ("#2B4C8C", "#4468A5"),
     "accent_hover": ("#1E3566", "#35528A"),

@@ -11,8 +11,8 @@ from .convert import NoText
 from .enhance import compress_pdf, watermark_pdf
 from .ocr import ocr_pdf
 
-# ── Per-operation worker functions ────────────────────────────────────────────
-# Each accepts (src_path, out_dir, opts, stop) → out_path or raises.
+# Each worker takes (src_path, out_dir, opts, stop) → out_path, None if
+# cancelled, or raises.
 
 def open_input(src):
     # A batch cannot stop for a password prompt per file; name the cause

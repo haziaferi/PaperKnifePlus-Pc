@@ -1,4 +1,4 @@
-"""Annotate — the document-workspace pilot (group A)."""
+"""Annotate — add, select and remove annotations on a page (document workspace, group A)."""
 from __future__ import annotations
 
 from pathlib import Path

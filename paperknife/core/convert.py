@@ -164,7 +164,6 @@ def rtf_escape(text: str) -> str:
     return "".join(out)
 
 
-# ── PDF -> document ───────────────────────────────────────────────────────────
 def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                quality: int = 92) -> bool:
     """Convert *doc* (closed here) to *fmt* at *out*.  Returns False if cancelled,
@@ -285,7 +284,6 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
     return True
 
 
-# ── document -> PDF ───────────────────────────────────────────────────────────
 def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
     """Convert the *fmt* file *src* to a PDF at *out*.  Returns the notes on
     fallbacks that changed what was typeset, or None if cancelled."""
@@ -424,7 +422,6 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
     return notes
 
 
-# ── extract embedded images ───────────────────────────────────────────────────
 @dataclass
 class Extracted:
     count: int        # images written

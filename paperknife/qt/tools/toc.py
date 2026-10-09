@@ -178,8 +178,8 @@ class TocPage(DocHolder, MasterDetailPage):
 
         def work(stop):
             self._doc.set_toc(toc)
-            # Saving over the source keeps its password, as the incremental
-            # save this replaced did; a copy elsewhere is written unprotected.
+            # Saving over the source keeps its password; a copy elsewhere is
+            # written unprotected.
             keep = {"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) else {}
             self._save_doc(out, deflate=True, **keep)
 
