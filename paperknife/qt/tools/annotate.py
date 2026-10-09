@@ -3,11 +3,11 @@ from __future__ import annotations
 
 
 from PySide6.QtWidgets import QFrame
-from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
+from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import annotate as core_annotate
 from .. import dialogs, theme
-from ..pages import WorkspaceDoc, WorkspacePage, register_page
+from ..pages import TallSlider, WorkspaceDoc, WorkspacePage, register_page
 
 # Segoe Fluent Icons code points
 GLYPHS = {"highlight": 0xE7E6, "underline": 0xE8DC, "strikeout": 0xEDE0, "rect": 0xE739,
@@ -69,8 +69,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             row.addStretch(1)
         if self.kind not in ("note", "freetext"):
             row = self.panel_field("Opacity")
-            self.opacity_slider = Slider()
-            self.opacity_slider.setOrientation(self.zoom_slider.orientation())
+            self.opacity_slider = TallSlider(self.zoom_slider.orientation())
             self.opacity_slider.setRange(10, 100)
             self.opacity_slider.setValue(self.opacity)
             lbl = BodyLabel(f"{self.opacity}%")

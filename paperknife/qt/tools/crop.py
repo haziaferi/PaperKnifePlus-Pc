@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qfluentwidgets import LineEdit, SwitchButton
+from qfluentwidgets import LineEdit
 
 from ...core import crop as core
 from ...pages import selected_pages
 from .. import dialogs
 from ..pages import (Refusal, ToolPage, card, file_card, group_title, muted_caption,
-                     register_page, setting_row)
+                     register_page, setting_row, toggle_switch)
 
 # (key, row name) in the order the CTk tool lays out its cross of fields
 EDGES = [("top", "Top"), ("left", "Left"), ("right", "Right"), ("bottom", "Bottom")]
@@ -58,10 +58,7 @@ class CropPage(ToolPage):
         self.page_range.setPlaceholderText("all  or  1-5, 8, 10-end")
         self.page_range.setMinimumWidth(220)
         setting_row(pages, "Apply to", "blank = all").layout().addWidget(self.page_range)
-        self.reset = SwitchButton()
-        self.reset.setOnText("")
-        self.reset.setOffText("")
-        self.reset.setChecked(False)
+        self.reset = toggle_switch(False)
         setting_row(pages, "Reset to full media box first",
                     "undo previous crops").layout().addWidget(self.reset)
         self.body.addStretch(1)

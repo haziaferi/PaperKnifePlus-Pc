@@ -12,14 +12,36 @@ from __future__ import annotations
 import pymupdf as fitz
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView, QWidget
 
 from ..pages import render
 
 ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
 
 
-class PageView(QGraphicsView):
+class _Corner(QWidget):
+    """The square where a view's two scroll bars meet, in the view's ground
+    colour (the Windows 11 style paints it dark grey, whatever the palette)."""
+
+    def paintEvent(self, _e):
+        QPainter(self).fillRect(self.rect(), self.parent().backgroundBrush().color())
+
+
+class GroundView(QGraphicsView):
+    """A page view's ground: frameless, the background colour also filling the
+    scroll-bar corner."""
+
+    def __init__(self, background: str, parent=None):
+        super().__init__(parent)
+        self.setScene(QGraphicsScene(self))
+        self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+        self.setCornerWidget(_Corner())
+        self.setBackgroundBrush(QBrush(QColor(background)))
+        self.setFrameShape(QGraphicsView.NoFrame)
+        self.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+
+
+class PageView(GroundView):
     """Emits pressed / dragged / released with the (x, y) scene position
     (scene_to_page turns it into page space), and zoomed(float) when
     Ctrl+wheel changes the zoom: the zoom is set but not rendered, so the
@@ -31,12 +53,7 @@ class PageView(QGraphicsView):
     zoomed = Signal(float)
 
     def __init__(self, background: str, parent=None):
-        super().__init__(parent)
-        self.setScene(QGraphicsScene(self))
-        self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
-        self.setBackgroundBrush(QBrush(QColor(background)))
-        self.setFrameShape(QGraphicsView.NoFrame)
-        self.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        super().__init__(background, parent)
         self.setDragMode(QGraphicsView.NoDrag)
         self._page: fitz.Page | None = None
         self._zoom = 1.5

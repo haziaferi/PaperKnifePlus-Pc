@@ -225,6 +225,7 @@ class MainWindow(FluentWindow):
         sh.setContentsMargins(16, 4, 16, 6)
         self.status_label = CaptionLabel("Ready", self.status_bar)
         theme.label_role(self.status_label, "muted")
+        theme.text_symbols(self.status_label)
         sh.addWidget(self.status_label, 1)
         bv.addWidget(self.status_bar)
 

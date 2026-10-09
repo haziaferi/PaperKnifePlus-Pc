@@ -4,22 +4,60 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QPainter, QPen
+from PySide6.QtWidgets import QGridLayout, QWidget
 from qfluentwidgets import ComboBox, LineEdit
 
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
-from .. import dialogs
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, radio_rows,
-                     register_page, setting_row)
+from .. import dialogs, theme
+from ..pages import (RadioChoice, ToolPage, card, file_card, group_title, muted_caption,
+                     radio_button, register_page, setting_row)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
           "{date} for today's date")
 FONTS = [("helv", "Helvetica"), ("tiro", "Times Roman"), ("cour", "Courier")]
-POSITIONS = [                       # the CTk grid, row by row
-    ("top-left", "↖ Top left"), ("top-center", "↑ Top center"), ("top-right", "↗ Top right"),
-    ("bottom-left", "↙ Bot left"), ("bottom-center", "↓ Bot center"),
-    ("bottom-right", "↘ Bot right"),
+POSITIONS = [                       # row by row: the page's top edge, then its bottom
+    ("top-left", "Top left"), ("top-center", "Top centre"), ("top-right", "Top right"),
+    ("bottom-left", "Bottom left"), ("bottom-center", "Bottom centre"),
+    ("bottom-right", "Bottom right"),
 ]
+PAGE_W, PAGE_H = 112, 136           # the page outline: three 32 px radios 4 px apart, portrait
+
+
+class PageOutline(QWidget):
+    """A page drawn as a rounded outline in the control border colour."""
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(theme.color("input_underline"), 1))
+        p.setBrush(theme.color("control"))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+
+
+def position_picker(default: str, parent=None) -> tuple[QWidget, RadioChoice]:
+    """A page outline with a radio button at each of the six places the text
+    can go: three along the top edge, three along the bottom."""
+    page = PageOutline()
+    page.setFixedSize(PAGE_W, PAGE_H)
+    grid = QGridLayout(page)
+    grid.setContentsMargins(4, 4, 4, 4)
+    grid.setSpacing(4)
+    grid.setRowStretch(1, 1)
+    choice = RadioChoice(parent)
+    for i, (value, label) in enumerate(POSITIONS):
+        rb = radio_button()
+        rb.setToolTip(label)
+        rb.setAccessibleName(label)
+        rb.setChecked(value == default)
+        choice.addButton(rb)
+        choice.buttons[value] = rb
+        col = i % 3
+        align = (Qt.AlignLeft, Qt.AlignHCenter, Qt.AlignRight)[col]
+        grid.addWidget(rb, 0 if i < 3 else 2, col, align)
+    return page, choice
 
 
 def _field(text: str = "", width: int = 72, placeholder: str = "") -> LineEdit:
@@ -41,16 +79,13 @@ class HeaderFooterPage(ToolPage):
         self.body.addWidget(self.file)
         self.body.addSpacing(16)
 
-        self.body.addWidget(group_title("Position"))
-        group = card(padding=0)
-        self.body.addWidget(group)
-        self.pos_group = radio_rows(group, [(v, label, "") for v, label in POSITIONS],
-                                    "bottom-center", parent=self)
-        self.positions = self.pos_group.buttons
-
         self.body.addWidget(group_title("Content"))
         group = card(padding=0)
         self.body.addWidget(group)
+        row = setting_row(group, "Position", "Where the text goes on every page")
+        picker, self.pos_group = position_picker("bottom-center", parent=self)
+        row.layout().addWidget(picker)
+        self.positions = self.pos_group.buttons
         row = setting_row(group, "Content", TOKENS)
         self.content = _field("Page {page} of {total}", width=260)
         row.layout().addWidget(self.content)
@@ -64,11 +99,14 @@ class HeaderFooterPage(ToolPage):
         self.font.setCurrentText("Helvetica")
         self.font.setMinimumWidth(150)
         row.layout().addWidget(self.font)
-        row = setting_row(group, "Size")
+        row = setting_row(group, "Size and margin")
         self.size = _field("10")
+        self.size.setAccessibleName("Size")
         row.layout().addWidget(self.size)
-        row = setting_row(group, "Margin")
+        row.layout().addWidget(muted_caption("pt"))
+        row.layout().addSpacing(8)
         self.margin = _field("20")
+        self.margin.setAccessibleName("Margin")
         row.layout().addWidget(self.margin)
         row.layout().addWidget(muted_caption("pt"))
 

@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qfluentwidgets import PasswordLineEdit, SwitchButton
+from qfluentwidgets import PasswordLineEdit
 
 from ...core import password as core
 from .. import dialogs
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import (ToolPage, card, file_card, group_title, register_page, setting_row,
+                     toggle_switch)
 
 
 def _password_field(placeholder: str) -> PasswordLineEdit:
@@ -17,12 +18,6 @@ def _password_field(placeholder: str) -> PasswordLineEdit:
     return e
 
 
-def _switch(on: bool) -> SwitchButton:
-    s = SwitchButton()
-    s.setOnText("")
-    s.setOffText("")
-    s.setChecked(on)
-    return s
 
 
 @register_page("PasswordTool")
@@ -41,9 +36,9 @@ class PasswordPage(ToolPage):
         setting_row(add, "Open (user) password").layout().addWidget(self.pw1)
         self.pw2 = _password_field("Owner password (blank = random)")
         setting_row(add, "Owner password", "blank = random").layout().addWidget(self.pw2)
-        self.allow_print = _switch(True)
+        self.allow_print = toggle_switch(True)
         setting_row(add, "Allow printing").layout().addWidget(self.allow_print)
-        self.allow_copy = _switch(True)
+        self.allow_copy = toggle_switch(True)
         setting_row(add, "Allow copying text").layout().addWidget(self.allow_copy)
 
         self.body.addWidget(group_title("Remove Password"))

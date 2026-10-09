@@ -15,13 +15,12 @@ from collections import OrderedDict
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
-from qfluentwidgets import BodyLabel
+from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap
 
 from ...core import reader as core_reader
 from .. import bridge
-from ..pages import WorkspacePage, register_page
+from ..pageview import GroundView
+from ..pages import ElidedLabel, WorkspacePage, register_page
 
 TITLE = "Read / Preview"
 SUBTITLE = "Continuous smooth-scroll viewer — view-only"
@@ -30,7 +29,7 @@ ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
 WORKER_IDLE_S = 2.0      # the render worker ends after this long with nothing to do
 
 
-class ContinuousView(QGraphicsView):
+class ContinuousView(GroundView):
     """The scrolling column of pages.  Emits moved when the visible band may
     have changed (scroll, resize) and zoomed(z) when Ctrl+wheel asks for zoom z."""
 
@@ -38,12 +37,7 @@ class ContinuousView(QGraphicsView):
     zoomed = Signal(float)
 
     def __init__(self, background: str, parent=None):
-        super().__init__(parent)
-        self.setScene(QGraphicsScene(self))
-        self.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
-        self.setBackgroundBrush(QBrush(QColor(background)))
-        self.setFrameShape(QGraphicsView.NoFrame)
-        self.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        super().__init__(background, parent)
         # Three lines a wheel notch: 60 px, as the CTk reader scrolled.
         self.verticalScrollBar().setSingleStep(20)
         self.verticalScrollBar().valueChanged.connect(lambda _v: self.moved.emit())
@@ -109,8 +103,7 @@ class ReaderPage(WorkspacePage):
     def _fill_panel(self):
         self.panel_begin("Document")
         row = self.panel_field("File")
-        self.path_label = BodyLabel(self._path or "Open a PDF…")
-        self.path_label.setWordWrap(True)
+        self.path_label = ElidedLabel(self._path or "Open a PDF…")
         row.addWidget(self.path_label, 1)
 
     # ── file ─────────────────────────────────────────────────────────────────

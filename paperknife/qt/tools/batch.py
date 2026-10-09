@@ -54,7 +54,7 @@ class BatchPage(CollectionPage):
 
     # ── folders ──
     def _folder_row(self, group, name, title, setter) -> CaptionLabel:
-        row = self.setting_row(group, name, NOT_SET)
+        row = self.setting_row(group, name, NOT_SET, path=True)
         btn = PushButton("Browse…")
         btn.clicked.connect(lambda: self._pick_dir(title, setter))
         row.layout().addWidget(btn)

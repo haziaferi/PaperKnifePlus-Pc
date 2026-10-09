@@ -41,6 +41,13 @@ from PySide6.QtGui import QColor as _RealQColor
 from . import palettes
 
 TODAY = palettes.TODAY
+# QFluentWidgets rounds its controls 5 px; Windows 11 (WinUI ControlCornerRadius) uses 4.
+_RADIUS_5 = re.compile(r"(border-radius\s*:\s*)5px")
+# Placeholder text in the secondary text colour (WinUI TextControlPlaceholderForeground).
+# The library sets none, so Qt draws the field's text at half alpha: under 4.5:1.
+PLACEHOLDER_QSS = {
+    "line_edit": "\nLineEdit, TextEdit, PlainTextEdit {{ placeholder-text-color: {}; }}\n",
+}
 
 # ── palette arithmetic ────────────────────────────────────────────────────────
 _active: dict = TODAY            # set by theme.set_active_palette()
@@ -607,9 +614,14 @@ def install() -> None:
     real_read = ss.getStyleSheetFromFile
 
     def read(file):
-        qss = real_read(file)
+        qss = _RADIUS_5.sub(r"\g<1>4px", real_read(file))
         fname, dark = _fname_dark(file if isinstance(file, str) else file.fileName())
-        return translate_qss(qss, fname, dark) if fname else qss
+        if not fname:
+            return qss
+        qss = translate_qss(qss, fname, dark)
+        if fname in PLACEHOLDER_QSS:
+            qss += PLACEHOLDER_QSS[fname].format(_active["fluent_text_secondary"][dark])
+        return qss
     ss.getStyleSheetFromFile = read
 
     # 2. accent family

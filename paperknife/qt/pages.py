@@ -28,12 +28,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout,
                                QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
-                            RadioButton, Slider,
+                            RadioButton, Slider, SwitchButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
                             SubtitleLabel, TitleLabel, TransparentPushButton,
                             TransparentToggleToolButton,
@@ -75,7 +75,9 @@ def action_placement() -> str:
 PAGE_MARGINS = (32, 20, 32, 16)
 LABEL_COLUMN = 320          # setting rows: width of the name / description column
 ROW_MIN_HEIGHT = 64
-ACTION_SIZE = (160, 36)
+CONTROL_H = 32              # Fluent's standard control height: no control is shorter
+ACTION_SIZE = (160, CONTROL_H)
+CARD_RADIUS = 4             # WinUI ControlCornerRadius (settings cards, expanders)
 
 
 # ── Small widgets ─────────────────────────────────────────────────────────────
@@ -96,15 +98,67 @@ class Divider(QWidget):
         p.fillRect(self.rect(), theme.color("divider"))
 
 
+class _Elided:
+    """One line that shortens in the middle when it does not fit (as File
+    Explorer shows a long path), then the whole text in its tooltip.  text() is
+    the whole text."""
+
+    _full = ""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str):
+        self._full = text
+        self._fit()
+
+    def text(self) -> str:
+        return self._full
+
+    def _fit(self):
+        shown = self.fontMetrics().elidedText(self._full, Qt.ElideMiddle, max(1, self.width()))
+        super().setText(shown)
+        self.setToolTip(self._full if shown != self._full else "")
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit()
+
+
+class ElidedLabel(_Elided, BodyLabel):
+    pass
+
+
+class ElidedCaption(_Elided, CaptionLabel):
+    pass
+
+
 def muted_caption(text: str = "", parent=None) -> CaptionLabel:
     lbl = CaptionLabel(text, parent)
     theme.label_role(lbl, "muted")
     return lbl
 
 
+def muted_path(text: str = "", parent=None) -> ElidedCaption:
+    """A muted caption holding a path: one line, shortened in the middle."""
+    lbl = ElidedCaption(text, parent)
+    theme.label_role(lbl, "muted")
+    return lbl
+
+
+def plain_card() -> SimpleCardWidget:
+    """A Fluent card with Windows 11's corner radius."""
+    c = SimpleCardWidget()
+    c.setBorderRadius(CARD_RADIUS)
+    return c
+
+
 def card(padding: int = 16) -> SimpleCardWidget:
     """A plain card with a vertical layout (card.layout())."""
-    c = SimpleCardWidget()
+    c = plain_card()
     v = QVBoxLayout(c)
     v.setContentsMargins(padding, padding, padding, padding)
     v.setSpacing(8 if padding else 0)
@@ -119,7 +173,7 @@ def group_title(text: str) -> StrongBodyLabel:
 
 
 def setting_row(group: QWidget, title: str, desc: str = "",
-                label_width: int | None = None) -> QWidget:
+                label_width: int | None = None, path: bool = False) -> QWidget:
     """Add a Windows 11 settings row to *group* (a card()) and return the
     container for its control: the name and description sit in a fixed-width
     column on the left, the control right-aligned, rows split by thin lines.
@@ -129,7 +183,8 @@ def setting_row(group: QWidget, title: str, desc: str = "",
 
     label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
     take the room the control leaves, for a narrow column such as a
-    CollectionPage's settings.
+    CollectionPage's settings.  path: the description is a file path, one
+    line shortened in the middle (ElidedCaption) instead of wrapped.
 
     The control also carries the row's labels and the line above it:
     control.title_label, control.desc_label (None without *desc*) and
@@ -162,8 +217,11 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     tv.addWidget(name)
     d = None
     if desc:
-        d = muted_caption(desc, texts)
-        d.setWordWrap(True)
+        if path:
+            d = muted_path(desc, texts)
+        else:
+            d = muted_caption(desc, texts)
+            d.setWordWrap(True)
         tv.addWidget(d)
     tv.addStretch(1)
     h.addWidget(texts, 0 if lw else 1)
@@ -203,12 +261,92 @@ def radio_rows(group: QWidget, choices, default, *, row=setting_row,
     row (a page's own setting_row)."""
     choice = RadioChoice(parent)
     for value, title, desc in choices:
-        rb = RadioButton("")
+        rb = radio_button()
         rb.setChecked(value == default)
         choice.addButton(rb)
-        row(group, title, desc).layout().addWidget(rb)
+        control = row(group, title, desc)
+        control.layout().addWidget(rb)
+        _ClickSelects(control.parentWidget(), rb, rb.click)
         choice.buttons[value] = rb
     return choice
+
+
+_TARGET_QSS = (f"RadioButton {{ min-height: {CONTROL_H}px; max-height: {CONTROL_H}px; "
+               f"min-width: {CONTROL_H}px; }}")
+
+
+def radio_button() -> RadioButton:
+    """A text-less RadioButton in a CONTROL_H square, its circle in the middle
+    (the library's style sheet holds it 24 px tall, the circle at 11, 12)."""
+    rb = RadioButton("")
+    setCustomStyleSheet(rb, _TARGET_QSS, _TARGET_QSS)
+    rb.setFixedSize(CONTROL_H, CONTROL_H)
+    rb.indicatorPos = QPoint(CONTROL_H // 2, CONTROL_H // 2)
+    return rb
+
+
+def toggle_switch(on: bool) -> SwitchButton:
+    """A Fluent toggle without its On / Off text, in a CONTROL_H tall box
+    that all takes the click (the library's box is the 22 px pill)."""
+    s = SwitchButton()
+    s.setOnText("")
+    s.setOffText("")
+    s.setChecked(on)
+    s.setFixedHeight(CONTROL_H)
+
+    def flip():
+        s.indicator.toggle()
+        s.indicator.checkedChanged.emit(s.indicator.isChecked())   # as a click on the pill
+    _ClickSelects(s, s.indicator, flip)
+    return s
+
+
+class _ClickSelects(QObject):
+    """A left click on *row* (its parts that take no click themselves) runs
+    *action*, while *button* is enabled: a settings row checks its radio
+    button, as on Windows, so the target is the row and not the 20 px circle."""
+
+    def __init__(self, row: QWidget, button, action):
+        super().__init__(row)
+        self._button, self._action = button, action
+        row.installEventFilter(self)
+
+    def eventFilter(self, obj, e):
+        if e.type() not in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
+            return False
+        if e.button() != Qt.LeftButton or not self._button.isEnabled():
+            return False
+        if e.type() == QEvent.MouseButtonRelease and obj.rect().contains(e.position().toPoint()):
+            self._action()
+        return True
+
+
+class TallSlider(Slider):
+    """Fluent's Slider in a CONTROL_H tall box, its groove and handle drawn in
+    the middle (the library draws them at the top of a 22 px box), so the
+    whole box takes clicks."""
+
+    def __init__(self, orientation=Qt.Horizontal, parent=None):
+        super().__init__(orientation, parent)
+        self.setMinimumHeight(CONTROL_H)
+
+    def _offset(self) -> int:
+        return max(0, (self.height() - self.handle.height()) // 2)
+
+    def _adjustHandlePos(self):
+        super()._adjustHandlePos()
+        self.handle.move(self.handle.x(), self._offset())
+
+    def _drawHorizonGroove(self, painter):
+        painter.translate(0, self._offset())
+        super()._drawHorizonGroove(painter)
+
+
+def icon_button(icon) -> TransparentToolButton:
+    """A borderless icon-only button, CONTROL_H square."""
+    b = TransparentToolButton(icon)
+    b.setFixedSize(CONTROL_H, CONTROL_H)
+    return b
 
 
 def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
@@ -217,7 +355,7 @@ def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
     label of fixed *label_width* showing the value and *unit* (s.value_label),
     both added to *row* (a setting_row's control).  The slider is *width*
     wide, or at least that wide when not *fixed*."""
-    s = Slider(Qt.Horizontal)
+    s = TallSlider(Qt.Horizontal)
     s.setRange(lo, hi)
     if fixed:
         s.setFixedWidth(width)
@@ -275,6 +413,7 @@ class FileCard(SimpleCardWidget):
 
     def __init__(self, on_change=None, exts=(".pdf",), parent=None):
         super().__init__(parent)
+        self.setBorderRadius(CARD_RADIUS)
         self.setObjectName("fileCard")
         self._on_change = on_change
         self.exts = tuple(e.lower() for e in (exts or ()))
@@ -288,7 +427,7 @@ class FileCard(SimpleCardWidget):
         texts = QVBoxLayout()
         texts.setSpacing(2)
         self.name_label = BodyLabel(self)
-        self.meta_label = muted_caption("", self)
+        self.meta_label = muted_path("", self)
         texts.addWidget(self.name_label)
         texts.addWidget(self.meta_label)
         h.addLayout(texts, 1)
@@ -581,7 +720,7 @@ class ToolPage(QWidget):
 
     def secondary(self, text: str, slot=None) -> PushButton:
         btn = PushButton(text, self)
-        btn.setMinimumHeight(ACTION_SIZE[1])
+        btn.setMinimumHeight(CONTROL_H)
         btn.pk_primary = False
         if slot is not None:
             btn.clicked.connect(slot)
@@ -731,7 +870,7 @@ class WorkspacePage(ToolPage):
         from .pageview import PageView
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False)
 
-        frame = SimpleCardWidget()
+        frame = plain_card()
         h = QHBoxLayout(frame)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
@@ -760,8 +899,8 @@ class WorkspacePage(ToolPage):
         mv.addWidget(Divider())
         strip = QHBoxLayout()
         strip.setContentsMargins(8, 4, 12, 4)
-        self.prev_btn = TransparentToolButton(FIF.LEFT_ARROW)
-        self.next_btn = TransparentToolButton(FIF.RIGHT_ARROW)
+        self.prev_btn = icon_button(FIF.LEFT_ARROW)
+        self.next_btn = icon_button(FIF.RIGHT_ARROW)
         self.page_label = BodyLabel("–")
         self.prev_btn.clicked.connect(lambda: self.go(-1))
         self.next_btn.clicked.connect(lambda: self.go(1))
@@ -770,14 +909,14 @@ class WorkspacePage(ToolPage):
         strip.addWidget(self.next_btn)
         strip.addStretch(1)
         strip.addWidget(muted_caption("Zoom"))
-        self.zoom_slider = Slider(Qt.Horizontal)
+        self.zoom_slider = TallSlider(Qt.Horizontal)
         self.zoom_slider.setRange(50, 300)
         self.zoom_slider.setValue(int(self.view.zoom * 100))
         self.zoom_slider.setFixedWidth(140)
         self.zoom_slider.valueChanged.connect(self._zoom_changed)
         self.view.zoomed.connect(self._wheel_zoomed)
         strip.addWidget(self.zoom_slider)
-        self.reopen_btn = TransparentToolButton(theme.glyph_icon(0xE76B, 14))
+        self.reopen_btn = icon_button(theme.glyph_icon(0xE76B, 14))
         self.reopen_btn.setToolTip("Show panel")
         self.reopen_btn.clicked.connect(lambda: self.show_context(True))
         self.reopen_btn.hide()
@@ -868,7 +1007,7 @@ class WorkspacePage(ToolPage):
         top = QHBoxLayout()
         top.addWidget(SubtitleLabel(title))
         top.addStretch(1)
-        hide = TransparentToolButton(theme.glyph_icon(0xE76C, 14))
+        hide = icon_button(theme.glyph_icon(0xE76C, 14))
         hide.setToolTip("Hide panel")
         hide.clicked.connect(lambda: self.show_context(False))
         top.addWidget(hide)
@@ -1090,9 +1229,9 @@ def _settings_column(owner: QWidget, name: str):
     return sa, lay
 
 
-def column_setting_row(group: QWidget, title: str, desc: str = "") -> QWidget:
+def column_setting_row(group: QWidget, title: str, desc: str = "", path: bool = False) -> QWidget:
     """A setting row sized for a settings column (the name takes the room)."""
-    return setting_row(group, title, desc, label_width=0)
+    return setting_row(group, title, desc, label_width=0, path=path)
 
 
 def _field_row(lay: QVBoxLayout, label: str) -> QHBoxLayout:
@@ -1111,6 +1250,7 @@ def _tool_button(text: str, icon, slot, needs_selection: bool = False,
     enabled only while something is selected."""
     b = (TransparentPushButton(icon, text, parent) if icon is not None
          else TransparentPushButton(text, parent))
+    b.setMinimumHeight(CONTROL_H)
     b.clicked.connect(slot)
     b.pk_needs_selection = needs_selection
     return b
@@ -1139,7 +1279,7 @@ class CollectionRow(QWidget):
         p = Path(path)
         self.name_label = BodyLabel(p.name)
         self.name_label.setToolTip(str(p))
-        self.folder_label = muted_caption(str(p.parent))
+        self.folder_label = muted_path(str(p.parent))
         texts.addWidget(self.name_label)
         texts.addWidget(self.folder_label)
         h.addLayout(texts, 1)
@@ -1210,7 +1350,7 @@ class CollectionPage(ToolPage):
         cols = QHBoxLayout()
         cols.setSpacing(16)
         # list card
-        self.list_card = SimpleCardWidget()
+        self.list_card = plain_card()
         lv = QVBoxLayout(self.list_card)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(0)
@@ -1481,7 +1621,7 @@ class OrganiserPage(ToolPage):
 
         cols = QHBoxLayout()
         cols.setSpacing(16)
-        self.grid_card = SimpleCardWidget()
+        self.grid_card = plain_card()
         gv = QVBoxLayout(self.grid_card)
         gv.setContentsMargins(8, 8, 8, 8)
         self._grid_v = gv
@@ -1679,7 +1819,7 @@ class MasterDetailPage(ToolPage):
         cols = QHBoxLayout()
         cols.setSpacing(16)
 
-        self.list_card = SimpleCardWidget()
+        self.list_card = plain_card()
         lv = QVBoxLayout(self.list_card)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(0)

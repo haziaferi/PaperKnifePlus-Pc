@@ -21,7 +21,7 @@ from qfluentwidgets import BodyLabel, CardWidget, FlowLayout, PushButton, Transp
 
 from . import bridge, dialogs
 from . import theme
-from .pages import ToolPage, group_title, muted_caption, plain_label
+from .pages import CARD_RADIUS, CONTROL_H, ToolPage, group_title, muted_caption, plain_label
 from ..recent import RECENT, thumb_image, time_ago
 
 THUMB_BOX = (100, 130)
@@ -91,6 +91,7 @@ class RecentCard(CardWidget):
 
     def __init__(self, entry: dict, on_open, parent=None):
         super().__init__(parent)
+        self.setBorderRadius(CARD_RADIUS)
         self.path = entry["path"]
         self.setFixedWidth(THUMB_BOX[0] + 40)
         self.setCursor(Qt.PointingHandCursor)
@@ -152,6 +153,7 @@ class HomePage(ToolPage):
         head.addWidget(group_title("Recent files"))
         head.addStretch(1)
         self.clear_button = TransparentPushButton("Clear history", self.content)
+        self.clear_button.setMinimumHeight(CONTROL_H)
         self.clear_button.clicked.connect(self.clear_history)
         head.addWidget(self.clear_button, 0, Qt.AlignBottom)
         self.body.addLayout(head)

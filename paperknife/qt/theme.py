@@ -195,6 +195,14 @@ def setup_fonts(app: QApplication) -> None:
     app.setFont(f)
 
 
+def text_symbols(widget) -> None:
+    """Draw ✓ ⚠ ✗ in *widget* from Segoe UI Symbol, in the text colour: without
+    it Windows takes ⚠ from Segoe UI Emoji, a yellow picture."""
+    f = widget.font()
+    f.setFamilies([*FONT_FAMILIES[:2], "Segoe UI Symbol", *FONT_FAMILIES[2:]])
+    widget.setFont(f)
+
+
 # ── Segoe Fluent Icons ────────────────────────────────────────────────────────
 @functools.cache        # the font list costs ~7 ms; a paint must not pay it
 def icon_font_family() -> str:
