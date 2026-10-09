@@ -61,4 +61,4 @@ class CompressPage(ToolPage):
         self.run_on_file("Compress", work, "Compressing PDF…",
                          lambda new, out: size_report(orig[0], new, out),
                          save=("compressed.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-                         cancellable=False, working="Compressing…", warning_box=True)
+                         cancellable=False, warning_box=True)

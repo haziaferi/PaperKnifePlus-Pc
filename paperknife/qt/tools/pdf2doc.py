@@ -122,5 +122,4 @@ class Pdf2DocPage(ToolPage):
             "Convert", work, f"Converting PDF → {fmt}…",
             lambda _ok, out: ("success", f"✓  PDF → {fmt}: {Path(out).name}",
                               "Done", f"Saved:\n{out}"),
-            src=src, save=(default, ext, [(desc, f"*{ext}"), ("All", "*.*")]),
-            working=f"Converting PDF → {fmt}…")
+            src=src, save=(default, ext, [(desc, f"*{ext}"), ("All", "*.*")]))

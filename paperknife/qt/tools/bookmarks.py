@@ -92,9 +92,6 @@ class BookmarksPage(HeldDoc, OrganiserPage):
         return out
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open_path(self, path: str):
-        self.file.set_path(path)
-
     def load(self, path: str):
         if not path:
             return

@@ -66,3 +66,22 @@ def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_pat
     opened = spy_open(window, monkeypatch)
     page.run()                     # no save path queued: the dialog returns ""
     assert opened and opened[0].is_closed
+
+
+def test_no_size_gain_is_reported_in_a_warning_box(window, dialogs, tmp_path, monkeypatch):
+    # The output is saved but no smaller: the box matches its ⚠ status line
+    # (owner's choice, 2026-10-09; Crop and Extract keep information boxes).
+    import shutil
+    from paperknife.qt.tools import compress as page_mod
+    monkeypatch.setattr(page_mod.core_enhance, "compress_pdf",
+                        lambda doc, out, level: (doc.close(), shutil.copyfile(src, out)))
+    page = _page(window)
+    src = make_pdf(tmp_path / "in.pdf")
+    assert page.accept_drop(src)
+    out = tmp_path / "out.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert out.exists()
+    assert dialogs.msgs[-1][:2] == ("warning", "Compress")
+    assert "No size reduction" in window.status_text()

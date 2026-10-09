@@ -51,5 +51,4 @@ class Pdf2ImgPage(ToolPage):
             "Export", work, "Exporting pages to PNG…",
             lambda _ok, out: ("success", f"✓  Exported {total[0]} pages → {Path(out).name}",
                               "Done", f"Exported {total[0]} pages to:\n{out}"),
-            src=src, save=("pages.zip", ".zip", [("ZIP", "*.zip")]), prepare=prepare,
-            working="Exporting pages…")
+            src=src, save=("pages.zip", ".zip", [("ZIP", "*.zip")]), prepare=prepare)

@@ -79,7 +79,7 @@ class PasswordPage(ToolPage):
         return doc
 
     def protect(self):
-        src = self.chosen_file("Protect", "Select a PDF.")
+        src = self.chosen_file("Protect")
         if not src:
             return
         pw = self.pw1.text()
@@ -97,10 +97,10 @@ class PasswordPage(ToolPage):
             open_doc=lambda s: self._open_unlocked(
                 s, cur, "Protect", "This PDF is already encrypted. Enter its password "
                                    "in “Current password” below to change it."),
-            ended=lambda _kind: self._forget_passwords(), cancellable=False, ask_first=True)
+            ended=lambda _kind: self._forget_passwords(), cancellable=False)
 
     def unprotect(self):
-        src = self.chosen_file("Unprotect", "Select a PDF.")
+        src = self.chosen_file("Unprotect")
         if not src:
             return
         pw = self.cur_pw.text()
@@ -112,4 +112,4 @@ class PasswordPage(ToolPage):
             src=src, save=("unlocked.pdf", ".pdf", [("PDF", "*.pdf")]),
             open_doc=lambda s: self._open_unlocked(s, pw, "Error", "Incorrect password.",
                                                    any_encryption=True),
-            ended=lambda _kind: self._forget_passwords(), cancellable=False, ask_first=True)
+            ended=lambda _kind: self._forget_passwords(), cancellable=False)

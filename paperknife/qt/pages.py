@@ -574,21 +574,22 @@ class ToolPage(QWidget):
         self.header_actions.insertWidget(0, w, 0, Qt.AlignTop)
 
     # ── the single-file run ──
-    def chosen_file(self, title: str, missing: str = "Select a PDF first.") -> str:
-        """The file card's path; "" after warning *missing* when none is chosen."""
+    def chosen_file(self, title: str) -> str:
+        """The file card's path; "" after a warning when none is chosen."""
         src = self.file.path()
         if not src:
-            dialogs.warning(title, missing)
+            dialogs.warning(title, "Select a PDF first.")
         return src
 
     def run_on_file(self, title: str, work, label, report, *, src: str | None = None,
                     save: tuple | None = None, prepare=None, open_doc=None, ended=None,
-                    cancellable: bool = True, working: str | None = None,
-                    warning_box: bool = False, ask_first: bool = False):
+                    cancellable: bool = True, warning_box: bool = False):
         """Run *work* on the chosen file: the file card's (or *src*, already
         checked), opened, prepare(doc), the output asked for, then
         work(doc, out, stop, progress) in a job (it closes doc) and, when the
         job is done, report(result, out) -> (role, status, box title, box text).
+        warning_box: a "warning" result is shown in a warning box, not an
+        information box (Compress: the saved file is no smaller).
 
         save: (default name, extension, filters) asks for a file; None asks
         for a folder.  label: the job's label, or a callable giving it after
@@ -601,13 +602,6 @@ class ToolPage(QWidget):
             if not src:
                 return
         win = self.window_
-
-        def ask():
-            return dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
-
-        out = ask() if ask_first else None
-        if ask_first and not out:
-            return
         doc = open_doc(src) if open_doc is not None else win.open_pdf_safe(src)
         if doc is None:
             return
@@ -620,10 +614,9 @@ class ToolPage(QWidget):
             except ValueError as e:
                 doc.close()
                 return dialogs.error(title, str(e))
-        if not ask_first:
-            out = ask()
-            if not out:
-                return doc.close()
+        out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
+        if not out:
+            return doc.close()
         progress = win.progress_callback()
 
         def then(kind, result):
@@ -636,8 +629,6 @@ class ToolPage(QWidget):
             box = dialogs.warning if warning_box and role == "warning" else dialogs.info
             box(box_title, text)
 
-        if working:
-            win.set_status(working)
         if win.run_job(lambda stop: work(doc, out, stop, progress),
                        label if isinstance(label, str) else label(),
                        then=then, cancellable=cancellable) is None:

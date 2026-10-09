@@ -51,9 +51,9 @@ def test_the_page_builds_with_its_controls(window):
 def test_without_input_each_action_warns(window, dialogs, tmp_path):
     page = _page(window)
     page.protect()
-    assert dialogs.msgs[-1] == ("warning", "Protect", "Select a PDF.")
+    assert dialogs.msgs[-1] == ("warning", "Protect", "Select a PDF first.")
     page.unprotect()
-    assert dialogs.msgs[-1] == ("warning", "Unprotect", "Select a PDF.")
+    assert dialogs.msgs[-1] == ("warning", "Unprotect", "Select a PDF first.")
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.protect()
     assert dialogs.msgs[-1] == ("warning", "Protect", "Enter a password.")
@@ -169,15 +169,16 @@ def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_pa
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_opens_no_document(window, dialogs, tmp_path,
-                                                      monkeypatch):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path,
+                                                         monkeypatch):
     opened = _spy_open(monkeypatch)
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.pw1.setText("u")
     page.protect()                 # no save path queued: the dialog returns ""
     page.unprotect()
-    assert opened == [] and window._current_job is None
+    assert len(opened) == 2 and all(d.is_closed for d in opened)
+    assert window._current_job is None
 
 
 def test_a_refused_job_closes_the_document_it_opened(window, dialogs, tmp_path,

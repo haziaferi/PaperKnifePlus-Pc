@@ -91,5 +91,4 @@ class WatermarkPage(ToolPage):
             "Watermark", work, "Applying watermark…",
             lambda _r, out: ("success", f"✓  Watermarked → {Path(out).name}",
                              "Done", f"Watermarked PDF saved:\n{out}"),
-            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]),
-            working="Applying watermark…")
+            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]))

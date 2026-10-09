@@ -96,5 +96,4 @@ class OCRPage(ToolPage):
                     "OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
 
         self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report,
-                         save=("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")]),
-                         working=f"Starting OCR ({lang}, {dpi} DPI)…")
+                         save=("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")]))
