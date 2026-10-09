@@ -984,6 +984,45 @@ class WorkspacePage(ToolPage):
         self.view.set_zoom(z, render=False)
         self.show_current()
 
+    # ── rubber band ──
+    def enable_band(self, style, on_release, *, drag_needs_doc: bool = False):
+        """Draw a rubber band while the page is dragged: style() -> (shape,
+        colour) for view.add_scene_shape, read at each move.  When the mouse
+        is released over an open document the band goes and
+        on_release(start, end, click) runs with the scene points; click: the
+        mouse moved less than 4 px.  drag_needs_doc: no band without a document."""
+        self._band_style, self._band_done = style, on_release
+        self._band_needs_doc = drag_needs_doc
+        self._start = None
+        self._band = None
+        self.view.pressed.connect(self._press)
+        self.view.dragged.connect(self._drag)
+        self.view.released.connect(self._mouse_up)
+
+    def _press(self, xy):
+        self._start = xy
+        if self._band is not None:
+            self.view.remove(self._band)
+            self._band = None
+
+    def _drag(self, xy):
+        if self._start is None or (self._band_needs_doc and self._doc is None):
+            return
+        if self._band is not None:
+            self.view.remove(self._band)
+        (x0, y0), (shape, colour) = self._start, self._band_style()
+        self._band = self.view.add_scene_shape(shape, x0, y0, xy[0], xy[1], colour)
+
+    def _mouse_up(self, xy):
+        if self._start is None or self._doc is None:
+            return
+        start, self._start = self._start, None
+        if self._band is not None:
+            self.view.remove(self._band)
+            self._band = None
+        click = abs(xy[0] - start[0]) < 4 and abs(xy[1] - start[1]) < 4
+        self._band_done(start, xy, click)
+
     # hooks for subclasses
     def on_page(self):
         pass

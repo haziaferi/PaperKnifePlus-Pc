@@ -36,17 +36,14 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.note_text = "Note"
         self.sel_xref = None
         self._undo_stack: list = []
-        self._start = None
-        self._band = None
         for key, (name, _desc) in TOOLS.items():
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.secondary("Open", self.open)
         self.primary("Save", self.save)
-        self.view.pressed.connect(self._press)
-        self.view.dragged.connect(self._drag)
-        self.view.released.connect(self._mouse_up)
+        self.enable_band(lambda: ("line" if self.kind == "line" else "rect", "#2B4C8C"),
+                         self._add_at)
         self.set_kind("highlight")
         self.show_current()
 
@@ -124,31 +121,10 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.show_current()
 
     # ── mouse ────────────────────────────────────────────────────────────────
-    def _press(self, xy):
-        self._start = xy
-        if self._band is not None:
-            self.view.remove(self._band)
-            self._band = None
-
-    def _drag(self, xy):
-        if self._start is None:
-            return
-        if self._band is not None:
-            self.view.remove(self._band)
-        x0, y0 = self._start
-        self._band = self.view.add_scene_shape("line" if self.kind == "line" else "rect",
-                                               x0, y0, xy[0], xy[1], "#2B4C8C")
-
-    def _mouse_up(self, xy):
-        if self._start is None or self._doc is None:
-            return
-        (x0, y0), (cx, cy) = self._start, xy
-        self._start = None
-        if self._band is not None:
-            self.view.remove(self._band)
-            self._band = None
+    def _add_at(self, start, end, click: bool):
+        (x0, y0), (cx, cy) = start, end
         page = self._doc[self._pg]
-        if abs(cx - x0) < 4 and abs(cy - y0) < 4:
+        if click:
             # A click on an existing annotation selects it for Remove.
             pt = self.view.scene_to_page(x0, y0)
             hit = next((a for a in page.annots() if pt in a.rect), None)
