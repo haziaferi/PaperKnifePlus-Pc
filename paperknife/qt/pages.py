@@ -38,6 +38,7 @@ from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButt
 
 from . import dialogs
 from . import theme
+from ..core.doc_state import DocHolder
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 QT_PAGES: dict[str, type] = {}
@@ -296,6 +297,36 @@ class FileCard(SimpleCardWidget):
 
 def file_card(on_change=None, exts=(".pdf",)) -> FileCard:
     return FileCard(on_change, exts)
+
+
+class HeldDoc(DocHolder):
+    """A page that keeps its file card's (self.file) document open in
+    self._doc; self._src is the file it was read from."""
+    _src: str = ""
+
+    def open_held(self, path: str, title: str | None = None):
+        """Open *path* as the held document and close the one before; with
+        *title*, the file name becomes the subtitle.  When it cannot be opened
+        the document already open stays and the card goes back to its file.
+        The new document, or None."""
+        doc = self.window_.open_pdf_safe(path)
+        if doc is None:
+            self.file.set_path(self._src if self._doc is not None else "", notify=False)
+            return None
+        self._close_doc()
+        self._doc, self._src = doc, path
+        if title is not None:
+            self.set_title(title, Path(path).name)
+        return doc
+
+    def release_held(self, title: str | None = None, subtitle: str = ""):
+        """Close the held document and empty the card; with *title*, put the
+        page's own subtitle back."""
+        self._close_doc()
+        self._src = ""
+        self.file.clear()
+        if title is not None:
+            self.set_title(title, subtitle)
 
 
 class Refusal(Exception):

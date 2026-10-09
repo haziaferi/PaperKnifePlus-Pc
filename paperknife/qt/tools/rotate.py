@@ -7,20 +7,18 @@ import pymupdf as fitz
 from PySide6.QtGui import QImage
 
 from ...core import organise
-from ...core.doc_state import DocHolder
 from .. import dialogs
-from ..pages import OrganiserPage, register_page
+from ..pages import HeldDoc, OrganiserPage, register_page
 
 SUBTITLE = "Click a thumbnail · then rotate or move it"
 THUMB_ZOOM = 0.28           # as the CTk tool's thumbnails
 
 
 @register_page("RotateTool")
-class RotatePage(DocHolder, OrganiserPage):
+class RotatePage(HeldDoc, OrganiserPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Rotate & Reorder", SUBTITLE, tool=tool, window=window)
         self._extra: dict[int, int] = {}
-        self._src = ""
         for text, deg in (("↺ 90° CCW", -90), ("↻ 90° CW", 90), ("⤢ 180°", 180)):
             self.add_action(text, None, lambda _=False, d=deg: self.rotate(d))
         self.add_action("← Move Left", None, lambda _=False: self.move_pages(-1))
@@ -34,25 +32,17 @@ class RotatePage(DocHolder, OrganiserPage):
     def load(self, path: str):
         if not path:
             return
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.open_held(path, "Rotate & Reorder")
         if doc is None:
-            # Keep the document already open (and show its name again).
-            self.file.set_path(self._src, notify=False)
             return
-        self._close_doc()
-        self._doc, self._src = doc, path
         self._extra = {i: 0 for i in range(len(doc))}
-        self.set_title("Rotate & Reorder", Path(path).name)
         self.set_pages(list(range(len(doc))), self.render, lambda k: f"p.{k + 1}")
 
     def deactivate(self):
         self._timer.stop()
         self.clear_pages()
-        self._close_doc()
-        self._src = ""
+        self.release_held("Rotate & Reorder", SUBTITLE)
         self._extra = {}
-        self.file.clear()
-        self.set_title("Rotate & Reorder", SUBTITLE)
 
     def render(self, key: int) -> QImage:
         """Page *key* as a thumbnail, turned by its extra rotation."""

@@ -8,9 +8,8 @@ import pymupdf as fitz
 from qfluentwidgets import ComboBox, FluentIcon, LineEdit, PushButton
 
 from ...core import organise
-from ...core.doc_state import DocHolder
 from .. import dialogs
-from ..pages import MasterDetailPage, register_page
+from ..pages import HeldDoc, MasterDetailPage, register_page
 
 LEVELS = ["1", "2", "3", "4"]
 
@@ -22,7 +21,7 @@ def entry_text(entry) -> str:
 
 
 @register_page("TocTool")
-class TocPage(DocHolder, MasterDetailPage):
+class TocPage(HeldDoc, MasterDetailPage):
     save_name = "with_bookmarks.pdf"
 
     def __init__(self, tool=None, window=None):
@@ -31,7 +30,6 @@ class TocPage(DocHolder, MasterDetailPage):
                          tool=tool, window=window,
                          empty_text="Open a PDF to see its bookmarks")
         self._toc: list = []            # [level, title, page] per bookmark
-        self._path = ""                 # the file self._doc was opened from
         self.add_tool("Add below", FluentIcon.ADD, self._add)
         self.add_tool("Up", FluentIcon.UP, lambda: self._move(-1), needs_selection=True)
         self.add_tool("Down", FluentIcon.DOWN, lambda: self._move(1), needs_selection=True)
@@ -81,27 +79,19 @@ class TocPage(DocHolder, MasterDetailPage):
     def load(self, path: str):
         if not path:
             return self._clear()
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.open_held(path, "Bookmarks / TOC")
         if doc is None:
-            # Keep what was open; the card goes back to it.
-            self.file.set_path(self._path if self._doc is not None else "", notify=False)
             return
-        self._close_doc()
-        self._doc, self._path = doc, path
         self._toc = [list(e) for e in doc.get_toc()]
-        self.set_title("Bookmarks / TOC", Path(path).name)
         self._refresh_list()
 
     def _clear(self):
-        self._close_doc()
-        self._toc, self._path = [], ""
-        self.set_title("Bookmarks / TOC",
-                       "View · add · edit · delete · reorder PDF bookmarks")
+        self.release_held("Bookmarks / TOC", "View · add · edit · delete · reorder PDF bookmarks")
+        self._toc = []
         self._refresh_list()
 
     def deactivate(self):
         self._clear()
-        self.file.clear()
 
     # ── edit operations ──────────────────────────────────────────────────────
     def _move(self, d: int):

@@ -1,16 +1,13 @@
 """Split by Bookmarks — a page organiser (group B) whose centre is the outline."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QButtonGroup, QFrame, QVBoxLayout, QWidget
 from qfluentwidgets import BodyLabel, RadioButton, SingleDirectionScrollArea, StrongBodyLabel
 
 from ...core import organise
-from ...core.doc_state import DocHolder
 from .. import dialogs, theme
-from ..pages import (OrganiserPage, _clear_layout, card, group_title, muted_caption,
+from ..pages import (HeldDoc, OrganiserPage, _clear_layout, card, group_title, muted_caption,
                      register_page)
 
 SUBTITLE = "Split a PDF at its chapter / section bookmarks"
@@ -19,12 +16,11 @@ LEVELS = [("Top-level only (level 1)", False), ("All bookmark levels", True)]
 
 
 @register_page("BookmarksTool")
-class BookmarksPage(DocHolder, OrganiserPage):
+class BookmarksPage(HeldDoc, OrganiserPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Split by Bookmarks", SUBTITLE, tool=tool, window=window,
                          settings=True, drag_reorder=False, hint="")
         self._toc: list = []
-        self._src = ""
 
         # Centre: the outline, read-only.
         area = SingleDirectionScrollArea(self, Qt.Vertical)
@@ -109,22 +105,15 @@ class BookmarksPage(DocHolder, OrganiserPage):
         if not path:
             return
         # Kept open so a password entered here also covers the split.
-        doc = self.window_.open_pdf_safe(path) if self.window_ is not None else None
+        doc = self.open_held(path, "Split by Bookmarks")
         if doc is None:
-            self.file.set_path(self._src, notify=False)
             return
-        self._close_doc()
-        self._doc, self._src = doc, path
         self._toc = doc.get_toc()
-        self.set_title("Split by Bookmarks", Path(path).name)
         self._show_outline(self._toc)
 
     def deactivate(self):
-        self._close_doc()
-        self._src = ""
+        self.release_held("Split by Bookmarks", SUBTITLE)
         self._toc = []
-        self.file.clear()
-        self.set_title("Split by Bookmarks", SUBTITLE)
         self._show_message("Open a PDF to see its bookmarks", "muted")
 
     # ── split ────────────────────────────────────────────────────────────────
