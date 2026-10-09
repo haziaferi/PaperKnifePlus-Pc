@@ -168,9 +168,16 @@ def ask_password(title: str = "Password required",
         text, ok = QInputDialog.getText(None, title, prompt, QLineEdit.Password)
         return text if ok and text else None
     dlg = _PasswordDialog(title, prompt, parent)
-    if dlg.exec() and dlg.edit.text():
-        return dlg.edit.text()
-    return None
+    text = ""
+    try:
+        if dlg.exec():
+            text = dlg.edit.text()
+    finally:
+        # The dialog belongs to the main window: emptied and deleted, it
+        # leaves no typed password behind for the rest of the session.
+        dlg.edit.clear()
+        dlg.deleteLater()
+    return text or None
 
 
 class _PasswordDialog(MessageBoxBase):

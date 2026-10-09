@@ -395,3 +395,43 @@ def test_poll_positions_are_window_relative(window):
     # sanity for the mode tests: the simulated pointer maps back exactly
     g = window.mapToGlobal(QPoint(5, 6))
     assert window.mapFromGlobal(g) == QPoint(5, 6)
+
+
+# ── dialogs: a closed dialog does not stay behind ──
+@pytest.fixture
+def dialog_parent(qapp, monkeypatch):
+    """The real paperknife.qt.dialogs over a plain shown window."""
+    from PySide6.QtWidgets import QWidget
+    from paperknife.qt import dialogs as dmod
+    w = QWidget()
+    w.resize(600, 400)
+    w.show()
+    monkeypatch.setattr(dmod, "_parent", lambda: w)
+    yield w
+    w.close()
+    w.deleteLater()
+    pump(0.02)
+
+
+def _answer_password(parent, text):
+    from paperknife.qt import dialogs as dmod
+
+    def fill():
+        for d in parent.findChildren(dmod._PasswordDialog):
+            if d.isVisible():
+                d.edit.setText(text)
+                d.yesButton.click()
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(50, fill)
+
+
+def test_password_dialog_keeps_no_password_after_closing(dialog_parent):
+    # R1-5: every password typed stayed in a hidden PasswordLineEdit.
+    from paperknife.qt import dialogs as dmod
+    for _ in range(3):
+        _answer_password(dialog_parent, "s3cret")
+        assert dmod.ask_password() == "s3cret"
+    left = [d.edit.text() for d in dialog_parent.findChildren(dmod._PasswordDialog)]
+    assert "s3cret" not in left
+    pump(0.05)
+    assert dialog_parent.findChildren(dmod._PasswordDialog) == []
