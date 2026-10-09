@@ -43,9 +43,6 @@ class Pdf2ImgPage(ToolPage):
     def dpi(self) -> int:
         return int(self.dpi_slider.value())
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.chosen_file("Export")
         if not src:

@@ -44,9 +44,6 @@ class MetadataPage(DocHolder, ToolPage):
         self.primary("Save", self.save)
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        self.file.choose()
-
     def _load(self, path: str):
         if not path:
             return

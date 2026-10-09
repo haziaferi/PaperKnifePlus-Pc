@@ -39,9 +39,6 @@ class ExtractPage(ToolPage):
         self.body.addStretch(1)
         self.primary("Extract Images", self.run)
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.chosen_file("Extract")
         if not src:

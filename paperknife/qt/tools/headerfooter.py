@@ -97,9 +97,6 @@ class HeaderFooterPage(ToolPage):
     def font_name(self) -> str:
         return FONTS[self.font.currentIndex()][0]
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.chosen_file("Header/Footer")
         if not src:

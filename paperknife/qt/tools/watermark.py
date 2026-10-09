@@ -83,10 +83,6 @@ class WatermarkPage(ToolPage):
             self.color = rgb
             self._show_color()
 
-    # ── hooks ──
-    def open(self):
-        self.file.choose()
-
     # ── the action ──
     def run(self):
         src = self.chosen_file("Watermark")

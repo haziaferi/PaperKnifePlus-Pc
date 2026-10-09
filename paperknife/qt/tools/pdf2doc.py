@@ -124,9 +124,6 @@ class Pdf2DocPage(ToolPage):
         return dpi, quality
 
     # ── actions ──
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.chosen_file("Convert")
         if not src:

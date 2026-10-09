@@ -75,9 +75,6 @@ class TocPage(DocHolder, MasterDetailPage):
         self.set_items([entry_text(e) for e in self._toc], keep=keep)
 
     # ── document ─────────────────────────────────────────────────────────────
-    def open(self):
-        self.file.choose()
-
     def open_path(self, path: str):
         self.file.set_path(path)
 

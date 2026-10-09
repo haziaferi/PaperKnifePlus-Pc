@@ -71,9 +71,6 @@ class NormalisePage(ToolPage):
     def stretch(self) -> bool:
         return self.scales["stretch"].isChecked()
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         size, orient, stretch = self.size.currentText(), self.orient, self.stretch
 

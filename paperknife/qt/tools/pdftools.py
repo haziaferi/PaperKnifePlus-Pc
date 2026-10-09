@@ -34,9 +34,6 @@ class PdfToolsPage(ToolPage):
         self.body.addStretch(1)
         self.primary("Repair", self.run)
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         def report(repaired, out):
             status, text = repair_report(repaired, out)

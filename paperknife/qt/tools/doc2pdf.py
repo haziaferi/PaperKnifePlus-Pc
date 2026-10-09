@@ -76,9 +76,6 @@ class Doc2PdfPage(ToolPage):
         return self.fmt.currentText()
 
     # ── actions ──
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.file.path()
         if not src:

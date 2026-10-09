@@ -56,9 +56,6 @@ class PasswordPage(ToolPage):
         self.secondary("Remove Password", self.unprotect)
         self.primary("Protect PDF", self.protect)
 
-    def open(self):
-        self.file.choose()
-
     def _forget_passwords(self):
         # The job's closures hold what the worker needs; the fields (whose
         # eye button shows them) keep nothing once it ended or the page is left.

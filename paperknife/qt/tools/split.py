@@ -31,9 +31,6 @@ class SplitPage(ToolPage):
         self.body.addStretch(1)
         self.primary("Split", self.run)
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.chosen_file("Split")
         if not src:

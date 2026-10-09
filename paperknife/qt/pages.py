@@ -514,7 +514,13 @@ class ToolPage(QWidget):
                        then=then, cancellable=cancellable) is None:
             doc.close()
 
-    # ── drops ──
+    # ── shell hooks ──
+    def open(self):
+        """Ctrl+O: Choose file on the first visible file card."""
+        for fc in self.findChildren(FileCard):
+            if fc.isVisibleTo(self):
+                return fc.choose()
+
     def accept_drop(self, path: str) -> bool:
         """Give a dropped file to the first visible file card that takes it."""
         for fc in self.findChildren(FileCard):

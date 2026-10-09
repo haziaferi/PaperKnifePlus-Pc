@@ -58,9 +58,6 @@ class CompressPage(ToolPage):
     def level(self) -> str:
         return next(v for v, rb in self.radios.items() if rb.isChecked())
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         level, orig = self.level, [0]
 

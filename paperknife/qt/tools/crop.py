@@ -67,9 +67,6 @@ class CropPage(ToolPage):
         self.body.addStretch(1)
         self.primary("Crop", self.run)
 
-    def open(self):
-        self.file.choose()
-
     def run(self):
         src = self.chosen_file("Crop")
         if not src:
