@@ -155,3 +155,30 @@ def test_extracting_a_second_pdf_into_the_same_folder_keeps_the_first(tmp_path):
     from PIL import Image
     sizes = sorted(Image.open(p).size for p in out.iterdir())
     assert sizes == [(120, 90), (200, 150)]
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "TXT"])
+def test_doc_to_pdf_cancel_after_the_file_is_in_place_still_reports_it(tmp_path, monkeypatch,
+                                                                       fmt):
+    # Cancel landing once the output has replaced *out*: the file is there, so
+    # reporting "cancelled" would hide a written (or replaced) file.
+    import contextlib
+    from PIL import Image
+    if fmt == "PNG":
+        src = tmp_path / "a.png"
+        Image.new("RGB", (50, 40), "red").save(src)
+    else:
+        src = tmp_path / "a.txt"
+        src.write_text("hello", encoding="utf-8")
+    out = tmp_path / "out.pdf"
+    stop = threading.Event()
+    real = core.atomic_output
+
+    @contextlib.contextmanager
+    def cancel_after_commit(path):
+        with real(path) as tmp:
+            yield tmp
+        stop.set()
+    monkeypatch.setattr(core, "atomic_output", cancel_after_commit)
+    assert core.doc_to_pdf(str(src), fmt, str(out), stop) == []
+    assert out.exists()

@@ -329,3 +329,27 @@ def test_leaving_the_tool_after_a_conversion(window, dialogs, tmp_path):
 def test_a_pdf_is_not_its_input(window, tmp_path):
     page = _page(window)
     assert page.accept_drop(make_pdf(tmp_path / "in.pdf")) is False
+
+
+def test_cancel_after_the_pdf_is_written_still_says_done(window, dialogs, tmp_path,
+                                                         monkeypatch):
+    # The output already replaced *out* when Cancel landed; "Cancelled" with no
+    # Done message would hide that the file was written.
+    import contextlib
+    from paperknife.core import convert as core_convert
+    page = _page(window)
+    src = tmp_path / "a.png"
+    Image.new("RGB", (60, 40), "red").save(src)
+    out = tmp_path / "a.pdf"
+    real = core_convert.atomic_output
+
+    @contextlib.contextmanager
+    def cancel_after_commit(path):
+        with real(path) as tmp:
+            yield tmp
+        window._current_job.cancel()
+    monkeypatch.setattr(core_convert, "atomic_output", cancel_after_commit)
+    _convert(window, dialogs, page, "PNG", src, out)
+    assert out.exists()
+    assert dialogs.msgs[-1] == ("info", "Done", f"Converted PDF saved:\n{out}")
+    assert window.status_text() == "✓  PNG → PDF: a.pdf"

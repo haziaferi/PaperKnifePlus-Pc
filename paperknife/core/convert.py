@@ -308,6 +308,9 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
                         lines.append(para.text)
             page = nd.new_page(width=A4.width, height=A4.height)
             page.insert_htmlbox(A4, "<br>".join(html.escape(ln) for ln in lines))
+        if stop.is_set():
+            nd.close()
+            return None
         with atomic_output(out) as tmp:
             nd.save(tmp, deflate=True)
         nd.close()
@@ -420,8 +423,8 @@ def doc_to_pdf(src: str, fmt: str, out: str, stop) -> list[str] | None:
         except Cancelled:
             return None
 
-    if stop.is_set():
-        return None
+    # Stop is checked only before the output is committed: once *out* has
+    # been written or replaced, the conversion is reported, Cancel or not.
     return notes
 
 

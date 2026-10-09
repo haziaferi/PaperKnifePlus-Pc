@@ -89,12 +89,20 @@ class Doc2PdfPage(ToolPage):
         fmt = self.format
         win = self.window_
 
+        written = {}
+
         def work(stop):
             # The notes on fallbacks that changed the output; None if cancelled.
-            return core_convert.doc_to_pdf(src, fmt, out, stop)
+            written["notes"] = core_convert.doc_to_pdf(src, fmt, out, stop)
+            return written["notes"]
 
         def then(kind, notes):
-            if kind != "done" or notes is None:
+            if kind == "cancel":
+                # Cancel came after the PDF was in place: it was still written.
+                notes = written.get("notes")
+            elif kind != "done":
+                return
+            if notes is None:
                 return
             note = "\n\n" + "\n".join(notes) if notes else ""
             win.set_status(f"✓  {fmt} → PDF: {Path(out).name}",
