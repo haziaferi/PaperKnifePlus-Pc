@@ -1,4 +1,6 @@
 """Shared page widgets."""
+from itertools import pairwise
+
 from qt_harness import pump
 
 
@@ -117,9 +119,17 @@ def _organiser(n=6):
 
 
 def test_organiser_renders_thumbs_a_few_per_turn(qapp):
+    from paperknife.qt import pages
     page, calls = _organiser(n=10)
     assert calls == [] and page.rendering()      # nothing rendered inside set_pages
+    # Connected after the page's own slot: records how many thumbs each timer
+    # tick (one event-loop turn) has rendered so far.
+    per_tick = []
+    page._timer.timeout.connect(lambda: per_tick.append(len(calls)))
     pump(0.2)
+    steps = [b - a for a, b in pairwise([0] + per_tick)]
+    assert steps and max(steps) <= pages.THUMBS_PER_TICK, steps
+    assert sum(1 for s in steps if s) >= -(-10 // pages.THUMBS_PER_TICK), steps
     assert sorted(calls) == list(range(10)) and not page.rendering()
     assert not page.grid.item(0).icon().isNull()
     page.close()
