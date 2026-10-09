@@ -41,6 +41,24 @@ class Cancelled(Exception):
     """Raised inside atomic_output on Cancel so the partial file is discarded."""
 
 
+class NoText(ValueError):
+    """The PDF has no text layer to write as plain text."""
+
+    def __init__(self):
+        super().__init__("This PDF has no text to extract. A scanned page holds only an "
+                         "image: run OCR on it first.")
+
+
+def unused_path(path: str) -> str:
+    """*path*, or *path* with -2, -3 … before its extension if a file is there."""
+    stem, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(path):
+        path = f"{stem}-{n}{ext}"
+        n += 1
+    return path
+
+
 def require(fmt: str) -> None:
     lib, installed = NEEDS[fmt]
     if not installed:
@@ -167,6 +185,8 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                     parts.append(page.get_text())
                     if i < total - 1:
                         parts.append("\n\n── Page Break ──\n\n")
+                if not any(p.strip() for p in parts[::2]):
+                    raise NoText
                 Path(tmp).write_text("".join(parts), encoding="utf-8")
 
             elif fmt == "HTML":
@@ -450,7 +470,8 @@ def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> 
                         img.save(buf, "JPEG", quality=92)
                         data = buf.getvalue()
                         ext  = "jpg"
-                    fname = os.path.join(out_dir, f"img_{xref:05d}.{ext}")
+                    # An image of another PDF extracted here may have the same xref.
+                    fname = unused_path(os.path.join(out_dir, f"img_{xref:05d}.{ext}"))
                     with atomic_output(fname) as tmp:
                         Path(tmp).write_bytes(data)
                     count += 1

@@ -9,6 +9,7 @@ from PIL import Image
 from ..job_queue import atomic_output
 from ..pages import render
 from ..prefs import DPI_RANGE
+from .convert import NoText
 from .enhance import compress_pdf, watermark_pdf
 from .ocr import add_text_layer, ocr_words
 
@@ -58,6 +59,8 @@ def _do_pdf2txt(src, out_dir, opts, stop):
             parts.append(page.get_text())
             if i < len(doc) - 1:
                 parts.append("\n\n── Page Break ──\n\n")
+    if not any(p.strip() for p in parts[::2]):
+        raise NoText
     with atomic_output(out) as tmp:
         Path(tmp).write_text("".join(parts), encoding="utf-8")
     return out

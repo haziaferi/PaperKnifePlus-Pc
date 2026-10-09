@@ -123,3 +123,35 @@ def test_doc_to_pdf_cancelled_returns_none_and_writes_nothing(tmp_path):
     stop.set()
     assert core.doc_to_pdf(str(src), "TXT", str(out), stop) is None
     assert not Path(out).exists()
+
+
+def _blank_pdf(path):
+    d = fitz.open()
+    d.new_page()
+    d.save(path)
+    d.close()
+    return str(path)
+
+
+def test_pdf_to_txt_of_a_pdf_without_text_says_so(tmp_path):
+    # The empty output used to be dropped by atomic_output while the tool
+    # reported it saved (review R2a-5).
+    src = _blank_pdf(tmp_path / "scan.pdf")
+    out = tmp_path / "out.txt"
+    with pytest.raises(core.NoText):
+        core.pdf_to_doc(fitz.open(src), "TXT", str(out), threading.Event(), lambda v: None)
+    assert not out.exists()
+
+
+def test_extracting_a_second_pdf_into_the_same_folder_keeps_the_first(tmp_path):
+    # Images were named by xref only; the same xref in another PDF overwrote
+    # the first one's image without asking (review R2a-6).
+    a = _pdf_with_images(tmp_path / "a.pdf", [(200, 150)])
+    b = _pdf_with_images(tmp_path / "b.pdf", [(120, 90)])
+    out = tmp_path / "out"
+    out.mkdir()
+    for src in (a, b):
+        core.extract_images(fitz.open(src), str(out), "PNG", 10, threading.Event(), lambda v: None)
+    from PIL import Image
+    sizes = sorted(Image.open(p).size for p in out.iterdir())
+    assert sizes == [(120, 90), (200, 150)]

@@ -92,3 +92,14 @@ def test_each_operation_cancelled_returns_none_and_writes_nothing(tmp_path, op):
 def test_each_operation_refuses_a_password_protected_input(tmp_path, op):
     with pytest.raises(ValueError, match="password-protected"):
         core.OPS[op](_locked(tmp_path / "locked.pdf"), str(tmp_path), {}, threading.Event())
+
+
+def test_pdf_to_txt_operation_of_a_pdf_without_text_says_so(tmp_path):
+    from paperknife.core.convert import NoText
+    d = fitz.open()
+    d.new_page()
+    src = tmp_path / "scan.pdf"
+    d.save(src)
+    d.close()
+    with pytest.raises(NoText):
+        core.OPS["PDF → TXT"](str(src), str(tmp_path), {}, threading.Event())
