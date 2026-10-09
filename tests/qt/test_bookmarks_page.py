@@ -113,8 +113,9 @@ def test_split_cuts_in_page_order(window, dialogs, tmp_path):
     page = _open(window, src)
     page.radios[True].setChecked(True)
     files = _split(window, dialogs, page, tmp_path / "out")
-    pages = sorted(p for texts in files.values() for p in texts)
-    assert pages == ["Page 1", "Page 2", "Page 3"], files
+    # Numbered and named in page order (A1 holds page 2), not outline order.
+    assert files == {"01_A.pdf": ["Page 1"], "02_A1.pdf": ["Page 2"],
+                     "03_A2.pdf": ["Page 3"]}, files
 
 
 def test_no_bookmark_with_a_page_warns(window, dialogs, tmp_path):
