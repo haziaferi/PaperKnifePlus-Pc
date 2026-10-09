@@ -1,0 +1,6 @@
+# Install with:  pip install --no-deps -r requirements-fluent.txt
+# (after requirements.txt; see the note there on why --no-deps).
+# Pinned exactly: paperknife/qt/fluent_route.py patches this version's
+# internals; a new version must pass tests/qt/test_palettes.py first.
+PySide6-Fluent-Widgets==1.11.3
+PySideSix-Frameless-Window==0.8.2

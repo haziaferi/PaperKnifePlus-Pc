@@ -1,6 +1,6 @@
-# PaperKnife+ PC — v3.2.2
+# PaperKnife+ PC — v4.0.0
 
-Toolkit PDF locale al 100% per **Windows 10 e 11**. Nessun cloud, nessun account, nessun dato che lascia il tuo computer.
+Toolkit PDF locale al 100% per **Windows 10 e 11**. Nessun cloud, nessun account, nessun dato che lascia il tuo computer. Dalla 4.0.0 l'interfaccia usa PySide6 (Qt 6) e QFluentWidgets, nello stile Fluent di Windows 11.
 
 Il manuale completo, in inglese, è **[MANUAL.md](MANUAL.md)**: strumenti, scorciatoie, preferenze, risoluzione dei problemi, compilazione e changelog. Questo file è solo un riassunto in italiano.
 
@@ -20,8 +20,8 @@ Il manuale completo, in inglese, è **[MANUAL.md](MANUAL.md)**: strumenti, scorc
 Serve Python 3.10 o superiore.
 
 1. Decomprimi il pacchetto e apri la cartella `PaperKnifePlusPC`.
-2. Fai doppio clic su **`setup.bat`**: crea `.venv` e installa le dipendenze di `requirements.txt`.
-3. Fai doppio clic su **`run.bat`** per avviare l'app.
+2. Fai doppio clic su **`setup.bat`**: crea `.venv` e installa le dipendenze di `requirements.txt`, poi quelle di `requirements-fluent.txt` con `--no-deps`.
+3. Fai doppio clic su **`run.bat`** per avviare l'app (oppure: `python -m paperknife.qt`).
 
 Installazione manuale e installer NSIS: MANUAL.md, sezioni 3 e 9.
 

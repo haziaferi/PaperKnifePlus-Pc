@@ -2,11 +2,14 @@
 # 1.27.2 is the first PyMuPDF on a MuPDF whose image rewriter has
 # recompress_when (used by Compress Medium/Aggressive); tested on 1.28.2.
 PyMuPDF>=1.27.2,<2.0.0
-customtkinter>=5.2.1      # 5.2.0 imports distutils, gone in Python 3.12
 Pillow>=10.0.0
-
-# ── Optional: drag & drop support ─────────────────────────────────────────────
-tkinterdnd2>=0.3.0
+# Qt 6: only the Essentials wheel (Widgets, Gui, Svg).  The Fluent widgets come
+# from requirements-fluent.txt, installed with --no-deps: their metadata asks for
+# the full PySide6, which adds Addons, WebEngine and Pdf (several hundred MB) the
+# app never imports.
+PySide6-Essentials==6.12.0
+darkdetect>=0.8.0          # read by PySide6-Fluent-Widgets
+pywin32>=306               # read by PySideSix-Frameless-Window on Windows
 
 # ── Optional: OCR (also requires the Tesseract binary, see MANUAL 4.3) ────────
 # https://github.com/UB-Mannheim/tesseract/wiki

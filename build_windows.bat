@@ -1,10 +1,12 @@
 @echo off
-:: PaperKnife+ PC — Windows build pipeline
+:: PaperKnife+ PC - Windows build pipeline
 ::
 :: Build from a clean venv (see MANUAL.md section 9):
 ::   python -m venv .venv
 ::   .venv\Scripts\activate
-::   pip install -r requirements.txt pyinstaller
+::   pip install -r requirements.txt pyinstaller==6.22.3
+::   pip install --no-deps -r requirements-fluent.txt
+:: (--no-deps: see requirements.txt; the full PySide6 would add WebEngine.)
 :: If no venv is active, .venv\Scripts\python.exe is used when it exists.
 :: Do not build from conda or the global Python: PyInstaller bundles every
 :: package its hooks can reach there, and still probes conda's MKL packages
@@ -14,7 +16,7 @@
 :: Usage (unsigned, for testing):
 ::   build_windows.bat
 ::
-:: Usage (signed release — requires an OV/EV cert PFX):
+:: Usage (signed release - requires an OV/EV cert PFX):
 ::   set PFX_PASSWORD=YourPfxPassword
 ::   build_windows.bat  C:\path\to\cert.pfx
 :: The password is read from PFX_PASSWORD so it stays out of this script's
@@ -34,7 +36,7 @@ if not "%~1"=="" set "CERT_PFX=%~f1"
 cd /d "%~dp0"
 
 set APP_NAME=PaperKnifePlusPC
-set APP_VERSION=3.2.2
+set APP_VERSION=4.0.0
 set TIMESTAMP_URL=http://timestamp.digicert.com
 
 echo.
@@ -53,7 +55,7 @@ if not "!CERT_PFX!"=="" if "!PFX_PASSWORD!"=="" (
     exit /b 1
 )
 
-:: ── Python environment ────────────────────────────────────────────────────────
+:: -- Python environment --------------------------------------------------------
 set "PY=python"
 if not defined VIRTUAL_ENV if exist .venv\Scripts\python.exe set "PY=.venv\Scripts\python.exe"
 "!PY!" -c "import sys; sys.exit(sys.prefix == sys.base_prefix)" >nul 2>&1
@@ -69,7 +71,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: ── Locate signtool.exe ───────────────────────────────────────────────────────
+:: -- Locate signtool.exe -------------------------------------------------------
 :: %ProgramFiles(x86)% contains parentheses that confuse the batch parser
 :: inside for-loop blocks.  Hoist it into a plain variable first.
 set "_PF86=%ProgramFiles(x86)%"
@@ -79,12 +81,12 @@ set SIGNTOOL=
 :: 1. Check if already on PATH
 where signtool >nul 2>&1 && set SIGNTOOL=signtool
 
-:: 2. Search Windows SDK — x86 host (most common on 64-bit Windows)
+:: 2. Search Windows SDK - x86 host (most common on 64-bit Windows)
 if "%SIGNTOOL%"=="" (
     for /f "delims=" %%d in ('dir /b /ad "!_PF86!\Windows Kits\10\bin" 2^>nul') do if exist "!_PF86!\Windows Kits\10\bin\%%d\x64\signtool.exe" set "SIGNTOOL=!_PF86!\Windows Kits\10\bin\%%d\x64\signtool.exe"
 )
 
-:: 3. Search Windows SDK — native 64-bit / ARM64 host
+:: 3. Search Windows SDK - native 64-bit / ARM64 host
 if "%SIGNTOOL%"=="" (
     for /f "delims=" %%d in ('dir /b /ad "!_PF64!\Windows Kits\10\bin" 2^>nul') do if exist "!_PF64!\Windows Kits\10\bin\%%d\x64\signtool.exe" set "SIGNTOOL=!_PF64!\Windows Kits\10\bin\%%d\x64\signtool.exe"
 )
@@ -99,29 +101,29 @@ if "%SIGNTOOL%"=="" (
     echo [INFO] signtool found: !SIGNTOOL!
 )
 
-:: ── Locate makensis.exe (the NSIS installer does not add itself to PATH) ─────
+:: -- Locate makensis.exe (the NSIS installer does not add itself to PATH) -----
 set MAKENSIS=
 where makensis >nul 2>&1 && set MAKENSIS=makensis
 if "%MAKENSIS%"=="" if exist "!_PF86!\NSIS\makensis.exe" set "MAKENSIS=!_PF86!\NSIS\makensis.exe"
 if "%MAKENSIS%"=="" if exist "!_PF64!\NSIS\makensis.exe" set "MAKENSIS=!_PF64!\NSIS\makensis.exe"
 
-:: ── Step 1: Clean previous dist ───────────────────────────────────────────────
+:: -- Step 1: Clean previous dist -----------------------------------------------
 echo [1/5] Cleaning previous dist...
 if exist dist\%APP_NAME% rmdir /s /q dist\%APP_NAME%
 if exist build              rmdir /s /q build
 
-:: ── Step 2: PyInstaller ───────────────────────────────────────────────────────
+:: -- Step 2: PyInstaller -------------------------------------------------------
 echo [2/5] Running PyInstaller...
 "!PY!" -m PyInstaller paperknife.spec --clean --noconfirm --log-level WARN
 if errorlevel 1 ( echo [ERROR] PyInstaller failed. & exit /b 1 )
 
-:: ── Step 3: Sign EXE + all DLL/PYD files ──────────────────────────────────────
+:: -- Step 3: Sign EXE + all DLL/PYD files --------------------------------------
 if "!CERT_PFX!"=="" (
-    echo [3/5] No cert provided — skipping signing.
+    echo [3/5] No cert provided - skipping signing.
     echo        Unsigned build is fine for local testing.
     echo        SmartScreen will warn end-users until the EXE is signed.
 ) else if "!SIGNTOOL!"=="" (
-    echo [3/5] Cert provided but signtool not found — skipping signing.
+    echo [3/5] Cert provided but signtool not found - skipping signing.
     echo        Install the Windows SDK and rerun to produce a signed build.
 ) else (
     echo [3/5] Signing EXE...
@@ -139,11 +141,11 @@ if "!CERT_PFX!"=="" (
     echo [3/5] Signing complete.
 )
 
-:: ── Step 4: NSIS installer ────────────────────────────────────────────────────
+:: -- Step 4: NSIS installer ----------------------------------------------------
 set MADE_INSTALLER=0
 echo [4/5] Building NSIS installer...
 if "!MAKENSIS!"=="" (
-    echo [WARN] makensis not found — skipping Steps 4 and 5.
+    echo [WARN] makensis not found - skipping Steps 4 and 5.
     echo        Install NSIS 3.x from https://nsis.sourceforge.io/
     echo        Then rerun this script, or run manually:  makensis installer.nsi
     goto :summary
@@ -152,7 +154,7 @@ if "!MAKENSIS!"=="" (
 if errorlevel 1 ( echo [ERROR] makensis failed. & exit /b 1 )
 set MADE_INSTALLER=1
 
-:: ── Step 5: Sign installer ────────────────────────────────────────────────────
+:: -- Step 5: Sign installer ----------------------------------------------------
 if not "!CERT_PFX!"=="" if not "!SIGNTOOL!"=="" (
     echo [5/5] Signing installer EXE...
     "!SIGNTOOL!" sign /fd sha256 /tr %TIMESTAMP_URL% /td sha256 ^

@@ -4,8 +4,8 @@
 # http://msdn.microsoft.com/en-us/library/ms646997.aspx
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(3, 2, 2, 0),
-    prodvers=(3, 2, 2, 0),
+    filevers=(4, 0, 0, 0),
+    prodvers=(4, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,          # VOS_NT_WINDOWS32
@@ -20,12 +20,12 @@ VSVersionInfo(
         u'040904B0',      # Language US English, charset Unicode
         [StringStruct(u'CompanyName',      u'potatameister'),
          StringStruct(u'FileDescription', u'PaperKnife+ PC — 100% local PDF toolkit'),
-         StringStruct(u'FileVersion',     u'3.2.2.0'),
+         StringStruct(u'FileVersion',     u'4.0.0.0'),
          StringStruct(u'InternalName',    u'PaperKnifePlusPC'),
          StringStruct(u'LegalCopyright', u''),
          StringStruct(u'OriginalFilename', u'PaperKnifePlusPC.exe'),
          StringStruct(u'ProductName',    u'PaperKnife+ PC'),
-         StringStruct(u'ProductVersion', u'3.2.2')])
+         StringStruct(u'ProductVersion', u'4.0.0')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [0x0409, 1200])])
   ]

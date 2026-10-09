@@ -282,8 +282,8 @@ def test_settings_rejects_out_of_range_max_recent(app, dialogs):
 # ── L1-36 / L4-01 / L5-33: version ────────────────────────────────────────────
 def test_version_is_release(app):
     from paperknife import __version__
-    assert __version__ == "3.2.2"
-    assert app.title().endswith("v3.2.2")
+    assert __version__ == "4.0.0"
+    assert app.title().endswith("v4.0.0")
 
 
 # ── L1-08 handoff helper: atomic_output ───────────────────────────────────────

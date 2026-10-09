@@ -26,6 +26,16 @@ def main(argv=None) -> int:
 
     from .shell import MainWindow
     win = MainWindow()
+    if "--selftest" in argv:                    # a build checking itself (selftest.py)
+        from . import selftest
+        report = argv[argv.index("--selftest") + 1]
+        win.move(-4000, 40)
+        win.show()
+        app.processEvents()
+        code = selftest.run(win, report)
+        win._close_ok = True
+        win.close()
+        return code
     win.show()
     for arg in argv[1:]:
         if os.path.isfile(arg):

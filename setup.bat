@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 echo ============================================================
-echo  PaperKnife+ PC  v3.2.2  ^|  Setup
+echo  PaperKnife+ PC  v4.0.0  ^|  Setup
 echo ============================================================
 echo.
 python -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
@@ -23,9 +23,11 @@ if errorlevel 1 ( echo [ERROR] pip upgrade failed. & pause & exit /b 1 )
 echo [3/3] Installing dependencies from requirements.txt...
 .venv\Scripts\python.exe -m pip install -r requirements.txt --quiet
 if errorlevel 1 ( echo [ERROR] Dependency install failed. & pause & exit /b 1 )
+.venv\Scripts\python.exe -m pip install --no-deps -r requirements-fluent.txt --quiet
+if errorlevel 1 ( echo [ERROR] Dependency install failed. & pause & exit /b 1 )
 echo.
 echo [OK] Setup complete.
 echo      Double-click run.bat to start the app,
-echo      or run:  .venv\Scripts\python.exe -m paperknife
+echo      or run:  .venv\Scripts\python.exe -m paperknife.qt
 echo.
 pause

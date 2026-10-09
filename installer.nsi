@@ -16,7 +16,7 @@
 Unicode True
 
 !define APP_NAME        "PaperKnife+ PC"
-!define APP_VERSION     "3.2.2"
+!define APP_VERSION     "4.0.0"
 !define APP_PUBLISHER   "potatameister"
 !define APP_EXE         "PaperKnifePlusPC.exe"
 !define APP_DIRNAME     "PaperKnifePlusPC"
