@@ -128,14 +128,20 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
     take the room the control leaves, for a narrow column such as a
     CollectionPage's settings.
+
+    The control also carries the row's labels and the line above it:
+    control.title_label, control.desc_label (None without *desc*) and
+    control.divider (None for the first row).
     """
     lay = group.layout()
     rows = int(group.property("pk_rows") or 0)
+    divider = None
     if rows == 0:
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
     else:
-        lay.addWidget(Divider())
+        divider = Divider()
+        lay.addWidget(divider)
     row = QWidget(group)
     row.setObjectName("settingRow")
     row.setMinimumHeight(ROW_MIN_HEIGHT)
@@ -152,6 +158,7 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     tv.addStretch(1)
     name = BodyLabel(title, texts)
     tv.addWidget(name)
+    d = None
     if desc:
         d = muted_caption(desc, texts)
         d.setWordWrap(True)
@@ -169,7 +176,7 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     h.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
     lay.addWidget(row)
     group.setProperty("pk_rows", rows + 1)
-    row.title_label = name
+    control.title_label, control.desc_label, control.divider = name, d, divider
     return control
 
 

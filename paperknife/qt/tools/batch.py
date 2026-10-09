@@ -58,7 +58,7 @@ class BatchPage(CollectionPage):
         btn = PushButton("Browse…")
         btn.clicked.connect(lambda: self._pick_dir(title, setter))
         row.layout().addWidget(btn)
-        return row.parent().findChildren(CaptionLabel)[0]
+        return row.desc_label
 
     def _pick_dir(self, title, setter):
         if setter == self._set_in_dir and self._busy():

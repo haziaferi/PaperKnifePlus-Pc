@@ -8,7 +8,7 @@ from qfluentwidgets import CaptionLabel, ComboBox
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
 from .. import theme
-from ..pages import (Divider, ToolPage, card, file_card, group_title, labelled_slider,
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider,
                      register_page, setting_row)
 
 INFO = {
@@ -53,7 +53,7 @@ class Pdf2DocPage(ToolPage):
         group = card(padding=0)
         self.body.addWidget(group)
         row = setting_row(group, "Output format", INFO["TXT"])
-        self.fmt_info = row.parent().findChildren(CaptionLabel)[0]
+        self.fmt_info = row.desc_label
         self.fmt = ComboBox()
         self.fmt.addItems(core_convert.FORMATS)
         self.fmt.setCurrentText("TXT")
@@ -73,11 +73,8 @@ class Pdf2DocPage(ToolPage):
         self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI")
         row = setting_row(self.image_card, "JPEG quality")
         self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%")
-        lay = self.image_card.layout()
         self.quality_row = row.parent()
-        self._quality_divider = next(
-            lay.itemAt(i).widget() for i in range(lay.count())
-            if isinstance(lay.itemAt(i).widget(), Divider))
+        self._quality_divider = row.divider
         self.body.addStretch(1)
         self.fmt.currentTextChanged.connect(self._fmt_changed)
         self._fmt_changed("TXT")
