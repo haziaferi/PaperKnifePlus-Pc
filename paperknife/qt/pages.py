@@ -733,8 +733,8 @@ class WorkspacePage(ToolPage):
         if self._zoom_timer is None:
             self._zoom_timer = QTimer(self, singleShot=True, interval=120)
             self._zoom_timer.timeout.connect(
-                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100),
-                         self.show_current()))
+                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100, render=False),
+                         self.show_current()))     # one render: page and overlay
         self._zoom_timer.start()
 
     # hooks for subclasses

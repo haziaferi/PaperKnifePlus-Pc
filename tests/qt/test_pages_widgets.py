@@ -292,3 +292,14 @@ def test_ctrl_wheel_zoom_renders_once_and_keeps_the_overlay(qapp, monkeypatch):
     pump(0.4)
     assert renders == [] and len(p.view._overlays) == 1
     p.close()
+
+
+def test_zoom_slider_rest_renders_the_page_once(qapp, monkeypatch):
+    # R1-23: set_zoom rendered and show_current rendered again.
+    p, renders = _workspace(qapp, monkeypatch)
+    renders.clear()
+    p.zoom_slider.setValue(220)
+    pump(0.4)
+    assert p.view.zoom == 2.2
+    assert len(renders) == 1 and len(p.view._overlays) == 1
+    p.close()
