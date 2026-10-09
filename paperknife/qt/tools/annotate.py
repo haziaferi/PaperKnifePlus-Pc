@@ -1,7 +1,6 @@
 """Annotate — add, select and remove annotations on a page (document workspace, group A)."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from PySide6.QtWidgets import QFrame
 from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
@@ -27,6 +26,7 @@ TOOLS = {
 @register_page("AnnotateTool")
 class AnnotatePage(WorkspaceDoc, WorkspacePage):
     save_name = "annotated.pdf"
+    saved_what = "Annotated PDF"
 
     def __init__(self, tool=None, window=None):
         super().__init__("Annotate", "Open a PDF to start", tool=tool, window=window)
@@ -198,20 +198,3 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.sel_xref = None
         self.build_panel()
         self.show_current()
-
-    def save(self):
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        win = self.window_
-
-        def done(kind, _value):
-            self.show_current()
-            if kind == "done":
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"Annotated PDF saved:\n{out}")
-
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False)

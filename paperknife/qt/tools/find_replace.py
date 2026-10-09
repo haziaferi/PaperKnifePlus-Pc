@@ -2,7 +2,6 @@
 and the hit count in the context panel, the hits drawn over the page."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
@@ -182,20 +181,3 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self._hits, self._hit_idx = [], -1
         self.hit_label.setText("Replace undone")
         self.show_current()
-
-    def save(self):
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        win = self.window_
-
-        def then(kind, _value):
-            self.show_current()      # a save over the open file goes on from a copy
-            if kind == "done":
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
-
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=then, cancellable=False)

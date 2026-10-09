@@ -1,7 +1,6 @@
 """Edit Text — a document workspace (group A): click a text block, edit it in the panel."""
 from __future__ import annotations
 
-from pathlib import Path
 
 import pymupdf as fitz
 from qfluentwidgets import PlainTextEdit, PushButton
@@ -156,21 +155,3 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self.build_panel()
         self.show_current()
         self.window_.set_status("Undo applied", "success")
-
-    def save(self):
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        win = self.window_
-
-        def done(kind, _value):
-            # A save over the open file goes on from an in-memory copy of it.
-            self.show_current()
-            if kind == "done":
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
-
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False)
