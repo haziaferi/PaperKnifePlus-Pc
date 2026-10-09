@@ -123,14 +123,14 @@ def _tinted(img, r, rgb, others, what):
 @pytest.fixture
 def probe(qapp, request):
     """The probe palette (and the theme the test is parametrized with) set
-    before the window is built; today and light put back afterwards."""
-    from paperknife.qt import fluent_route, theme
+    before the window is built; the default palette and light put back afterwards."""
+    from paperknife.qt import fluent_route, palettes, theme
     dark = getattr(request, "param", False)
     theme.apply_appearance("dark" if dark else "light")
     theme.apply_palette("probe")
     fluent_route.UNROUTED.clear()
     yield Probe(dark)
-    theme.apply_palette("today")
+    theme.apply_palette(palettes.DEFAULT)
     theme.apply_appearance("light")
     pump(0.05)
 
@@ -423,8 +423,10 @@ def test_switching_back_to_today_and_a_copy_of_today_change_no_pixel(qapp, windo
     win = window
     win.resize(1280, 820)
     _open(win, "CompressTool")
-    before = _grab(win)
     try:
+        theme.apply_palette("today")
+        pump(0.4)
+        before = _grab(win)
         theme.apply_palette("probe")
         pump(0.4)
         assert _grab(win) != before
@@ -438,7 +440,7 @@ def test_switching_back_to_today_and_a_copy_of_today_change_no_pixel(qapp, windo
         after = _grab(win)
         assert after == before, _diff(before, after)
     finally:
-        theme.apply_palette("today")
+        theme.apply_palette(palettes.DEFAULT)
         palettes.PALETTES.pop("_today_copy", None)
         pump(0.05)
 
@@ -447,7 +449,7 @@ def test_pk_palette_picks_the_palette_and_falls_back(qapp):
     code = ("from PySide6.QtWidgets import QApplication; app = QApplication([]); "
             "from paperknife.qt import theme; print(theme.palette_name(), theme.hex_color('window', False))")
     env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONUTF8="1")
-    for name, want in (("probe", "probe #ffc0c0"), ("nope", "today #f0f4f9")):
+    for name, want in (("probe", "probe #ffc0c0"), ("nope", "windows-oxford-s1 #f3f3f3")):
         env["PK_PALETTE"] = name
         out = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT), env=env,
                              capture_output=True, text=True, timeout=120)
@@ -457,11 +459,10 @@ def test_pk_palette_picks_the_palette_and_falls_back(qapp):
 
 
 def test_existing_token_api(qapp):
-    from PySide6.QtGui import QColor
     from paperknife.qt import theme
-    assert theme.palette_name() == "today"
-    assert theme.hex_color("accent", False) == "#2b4c8c"
-    assert theme.hex_color("divider", True) == QColor("#1FFFFFFF").name(QColor.HexArgb)
+    assert theme.palette_name() == "windows-oxford-s1"
+    assert theme.hex_color("accent", False) == "#324d81"
+    assert theme.hex_color("divider", True) == "#575757"
     light, dark = theme.pair("page_bg")
     assert (light.name(), dark.name()) == ("#f0ebe3", "#242019")
-    assert theme.color("text", True).name() == "#e8dec8"
+    assert theme.color("text", True).name() == "#ffffff"

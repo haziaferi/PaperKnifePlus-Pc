@@ -7,7 +7,7 @@ EVERY colour the Qt interface shows comes from the active palette
 a hex literal.  The app's own code reads roles through color() / hex_color()
 / pair() / label_role(); the colours QFluentWidgets draws itself are routed
 to roles by fluent_route.py.  The palette is chosen by env PK_PALETTE
-(default "today", today's look) and switched at run time by
+(default palettes.DEFAULT, the owner's pick) and switched at run time by
 apply_palette(name).  apply_appearance() reads PREFS["appearance"]
 (light / dark / system) and applies it.
 """
@@ -124,12 +124,10 @@ def apply_palette(name: str) -> None:
 
 def window_follows_palette(win) -> None:
     """A palette that moves the window role turns Mica off (Mica would cover
-    the colour), unless it is in palettes.MICA (its window role is Mica's solid
-    fallback); otherwise Mica comes back if this turned it off."""
+    the colour); otherwise Mica comes back if this turned it off."""
     if not hasattr(win, "setMicaEffectEnabled"):
         return
     moved = any(fluent_route.delta("window", d) is not None for d in (False, True))
-    moved = moved and _palette_name not in palettes.MICA   # "window" is Mica's fallback there
     if moved and win.isMicaEffectEnabled():
         win.setMicaEffectEnabled(False)
         win._pk_mica_off = True
