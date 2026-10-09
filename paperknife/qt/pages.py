@@ -557,7 +557,7 @@ class WorkspacePage(ToolPage):
         self.zoom_slider.setValue(int(self.view.zoom * 100))
         self.zoom_slider.setFixedWidth(140)
         self.zoom_slider.valueChanged.connect(self._zoom_changed)
-        self.view.zoomed.connect(lambda z: self.zoom_slider.setValue(int(z * 100)))
+        self.view.zoomed.connect(self._wheel_zoomed)
         strip.addWidget(self.zoom_slider)
         self.reopen_btn = TransparentToolButton(theme.glyph_icon(0xE76B, 14))
         self.reopen_btn.setToolTip("Show panel")
@@ -716,6 +716,16 @@ class WorkspacePage(ToolPage):
         self.view.show_page(doc[self._pg])
         self.page_label.setText(f"{self._pg + 1} / {len(doc)}")
         self.draw_overlay(doc[self._pg])
+
+    def _wheel_zoomed(self, z: float):
+        # Ctrl+wheel set the view's zoom without rendering: move the slider
+        # quietly and draw the page with its overlay once.
+        self.zoom_slider.blockSignals(True)
+        self.zoom_slider.setValue(int(round(z * 100)))
+        self.zoom_slider.blockSignals(False)
+        if self._zoom_timer is not None:
+            self._zoom_timer.stop()
+        self.show_current()
 
     def _zoom_changed(self, v: int):
         # Render once the slider rests: a render costs ~30 ms.

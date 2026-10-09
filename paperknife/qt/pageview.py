@@ -22,7 +22,8 @@ ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
 class PageView(QGraphicsView):
     """Emits pressed / dragged / released with the (x, y) scene position
     (scene_to_page turns it into page space), and zoomed(float) when
-    Ctrl+wheel changes the zoom."""
+    Ctrl+wheel changes the zoom: the zoom is set but not rendered, so the
+    owner draws the page and its overlay in one pass (show_page + overlay)."""
 
     pressed = Signal(object)
     dragged = Signal(object)
@@ -48,12 +49,16 @@ class PageView(QGraphicsView):
     def zoom(self) -> float:
         return self._zoom
 
-    def set_zoom(self, z: float):
+    def set_zoom(self, z: float, render: bool = True) -> bool:
+        """Set the zoom (clamped); with render, show the page at it.  False
+        when the zoom did not change (at a limit: the same image, no render)."""
         z = max(ZOOM_MIN, min(ZOOM_MAX, float(z)))
-        if z == self._zoom:             # at a limit: the same image, no render
-            return
+        if z == self._zoom:
+            return False
         self._zoom = z
-        self.show_page(self._page)
+        if render:
+            self.show_page(self._page)
+        return True
 
     def show_page(self, page: fitz.Page | None):
         """Render *page* at the current zoom (None clears the view)."""
@@ -147,9 +152,7 @@ class PageView(QGraphicsView):
             if dy == 0:                 # sideways tilt / pan: scroll, never zoom
                 super().wheelEvent(event)
                 return
-            old = self._zoom
-            self.set_zoom(self._zoom * (1.1 if dy > 0 else 1 / 1.1))
-            if self._zoom != old:
+            if self.set_zoom(self._zoom * (1.1 if dy > 0 else 1 / 1.1), render=False):
                 self.zoomed.emit(self._zoom)
             event.accept()
             return

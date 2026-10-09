@@ -251,3 +251,44 @@ def test_ctrl_wheel_at_the_zoom_limit_does_not_rerender(qapp, tmp_path, monkeypa
     view.set_zoom(ZOOM_MAX + 1)
     assert view.zoom == ZOOM_MAX and len(renders) == n and zooms == []
     doc.close()
+
+
+def _workspace(qapp, monkeypatch):
+    import pymupdf as fitz
+    from paperknife.qt import pageview
+    from paperknife.qt.pages import WorkspacePage
+    renders = []
+    real = pageview.render
+    monkeypatch.setattr(pageview, "render", lambda *a, **k: (renders.append(1), real(*a, **k))[1])
+
+    class P(WorkspacePage):
+        def draw_overlay(self, page):
+            self.view.add_rect(fitz.Rect(50, 50, 200, 100), "#FF0000")
+    p = P("t")
+    p.resize(1000, 700)
+    p.show()
+    p._doc = fitz.open()
+    p._doc.new_page()
+    p._pg = 0
+    p.show_current()
+    return p, renders
+
+
+def test_ctrl_wheel_zoom_renders_once_and_keeps_the_overlay(qapp, monkeypatch):
+    # R1-22: a notch rendered three times and the overlay blinked out until
+    # the slider's timer redrew it (never, when the slider value held).
+    from paperknife.qt.pageview import ZOOM_MAX
+    p, renders = _workspace(qapp, monkeypatch)
+    renders.clear()
+    _ctrl_wheel(p.view, 0, 120)
+    assert len(p.view._overlays) == 1           # drawn with the page, no gap
+    pump(0.4)
+    assert len(renders) == 1 and len(p.view._overlays) == 1
+    assert p.zoom_slider.value() == round(p.view.zoom * 100)
+    p.zoom_slider.setValue(int(ZOOM_MAX * 100))
+    pump(0.4)
+    renders.clear()
+    _ctrl_wheel(p.view, 0, 120)                 # at the limit
+    pump(0.4)
+    assert renders == [] and len(p.view._overlays) == 1
+    p.close()
