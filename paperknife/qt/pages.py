@@ -964,14 +964,18 @@ class WorkspacePage(ToolPage):
         self.show_current()
 
     def _zoom_changed(self, v: int):
-        # Render once the slider rests: a render costs ~30 ms.
+        # Apply once the slider rests: a render costs ~30 ms.
         from PySide6.QtCore import QTimer
         if self._zoom_timer is None:
             self._zoom_timer = QTimer(self, singleShot=True, interval=120)
             self._zoom_timer.timeout.connect(
-                lambda: (self.view.set_zoom(self.zoom_slider.value() / 100, render=False),
-                         self.show_current()))     # one render: page and overlay
+                lambda: self.apply_zoom(self.zoom_slider.value() / 100))
         self._zoom_timer.start()
+
+    def apply_zoom(self, z: float):
+        """The zoom slider rested at *z*: one render, page and overlay."""
+        self.view.set_zoom(z, render=False)
+        self.show_current()
 
     # hooks for subclasses
     def on_page(self):

@@ -93,7 +93,6 @@ class ReaderPage(WorkspacePage):
         self._req_q: queue.Queue = queue.Queue()
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()
-        self._zoom_wait = None
 
         # The centre is a continuous column, not the one-page view.
         old = self.view
@@ -198,13 +197,8 @@ class ReaderPage(WorkspacePage):
         return core_reader.GAP + (self._max_w - w) / 2
 
     # ── zoom ─────────────────────────────────────────────────────────────────
-    def _zoom_changed(self, v: int):
-        # Re-render once the slider rests.
-        if self._zoom_wait is None:
-            self._zoom_wait = QTimer(self, singleShot=True, interval=120)
-            self._zoom_wait.timeout.connect(
-                lambda: self.set_zoom(self.zoom_slider.value() / 100))
-        self._zoom_wait.start()
+    def apply_zoom(self, z: float):
+        self.set_zoom(z)
 
     def set_zoom(self, z: float):
         z = max(ZOOM_MIN, min(ZOOM_MAX, float(z)))
