@@ -12,6 +12,14 @@ from ..job_queue import atomic_output
 UNDO_DEPTH = 10     # whole-document snapshots kept by the editing tools
 
 
+def same_file(name: str, path: str) -> bool:
+    """True when the document name *name* is the file at *path*.  A document
+    opened from memory is named "pdf" (fitz.open("pdf", data)), which is no
+    file, so it is never the same as anything."""
+    return (bool(name) and os.path.isfile(name) and os.path.exists(path)
+            and os.path.samefile(name, path))
+
+
 class DocHolder:
     """self._doc is the open document (or None); self._pg the current page."""
     _doc: fitz.Document | None = None
@@ -27,8 +35,7 @@ class DocHolder:
     def _holds(self, path: str) -> bool:
         """True when self._doc was read from the file at *path*."""
         doc = getattr(self, "_doc", None)
-        return (doc is not None and bool(doc.name) and os.path.exists(path)
-                and os.path.samefile(doc.name, path))
+        return doc is not None and same_file(doc.name, path)
 
     def _release(self, path: str) -> None:
         """Before *path* is replaced: if self._doc holds it, continue on an

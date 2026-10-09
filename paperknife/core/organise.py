@@ -6,6 +6,7 @@ import re
 import pymupdf as fitz
 
 from ..job_queue import atomic_output
+from .doc_state import same_file
 
 
 def split_ranges(doc, groups, out_dir: str, base: str, stop, progress) -> int | None:
@@ -78,7 +79,7 @@ def split_chapters(doc, entries, out_dir: str, stop, progress, release=lambda pa
     targets = [os.path.join(out_dir, f"{i + 1:02d}_"
                             + re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title)[:50].strip() + ".pdf")
                for i, (title, _) in enumerate(entries[:-1])]
-    if doc.name and any(os.path.exists(t) and os.path.samefile(t, doc.name) for t in targets):
+    if any(same_file(doc.name, t) for t in targets):
         # A chapter replaces the source itself, and release() lets the caller
         # close it: go on from the content as it is now.
         doc = fitz.open("pdf", doc.tobytes())
