@@ -1,31 +1,12 @@
 """The Qt Batch page: one operation applied to every PDF in a folder (group D)."""
-import io
-import random
 import re
 from pathlib import Path
 
 import pymupdf as fitz
 import pytest
-from PIL import Image
 
 from qfluentwidgets import PushButton
-from qt_harness import make_pdf, pump, wait_job
-
-
-def _image_pdf(path, pages=1):
-    """Text plus a 1500 px noise image shown 300 pt wide (= 360 DPI)."""
-    rnd = random.Random(1)
-    im = Image.frombytes("RGB", (1500, 1500), rnd.randbytes(1500 * 1500 * 3))
-    buf = io.BytesIO()
-    im.save(buf, "PNG")
-    doc = fitz.open()
-    for i in range(pages):
-        p = doc.new_page()
-        p.insert_image(fitz.Rect(72, 72, 372, 372), stream=buf.getvalue())
-        p.insert_text((72, 500), f"Searchable text {i + 1}", fontsize=14)
-    doc.save(str(path))
-    doc.close()
-    return str(path)
+from qt_harness import image_pdf, make_pdf, pump, requires_tesseract, wait_job
 
 
 def _image_widths(path):
@@ -46,7 +27,8 @@ def _folders(tmp_path):
     return in_dir, out_dir
 
 
-def _run(window, page, in_dir, out_dir, op, dialogs=None):
+def _setup(page, in_dir, out_dir, op):
+    """Set the folders and the operation (nothing runs yet)."""
     page._set_in_dir(str(in_dir))
     page._set_out_dir(str(out_dir))
     page.op.setCurrentText(op)
@@ -81,7 +63,7 @@ def test_without_folders_it_warns(window, dialogs):
 def test_an_input_folder_without_pdfs_warns(window, dialogs, tmp_path):
     in_dir, out_dir = _folders(tmp_path)
     (in_dir / "notes.txt").write_text("x", encoding="utf-8")
-    page = _run(window, _page(window), in_dir, out_dir, "Compress")
+    page = _setup(_page(window), in_dir, out_dir, "Compress")
     page.run()
     assert dialogs.msgs[-1] == ("warning", "Batch", "No PDF files found in input folder.")
     assert window._current_job is None
@@ -136,8 +118,8 @@ def test_changing_the_operation_rebuilds_its_options(window):
 def test_batch_compress_resamples_images_by_level_and_keeps_text(window, dialogs, tmp_path,
                                                                  level, width):
     in_dir, out_dir = _folders(tmp_path)
-    _image_pdf(in_dir / "a.pdf")
-    page = _run(window, _page(window), in_dir, out_dir, "Compress")
+    image_pdf(in_dir / "a.pdf")
+    page = _setup(_page(window), in_dir, out_dir, "Compress")
     page.radios[level].setChecked(True)
     assert page.options() == {"level": level}
     notes = _go(window, page)
@@ -156,7 +138,7 @@ def test_batch_compress_resamples_images_by_level_and_keeps_text(window, dialogs
 def test_batch_watermark_is_diagonal_and_honours_text_and_opacity(window, dialogs, tmp_path):
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=1)
-    page = _run(window, _page(window), in_dir, out_dir, "Watermark")
+    page = _setup(_page(window), in_dir, out_dir, "Watermark")
     page.controls["text"].setText("DRAFT COPY")
     page.controls["opacity"].setValue(40)
     notes = _go(window, page)
@@ -178,7 +160,7 @@ def test_batch_watermark_refuses_empty_text_up_front(window, dialogs, tmp_path, 
     # Watermark page refuses it with "Enter watermark text.".
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=1)
-    page = _run(window, _page(window), in_dir, out_dir, "Watermark")
+    page = _setup(_page(window), in_dir, out_dir, "Watermark")
     page.controls["text"].setText(text)
     page.run()
     wait_job(window)
@@ -199,7 +181,7 @@ def test_batch_watermark_size_sets_the_font_size(window, dialogs, tmp_path):
         in_dir.mkdir()
         out_dir.mkdir()
         make_pdf(in_dir / "a.pdf", pages=1)
-        page = _run(window, _page(window), in_dir, out_dir, "Watermark")
+        page = _setup(_page(window), in_dir, out_dir, "Watermark")
         page.controls["size"].setValue(size)
         assert _go(window, page) == ["✓  a.pdf"]
         sizes.append(_stamp_size(out_dir / "a_watermarked.pdf"))
@@ -211,7 +193,7 @@ def test_batch_watermark_size_sets_the_font_size(window, dialogs, tmp_path):
 def test_batch_rejects_bad_numeric_options_up_front(window, dialogs, tmp_path, monkeypatch):
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=1)
-    page = _run(window, _page(window), in_dir, out_dir, "Watermark")
+    page = _setup(_page(window), in_dir, out_dir, "Watermark")
     opts = page.options()
     monkeypatch.setattr(page, "options", lambda: dict(opts, size="big"))
     page.run()
@@ -225,7 +207,7 @@ def test_batch_dpi_is_kept_inside_the_settings_range(window, dialogs, tmp_path, 
     from paperknife.prefs import DPI_RANGE
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=1)
-    page = _run(window, _page(window), in_dir, out_dir, "OCR")
+    page = _setup(_page(window), in_dir, out_dir, "OCR")
     page.controls["dpi"].setValue(5000)              # the control stops at the range
     assert page.options()["dpi"] == DPI_RANGE[1]
     opts = page.options()
@@ -245,7 +227,7 @@ def test_batch_ocr_options_reach_the_worker(window, dialogs, tmp_path, monkeypat
                         lambda src, out, opts, stop: seen.append(dict(opts)) or "x")
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=1)
-    page = _run(window, _page(window), in_dir, out_dir, "OCR")
+    page = _setup(_page(window), in_dir, out_dir, "OCR")
     page.controls["lang"].setText("  ita ")
     page.controls["dpi"].setValue(200)
     assert _go(window, page) == ["✓  a.pdf"]
@@ -259,24 +241,19 @@ def test_batch_ocr_writes_an_invisible_text_layer(window, dialogs, tmp_path, mon
         "text": ["", "HELLO", "WORLD"], "conf": [-1, 95, 95], "left": [0, 100, 300],
         "top": [0, 200, 200], "width": [0, 150, 150], "height": [0, 40, 40]})
     in_dir, out_dir = _folders(tmp_path)
-    _image_pdf(in_dir / "a.pdf")
-    page = _run(window, _page(window), in_dir, out_dir, "OCR")
+    image_pdf(in_dir / "a.pdf")
+    page = _setup(_page(window), in_dir, out_dir, "OCR")
     page.controls["dpi"].setValue(150)
     assert _go(window, page) == ["✓  a.pdf"]
     with fitz.open(out_dir / "a_ocr.pdf") as doc:
         assert "HELLO" in doc[0].get_text()
+        # Invisible: every OCR span is drawn in render mode 3 (no fill, no stroke).
+        ocr = [t for t in doc[0].get_texttrace()
+               if any(w in "".join(chr(c[0]) for c in t["chars"]) for w in ("HELLO", "WORLD"))]
+        assert ocr and {t["type"] for t in ocr} == {3}, [t["type"] for t in ocr]
 
 
-def _tesseract_ok():
-    try:
-        from paperknife.core.ocr import tesseract
-        tesseract().get_tesseract_version()
-        return True
-    except Exception:
-        return False
-
-
-@pytest.mark.skipif(not _tesseract_ok(), reason="Tesseract is not installed on this machine")
+@requires_tesseract
 def test_batch_ocr_end_to_end_makes_a_scan_searchable(window, dialogs, tmp_path):
     in_dir, out_dir = _folders(tmp_path)
     src = fitz.open()
@@ -287,7 +264,7 @@ def test_batch_ocr_end_to_end_makes_a_scan_searchable(window, dialogs, tmp_path)
     scan.new_page().insert_image(scan[0].rect, stream=pix.tobytes("png"))
     scan.save(str(in_dir / "scan.pdf"))
     scan.close()
-    page = _run(window, _page(window), in_dir, out_dir, "OCR")
+    page = _setup(_page(window), in_dir, out_dir, "OCR")
     page.controls["lang"].setText("eng")
     page.controls["dpi"].setValue(150)
     assert _go(window, page) == ["✓  scan.pdf"]
@@ -301,7 +278,7 @@ def test_batch_pdf_to_txt_writes_each_files_text(window, dialogs, tmp_path):
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=2)
     make_pdf(in_dir / "b.pdf", pages=1, text="Bee {n}")
-    page = _run(window, _page(window), in_dir, out_dir, "PDF → TXT")
+    page = _setup(_page(window), in_dir, out_dir, "PDF → TXT")
     assert page.controls == {}
     assert _go(window, page) == ["✓  a.pdf", "✓  b.pdf"]
     a = (out_dir / "a.txt").read_text(encoding="utf-8")
@@ -316,7 +293,7 @@ def test_a_failing_file_is_reported_on_its_row_and_the_rest_run(window, dialogs,
     in_dir, out_dir = _folders(tmp_path)
     make_pdf(in_dir / "a.pdf", pages=1)
     make_pdf(in_dir / "b.pdf", pages=1, password="pw")
-    page = _run(window, _page(window), in_dir, out_dir, "PDF → TXT")
+    page = _setup(_page(window), in_dir, out_dir, "PDF → TXT")
     notes = _go(window, page)
     assert notes[0] == "✓  a.pdf"
     assert notes[1].startswith("✗  b.pdf  — password-protected"), notes
@@ -335,7 +312,7 @@ def test_cancelled_batch_does_not_report_success(window, dialogs, tmp_path, monk
         Path(out).write_bytes(b"%PDF-1.7")
         window._cancel_job()
     monkeypatch.setattr(batch, "compress_pdf", compress_then_cancel)
-    page = _run(window, _page(window), in_dir, out_dir, "Compress")
+    page = _setup(_page(window), in_dir, out_dir, "Compress")
     notes = _go(window, page)
     status = window.status_text()
     assert "cancel" in status.lower() and "✓" not in status, status
@@ -343,18 +320,39 @@ def test_cancelled_batch_does_not_report_success(window, dialogs, tmp_path, monk
     assert notes == ["✓  a.pdf", "", ""], notes
 
 
-def test_leaving_the_tool_mid_way_keeps_the_page_usable(window, dialogs, tmp_path):
+def test_leaving_the_tool_mid_way_keeps_the_page_usable(window, dialogs, tmp_path, monkeypatch):
     # Batch opens no document of its own (each worker opens and closes its
-    # file); leaving and coming back keeps the folders and the list.
+    # file): leaving while a batch runs and coming back keeps the folders, the
+    # list and every result the batch posts meanwhile, and nothing fails.
+    import threading
+    from paperknife.core import batch as core
     in_dir, out_dir = _folders(tmp_path)
-    make_pdf(in_dir / "a.pdf", pages=1)
-    page = _run(window, _page(window), in_dir, out_dir, "PDF → TXT")
+    for n in "ab":
+        make_pdf(in_dir / f"{n}.pdf", pages=1)
+    real = core.OPS["PDF → TXT"]
+    started, release = threading.Event(), threading.Event()
+
+    def held(src, out, opts, stop):
+        started.set()
+        assert release.wait(10)
+        return real(src, out, opts, stop)
+    monkeypatch.setitem(core.OPS, "PDF → TXT", held)
+    page = _setup(_page(window), in_dir, out_dir, "PDF → TXT")
+    page.run()
+    assert started.wait(5) and window.job_running()
     assert window.open_tool("CompressTool")
     pump(0.05)
+    assert window.job_running(), "leaving the page stopped the batch"
     assert window.open_tool("BatchTool")
     pump(0.05)
     assert window.current_page() is page and page.in_dir == str(in_dir)
-    assert _go(window, page) == ["✓  a.pdf"]
+    release.set()
+    wait_job(window)
+    assert [r.note.text() for r in page.rows] == ["✓  a.pdf", "✓  b.pdf"]
+    assert (out_dir / "a.txt").exists() and (out_dir / "b.txt").exists()
+    assert window.status_text() == "✓  Batch done — 2 OK, 0 errors"
+    assert not dialogs.errors(), dialogs.errors()
+    assert _go(window, page) == ["✓  a.pdf", "✓  b.pdf"]      # and it still runs
 
 
 def test_run_or_a_new_folder_during_a_batch_keeps_its_results(window, dialogs, tmp_path,
@@ -377,7 +375,7 @@ def test_run_or_a_new_folder_during_a_batch_keeps_its_results(window, dialogs, t
             release.wait(10)
         return True
     monkeypatch.setitem(core.OPS, "PDF → TXT", slow)
-    page = _run(window, _page(window), in_dir, out_dir, "PDF → TXT")
+    page = _setup(_page(window), in_dir, out_dir, "PDF → TXT")
     page.run()
     assert first.wait(5)
     for _ in range(50):
