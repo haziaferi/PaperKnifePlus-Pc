@@ -28,6 +28,7 @@ COLORS: dict[str, tuple[str, str]] = {
     "warning":      ("#9A5A00", "#E0A84A"),
     "danger":       ("#9B1B1B", "#E57373"),
     "danger_hover": ("#7A1414", "#C85C5C"),
+    "on_danger":    ("#FFFFFF", "#000000"),   # dark: the light red needs dark text (AA)
     "surface":      ("#F3F3F3", "#202020"),   # behind a revealed title bar
     "divider":      ("#14000000", "#1FFFFFFF"),  # ARGB: thin row dividers
     "overlay":      ("#33FFFFFF", "#33000000"),  # ARGB: the locked-page veil

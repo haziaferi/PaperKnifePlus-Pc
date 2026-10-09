@@ -414,7 +414,7 @@ class ToolPage(QWidget):
         if danger:
             def qss(dark):
                 bg, hv = theme.hex_color("danger", dark), theme.hex_color("danger_hover", dark)
-                fg = theme.hex_color("on_accent", dark)
+                fg = theme.hex_color("on_danger", dark)
                 return (f"PrimaryPushButton{{background-color:{bg};border:1px solid {bg};"
                         f"color:{fg};}}"
                         f"PrimaryPushButton:hover{{background-color:{hv};border-color:{hv};}}"
