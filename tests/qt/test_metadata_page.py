@@ -5,7 +5,7 @@ import shutil
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 TEXT_KEYS = ["title", "author", "subject", "keywords", "creator", "producer"]
 
@@ -165,18 +165,12 @@ def test_a_dropped_pdf_is_taken_and_another_file_refused(window, tmp_path):
     assert page.fields["subject"].text() == "Dropped"
 
 
-def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dialogs, tmp_path,
+                                                                     monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     held = page._doc
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
+    opened = spy_open(window, monkeypatch)
     page.fields["title"].setText("x")
     page.save()                    # no save path queued: the dialog returns ""
     assert opened == []

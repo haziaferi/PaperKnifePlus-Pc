@@ -2,25 +2,13 @@
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
     assert window.open_tool("NormaliseTool")
     pump(0.05)
     return window.current_page()
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _src(path, sizes=((300, 400),), red=False):
@@ -123,18 +111,18 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()
     assert opened and opened[0].is_closed
     assert not window._current_job
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), tmp_path / "o.pdf")
     assert window.show_page("home")
     assert opened and all(d.is_closed for d in opened)

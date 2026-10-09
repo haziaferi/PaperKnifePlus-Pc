@@ -4,7 +4,7 @@ import io
 import pymupdf as fitz
 from PIL import Image
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
@@ -35,18 +35,6 @@ def _pdf_with_images(path):
     return str(path)
 
 
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
-
-
 def _extract(window, dialogs, page, src, out_dir):
     page.file.set_path(src)
     out_dir.mkdir(exist_ok=True)
@@ -72,10 +60,11 @@ def test_without_a_file_it_asks_for_one(window, dialogs):
     assert dialogs.msgs == [("warning", "Extract", "Select a PDF first.")]
 
 
-def test_extract_writes_each_unique_image_once_and_reports_it(window, dialogs, tmp_path):
+def test_extract_writes_each_unique_image_once_and_reports_it(window, dialogs, tmp_path,
+                                                              monkeypatch):
     page = _page(window)
     src = _pdf_with_images(tmp_path / "in.pdf")
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     out_dir = tmp_path / "imgs"
     names = _extract(window, dialogs, page, src, out_dir)
     # the 20 px image is under the 50 px minimum; the repeated one is written once
@@ -155,18 +144,18 @@ def test_ctrl_o_chooses_a_file(window, dialogs, tmp_path):
     assert page.file.path() == src
 
 
-def test_cancelling_the_folder_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_folder_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()                     # no folder queued: the dialog returns ""
     assert opened and opened[0].is_closed
     assert window._current_job is None
 
 
-def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path):
+def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _extract(window, dialogs, page, _pdf_with_images(tmp_path / "in.pdf"), tmp_path / "o")
     assert window.show_page("home")
     assert opened and all(d.is_closed for d in opened)

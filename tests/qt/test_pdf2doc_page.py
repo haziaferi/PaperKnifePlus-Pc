@@ -6,25 +6,13 @@ import pymupdf as fitz
 import pytest
 from PIL import Image
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
     assert window.open_tool("Pdf2DocTool")
     pump(0.05)
     return window.current_page()
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _convert(window, dialogs, page, fmt, src, out):
@@ -84,9 +72,9 @@ def test_without_a_file_it_asks_for_one(window, dialogs):
     assert dialogs.msgs == [("warning", "Convert", "Select a PDF first.")]
 
 
-def test_txt_end_to_end_writes_the_text_and_reports_it(window, dialogs, tmp_path):
+def test_txt_end_to_end_writes_the_text_and_reports_it(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     out = tmp_path / "out.txt"
     _convert(window, dialogs, page, "TXT", make_pdf(tmp_path / "in.pdf", pages=2), out)
     text = out.read_text(encoding="utf-8")
@@ -259,23 +247,23 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, dialogs, tmp_path
     assert window.page_hook("open") and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()                     # no save path queued: the dialog returns ""
     assert opened and opened[0].is_closed
     assert window._current_job is None
 
 
-def test_cancelling_the_job_leaves_no_file(window, dialogs, tmp_path):
+def test_cancelling_the_job_leaves_no_file(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.fmt.setCurrentText("PNG")
     page.dpi_slider.setValue(300)
     page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=40))
     out = tmp_path / "pages.zip"
     dialogs.save(out)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()
     window._cancel_job()
     wait_job(window)
@@ -284,9 +272,9 @@ def test_cancelling_the_job_leaves_no_file(window, dialogs, tmp_path):
     assert window.status_text() == "Cancelled"
 
 
-def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path):
+def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _convert(window, dialogs, page, "TXT", make_pdf(tmp_path / "in.pdf"), tmp_path / "o.txt")
     assert window.show_page("home")
     assert opened and all(d.is_closed for d in opened)

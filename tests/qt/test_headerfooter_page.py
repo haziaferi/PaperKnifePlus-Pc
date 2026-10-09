@@ -4,25 +4,13 @@ from datetime import date
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
     assert window.open_tool("HeaderFooterTool")
     pump(0.05)
     return window.current_page()
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _stamp(window, dialogs, page, src, out, rng=""):
@@ -89,9 +77,9 @@ def test_headerfooter_overlapping_ranges_stamp_once(window, dialogs, tmp_path):
         assert doc[1].get_text().count("Page 2 of 4") == 1
 
 
-def test_a_bad_range_is_an_error_and_closes_the_document(window, dialogs, tmp_path):
+def test_a_bad_range_is_an_error_and_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     out = tmp_path / "out.pdf"
     _stamp(window, dialogs, page, make_pdf(tmp_path / "in.pdf", pages=2), out, "7-9")
     assert dialogs.errors() and dialogs.errors()[-1][1] == "Header/Footer"
@@ -167,18 +155,18 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()
     assert opened and opened[0].is_closed
     assert not window._current_job
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _stamp(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), tmp_path / "o.pdf")
     assert window.show_page("home")
     assert opened and all(d.is_closed for d in opened)

@@ -2,25 +2,13 @@
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
     assert window.open_tool("CropTool")
     pump(0.05)
     return window.current_page()
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _crop(window, dialogs, src, out, rng="", reset=False, **margins):
@@ -61,10 +49,11 @@ def test_without_a_file_it_asks_for_one(window, dialogs):
     ({"top": "abc"}, "Enter numeric values for all margins."),
     ({"top": -10}, "Margins cannot be negative."),
 ])
-def test_unusable_margins_are_refused_up_front(window, dialogs, tmp_path, margins, words):
+def test_unusable_margins_are_refused_up_front(window, dialogs, tmp_path, margins, words,
+                                               monkeypatch):
     src = make_pdf(tmp_path / "in.pdf")
     out = tmp_path / "out.pdf"
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _crop(window, dialogs, src, out, **margins)
     assert not dialogs.errors(), dialogs.errors()
     assert dialogs.msgs[-1] == ("warning", "Crop", words)
@@ -116,10 +105,11 @@ def test_crop_overlapping_ranges_crop_once(window, dialogs, tmp_path):
     assert [h for _, h in _sizes(out)] == [792, 792, 792]
 
 
-def test_a_bad_page_range_is_an_error_and_closes_the_document(window, dialogs, tmp_path):
+def test_a_bad_page_range_is_an_error_and_closes_the_document(window, dialogs, tmp_path,
+                                                              monkeypatch):
     src = make_pdf(tmp_path / "in.pdf", pages=3)
     out = tmp_path / "out.pdf"
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     _crop(window, dialogs, src, out, rng="9", top=50)
     assert dialogs.errors()[-1][1] == "Crop" and "page 9 does not exist" in dialogs.errors()[-1][2]
     assert opened and opened[0].is_closed and not out.exists()
@@ -191,21 +181,21 @@ def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_pa
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.margins["top"].setText("50")
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.run()                     # no save path queued: the dialog returns ""
     assert opened and opened[0].is_closed
     assert window._current_job is None
 
 
-def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path):
+def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.margins["top"].setText("50")
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     out = tmp_path / "out.pdf"
     dialogs.save(out)
     page.run()

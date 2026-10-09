@@ -3,25 +3,13 @@ import os
 
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, spy_open, wait_job
 
 
 def _page(window):
     assert window.open_tool("TocTool")
     pump(0.05)
     return window.current_page()
-
-
-def _spy_open(window):
-    opened = []
-    real = window.open_pdf_safe
-
-    def spy(path):
-        doc = real(path)
-        opened.append(doc)
-        return doc
-    window.open_pdf_safe = spy
-    return opened
 
 
 def _with_toc(path, toc):
@@ -239,10 +227,11 @@ def test_a_file_that_cannot_be_opened_keeps_the_open_one(window, dialogs, tmp_pa
     assert page.file.path() == src and page.count() == 1
 
 
-def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dialogs, tmp_path):
+def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dialogs, tmp_path,
+                                                                     monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=2))
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.title_edit.setText("X")
     page.page_edit.setText("1")
     page._add()
@@ -252,9 +241,9 @@ def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dia
     assert page._doc is not None and page._toc == [[1, "X", 1]]
 
 
-def test_leaving_the_tool_closes_its_document(window, dialogs, tmp_path):
+def test_leaving_the_tool_closes_its_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    opened = _spy_open(window)
+    opened = spy_open(window, monkeypatch)
     page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=2))
     held = page._doc
     window.show_page("CompressTool")
