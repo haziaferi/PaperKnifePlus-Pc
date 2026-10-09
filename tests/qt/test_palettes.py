@@ -180,7 +180,8 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, home_item), P.role("text"), "navigation glyph (app ink)")
     _has(img, _rect(win, home_item), P.role("fluent_text"), "navigation item text")
     cur = win._items["CompressTool"]
-    _has(img, _rect(win, cur, 60, 0, -4, None), P.role("tint_selected"), "selected navigation item")
+    _has(img, _rect(win, cur, 60, 0, -4, None), P.routed(ink + (10,), "tint_selected"),
+         "selected navigation item", tol=3)
     _has(img, _rect(win, cur, 0, 0, 10, None), P.role("accent_fill"), "navigation selection mark")
     edit = win.search.edit
     _has(img, _rect(win, edit, 4, 4, 40, -4), P.role("control"), "search box fill")
@@ -324,10 +325,12 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
             "toolbar icon")
     _has(img, _rect(win, tb), P.role("fluent_text"), "toolbar text")
     _hover(tb)
-    _has(_grab(win), _rect(win, tb, 2, 2, 8, -2), P.role("tint_hover"), "transparent button hover")
+    _has(_grab(win), _rect(win, tb, 2, 2, 8, -2), P.routed(ink + (9,), "tint_hover"),
+         "transparent button hover", tol=3)
     tb.setDown(True)
     pump(0.05)
-    _has(_grab(win), _rect(win, tb, 2, 2, 8, -2), P.role("tint_pressed"), "transparent button pressed")
+    _has(_grab(win), _rect(win, tb, 2, 2, 8, -2), P.routed(ink + (6,), "tint_pressed"),
+         "transparent button pressed", tol=3)
     tb.setDown(False)
     _hover(win.stackedWidget, bottom=True)
 

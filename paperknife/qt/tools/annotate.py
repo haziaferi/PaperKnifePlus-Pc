@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QFrame
 from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
 
 from ...core import annotate as core_annotate
-from .. import dialogs
+from .. import dialogs, theme
 from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 # Segoe Fluent Icons code points
@@ -42,7 +42,8 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.secondary("Open", self.open)
         self.primary("Save", self.save)
-        self.enable_band(lambda: ("line" if self.kind == "line" else "rect", "#2B4C8C"),
+        self.enable_band(lambda: ("line" if self.kind == "line" else "rect",
+                                  theme.hex_color("accent")),
                          self._add_at)
         self.set_kind("highlight")
         self.show_current()
@@ -149,7 +150,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
     def draw_overlay(self, page):
         sel = core_annotate.by_xref(page, self.sel_xref) if self.sel_xref else None
         if sel is not None:
-            self.view.add_rect(sel.rect, "#9B1B1B", dash=True, pad=3)
+            self.view.add_rect(sel.rect, theme.hex_color("danger"), dash=True, pad=3)
 
     # ── undo / delete / save ─────────────────────────────────────────────────
     def undo(self):

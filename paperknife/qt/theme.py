@@ -124,10 +124,12 @@ def apply_palette(name: str) -> None:
 
 def window_follows_palette(win) -> None:
     """A palette that moves the window role turns Mica off (Mica would cover
-    the colour); a palette that keeps it gives Mica back if this turned it off."""
+    the colour), unless it is in palettes.MICA (its window role is Mica's solid
+    fallback); otherwise Mica comes back if this turned it off."""
     if not hasattr(win, "setMicaEffectEnabled"):
         return
     moved = any(fluent_route.delta("window", d) is not None for d in (False, True))
+    moved = moved and _palette_name not in palettes.MICA   # "window" is Mica's fallback there
     if moved and win.isMicaEffectEnabled():
         win.setMicaEffectEnabled(False)
         win._pk_mica_off = True

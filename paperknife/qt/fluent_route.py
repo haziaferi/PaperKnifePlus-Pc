@@ -92,10 +92,19 @@ def shift(rgba, role: str, dark: bool):
     Channel by channel: rgba + (palette[role] - today[role]).  An opaque
     library colour whose role is translucent today (rgb(96, 96, 96) under
     rgba(0, 0, 0, 0.61)) moves by the change in what the role looks like
-    over the ground, and stays opaque."""
+    over the ground, and stays opaque.  When the palette's value is opaque
+    (every scorer candidate), every colour of the role moves that way: what
+    it looks like over the ground, plus what the role's move looks like,
+    opaque.  (Channel arithmetic between a black tint and a white-tint
+    reference made a radio's rest fill a solid grey disc.)"""
     d = delta(role, dark)
     if d is None:
         return None
+    new = rgba_of(_active[role][dark])
+    if new[3] == 255 and rgba[3] < 255:
+        ref = rgba_of(TODAY[role][dark])
+        a, b, c = _over(ref, dark), _over(new, dark), _over(rgba, dark)
+        return tuple(max(0, min(255, int(round(c[i] + b[i] - a[i])))) for i in range(3)) + (255,)
     if rgba[3] == 255:
         ref = rgba_of(TODAY[role][dark])
         if ref[3] < 255:
