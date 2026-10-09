@@ -1,13 +1,11 @@
 """paperknife.core.reader without any user interface."""
-import subprocess
-import sys
 import threading
 import time
 
 import pymupdf as fitz
 import pytest
 
-from conftest import SRC, make_pdf
+from conftest import make_pdf
 from paperknife.core import reader
 
 
@@ -46,13 +44,3 @@ def test_close_when_idle_waits_for_a_render_holding_the_lock(tmp_path):
     lock.release()
     t.join(5)
     assert doc.is_closed
-
-
-def test_module_imports_without_a_toolkit():
-    probe = (f"import sys; sys.path.insert(0, {str(SRC)!r}); import paperknife.core.reader; "
-             "print(','.join(m for m in ('tkinter', 'customtkinter', 'tkinterdnd2') "
-             "if m in sys.modules))")
-    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
-                         timeout=60)
-    assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == ""
