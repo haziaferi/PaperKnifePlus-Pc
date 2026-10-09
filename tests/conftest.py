@@ -2,7 +2,8 @@
 Headless harness: drives the real tool views inside a hidden App.
 
 - HOME/USERPROFILE point at a temp folder before paperknife is imported,
-  so prefs.json / recent.json never touch the user's real profile.
+  so prefs.json / recent.json never touch the user's real profile; the
+  folder is removed at session end, whether the tests passed or not.
 - PAPERKNIFE_SRC=<dir> runs the suite against another source tree
   (used to prove a test fails on the baseline before a fix).
 - Dialogs are stubbed: queue return values with `dialogs.save(...)`,
@@ -11,6 +12,7 @@ Headless harness: drives the real tool views inside a hidden App.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -76,6 +78,17 @@ def _install_stubs():
 
 
 _install_stubs()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    # The App fixture is torn down by now; retry briefly for a file a closing
+    # worker still holds, and say so rather than leave the folder silently.
+    for _ in range(5):
+        shutil.rmtree(_HOME, ignore_errors=True)
+        if not os.path.exists(_HOME):
+            return
+        time.sleep(0.2)
+    print(f"warning: could not remove the test HOME {_HOME}", file=sys.stderr)
 
 
 @pytest.fixture(scope="session")

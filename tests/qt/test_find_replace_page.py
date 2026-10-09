@@ -42,6 +42,7 @@ def _open(window, src):
 def _replace(window, dialogs, page, find, repl):
     page.find_edit.setText(find)
     page.repl_edit.setText(repl)
+    dialogs.asks.append(True)                   # "Replace ALL occurrences…?"
     page.replace_all()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
@@ -182,6 +183,7 @@ def test_undrawable_replacement_is_refused(window, dialogs, tmp_path, monkeypatc
     monkeypatch.setattr(core_text, "unicode_font", lambda text: None)
     page.find_edit.setText("fox")
     page.repl_edit.setText("dog")
+    dialogs.asks.append(True)
     page.replace_all()
     assert dialogs.errors() == [
         ("error", "Replace", "The replacement contains characters no built-in font can draw.")]
@@ -231,6 +233,7 @@ def test_a_failed_replace_puts_every_page_back(window, dialogs, tmp_path, monkey
     page = _open(window, _long_pdf(tmp_path / "r.pdf", pages=3))
     page.find_edit.setText("needle")
     page.repl_edit.setText("thread")
+    dialogs.asks.append(True)
     page.replace_all()
     wait_job(window)
     assert any("Nothing was replaced" in m[2] for m in dialogs.errors())
@@ -242,6 +245,7 @@ def test_a_cancelled_replace_all_changes_nothing(window, dialogs, tmp_path):
     page = _open(window, _long_pdf(tmp_path / "r.pdf"))
     page.find_edit.setText("needle")
     page.repl_edit.setText("thread")
+    dialogs.asks.append(True)
     page.replace_all()
     window._cancel_job()
     wait_job(window)

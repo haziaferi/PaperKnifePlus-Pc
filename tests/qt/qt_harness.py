@@ -2,7 +2,18 @@
 with the Tk harness's tests/conftest.py loaded too cannot mix them up)."""
 from __future__ import annotations
 
+import importlib.util
 import time
+from pathlib import Path
+
+# The toolkit-neutral builders both harnesses share (tests/pdf_builders.py),
+# loaded by path so tests/ (and the Tk conftest there) never joins sys.path.
+_spec = importlib.util.spec_from_file_location(
+    "pk_pdf_builders", Path(__file__).resolve().parents[1] / "pdf_builders.py")
+_builders = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_builders)
+image_pdf = _builders.image_pdf
+truncated_pdf = _builders.truncated_pdf
 
 
 def pump(seconds: float = 0.2):
@@ -14,17 +25,55 @@ def pump(seconds: float = 0.2):
 
 
 def wait_job(window, timeout: float = 30.0):
-    """Pump until the window's current job has ended and its callbacks ran."""
+    """Pump until the window's current job has ended and its callbacks ran.
+
+    CancellableJob clears is_running before its worker thread posts
+    on_done / on_error / on_cancel, so is_running alone says nothing about
+    the callback: wait for the worker thread itself to end (by then the post
+    is queued on the event loop), then pump so the queued callback runs."""
     from PySide6.QtWidgets import QApplication
     end = time.time() + timeout
     while time.time() < end:
         job = window._current_job
-        if job is None or not job.is_running:
+        thread = getattr(job, "_thread", None)
+        if job is None or (not job.is_running
+                           and not (thread is not None and thread.is_alive())):
             pump(0.15)
             return
         QApplication.processEvents()
         time.sleep(0.01)
     raise TimeoutError("job did not finish")
+
+
+def spy_open(window, monkeypatch) -> list:
+    """Record every document window.open_pdf_safe returns (the real call
+    still runs); undone by monkeypatch at the end of the test."""
+    opened = []
+    real = window.open_pdf_safe
+
+    def spy(*a, **k):
+        doc = real(*a, **k)
+        opened.append(doc)
+        return doc
+    monkeypatch.setattr(window, "open_pdf_safe", spy)
+    return opened
+
+
+def tesseract_ok() -> bool:
+    """True when the app's own Tesseract lookup finds a binary that runs."""
+    try:
+        from paperknife.core.ocr import tesseract
+        tesseract().get_tesseract_version()
+        return True
+    except Exception:
+        return False
+
+
+def requires_tesseract(fn):
+    """Skip a test that needs the real Tesseract binary when there is none."""
+    import pytest
+    return pytest.mark.skipif(not tesseract_ok(),
+                              reason="Tesseract is not installed on this machine")(fn)
 
 
 class Dialogs:
@@ -34,7 +83,8 @@ class Dialogs:
         self.saves: list = []
         self.opens: list = []           # str for ask_open, list for ask_open_many
         self.dirs: list = []
-        self.asks: list = []            # answers for ask_yes_no (default True)
+        self.asks: list = []            # answers for ask_yes_no: queue one per prompt
+        self.unexpected: list = []      # ask_yes_no calls nobody queued an answer for
         self.passwords: list = []       # answers for ask_password (default None)
         self.colors: list = []
         self.msgs: list[tuple[str, str, str]] = []
@@ -69,7 +119,13 @@ def _install(mp, d: Dialogs):
 
     def ask_yes_no(title="", msg="", *a, **k):
         d.msgs.append(("ask_yes_no", str(title), str(msg)))
-        return bool(_pop(d.asks, True))
+        if not d.asks:
+            # Answering Yes silently would let a page start (or stop) asking
+            # a confirmation without any test noticing.  The dialogs fixture
+            # also fails the test at teardown, in case a caller swallowed this.
+            d.unexpected.append((str(title), str(msg)))
+            raise AssertionError(f"unexpected ask_yes_no: {title!r}: {msg!r}")
+        return bool(d.asks.pop(0))
 
     def ask_password(title="", prompt="", *a, **k):
         d.msgs.append(("ask_password", str(title), str(prompt)))

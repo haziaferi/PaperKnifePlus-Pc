@@ -487,6 +487,7 @@ def test_cancel_during_the_last_page_still_saves_the_redactions(window, dialogs,
         return orig(doc, pno, rects, fill)
     monkeypatch.setattr(core_redact, "redact_page", cancelled_mid_page)
     out = tmp_path / "out.pdf"
+    dialogs.asks.append(True)
     dialogs.save(out)
     page.save()
     wait_job(window)
