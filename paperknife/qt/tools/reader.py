@@ -137,12 +137,6 @@ class ReaderPage(WorkspacePage):
         """Other parts of the app can open a file straight into the reader."""
         self._load(path)
 
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
-
     def _load(self, path: str) -> bool:
         doc = self.window_.open_pdf_safe(path)
         if doc is None:

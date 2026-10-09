@@ -78,12 +78,6 @@ class FindReplacePage(DocHolder, WorkspacePage):
         self.set_title("Find & Replace", Path(path).name)
         self.show_current()
 
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
-
     def deactivate(self):
         self._close_doc()
         self._undo_stack, self._hits, self._hit_idx = [], [], -1

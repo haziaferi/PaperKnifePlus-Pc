@@ -881,6 +881,14 @@ class WorkspacePage(ToolPage):
         self._panel_anim = a
         a.start(QVariantAnimation.DeleteWhenStopped)
 
+    # ── document ──
+    def accept_drop(self, path: str) -> bool:
+        """A dropped PDF is opened (open_path)."""
+        if not str(path).lower().endswith(".pdf"):
+            return False
+        self.open_path(path)
+        return True
+
     # ── pages ──
     def page_count(self) -> int:
         doc = getattr(self, "_doc", None)

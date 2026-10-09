@@ -84,12 +84,6 @@ class EditTextPage(DocHolder, WorkspacePage):
         self.build_panel()
         self.show_current()
 
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
-
     def on_page(self):
         self._sel_bi = None
         self.build_panel()

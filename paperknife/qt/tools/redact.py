@@ -134,12 +134,6 @@ class RedactPage(DocHolder, WorkspacePage):
         self.build_panel()
         self.show_current()
 
-    def accept_drop(self, path: str) -> bool:
-        if not str(path).lower().endswith(".pdf"):
-            return False
-        self.open_path(path)
-        return True
-
     def deactivate(self):
         self._close_doc()
         self._pending, self._secrets = [], {}
