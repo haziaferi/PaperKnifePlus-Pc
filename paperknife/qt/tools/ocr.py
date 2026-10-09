@@ -4,13 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from qfluentwidgets import BodyLabel, InfoBar, InfoBarPosition, LineEdit, Slider
+from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 
 from ...core import ocr as core_ocr
 from ...prefs import PREFS, pref_dpi
 from .. import bridge
-from ..pages import (ToolPage, card, file_card, group_title, muted_caption, radio_rows,
-                     register_page, setting_row)
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, muted_caption,
+                     radio_rows, register_page, setting_row)
 
 MODES = [("overlay", "Overlay", "invisible text layer"),
          ("text", "Text-only PDF", "")]
@@ -55,16 +55,9 @@ class OCRPage(ToolPage):
         row.layout().addWidget(self.lang)
 
         row = setting_row(group, "Render DPI")
-        dpi = pref_dpi(72, 400)
-        self.dpi = Slider(Qt.Horizontal)
-        self.dpi.setRange(72, 400)
-        self.dpi.setValue(dpi)
-        self.dpi.setMinimumWidth(200)
-        self.dpi_label = BodyLabel(f"{dpi} DPI")
-        self.dpi_label.setFixedWidth(64)
-        self.dpi.valueChanged.connect(lambda v: self.dpi_label.setText(f"{int(v)} DPI"))
-        row.layout().addWidget(self.dpi)
-        row.layout().addWidget(self.dpi_label)
+        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400), " DPI", width=200,
+                                   fixed=False)
+        self.dpi_label = self.dpi.value_label
 
         self.body.addWidget(group_title("Output mode"))
         group = card(padding=0)

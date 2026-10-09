@@ -33,7 +33,7 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout,
                                QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
-                            RadioButton,
+                            RadioButton, Slider,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
                             SubtitleLabel, TitleLabel, TransparentToggleToolButton,
                             TransparentToolButton, setCustomStyleSheet)
@@ -200,6 +200,29 @@ def radio_rows(group: QWidget, choices, default, *, row=setting_row,
         row(group, title, desc).layout().addWidget(rb)
         choice.buttons[value] = rb
     return choice
+
+
+def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
+                    width: int = 220, label_width: int = 64, fixed: bool = True):
+    """A horizontal Slider from *lo* to *hi* at *value* and, beside it, a
+    label of fixed *label_width* showing the value and *unit* (s.value_label),
+    both added to *row* (a setting_row's control).  The slider is *width*
+    wide, or at least that wide when not *fixed*."""
+    s = Slider(Qt.Horizontal)
+    s.setRange(lo, hi)
+    if fixed:
+        s.setFixedWidth(width)
+    else:
+        s.setMinimumWidth(width)
+    lbl = BodyLabel()
+    lbl.setFixedWidth(label_width)
+    s.valueChanged.connect(lambda v: lbl.setText(f"{v}{unit}"))
+    s.setValue(value)
+    lbl.setText(f"{s.value()}{unit}")
+    s.value_label = lbl
+    row.layout().addWidget(s)
+    row.layout().addWidget(lbl)
+    return s
 
 
 def spin_box(lo: int, hi: int, value: int, width: int = 160):
@@ -638,7 +661,6 @@ class WorkspacePage(ToolPage):
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None):
         from PySide6.QtWidgets import QSplitter
-        from qfluentwidgets import Slider
         from qfluentwidgets import FluentIcon as FIF
         from .pageview import PageView
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False)

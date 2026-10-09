@@ -4,14 +4,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QVBoxLayout, QWidget
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, LineEdit, PushButton, Slider
+from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 
 from ...core import batch as core
 from ...prefs import DPI_RANGE, PREFS, pref_dpi
 from .. import bridge, dialogs
-from ..pages import CollectionPage, card, group_title, radio_rows, register_page, spin_box
+from ..pages import (CollectionPage, card, group_title, labelled_slider, radio_rows,
+                     register_page, spin_box)
 from .compress import LEVELS
 
 EMPTY_TEXT = ("Choose an input folder: its PDFs are listed here, "
@@ -121,15 +121,8 @@ class BatchPage(CollectionPage):
             row.layout().addWidget(size)
             self.controls["size"] = size
             row = self.setting_row(group, "Opacity")
-            opacity = Slider(Qt.Horizontal)
-            opacity.setRange(1, 100)
-            opacity.setValue(25)
-            opacity.setMinimumWidth(110)
-            label = BodyLabel("25%")
-            label.setFixedWidth(40)
-            opacity.valueChanged.connect(lambda val: label.setText(f"{int(val)}%"))
-            row.layout().addWidget(opacity)
-            row.layout().addWidget(label)
+            opacity = labelled_slider(row, 1, 100, 25, "%", width=110, label_width=40,
+                                      fixed=False)
             self.controls["opacity"] = opacity
         elif op == "OCR":
             row = self.setting_row(group, "Language")

@@ -3,12 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from qfluentwidgets import BodyLabel, Slider
-
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, register_page,
+                     setting_row)
 
 DPI_RANGE = (72, 300)
 
@@ -26,16 +24,8 @@ class Pdf2ImgPage(ToolPage):
         self.body.addWidget(group)
         row = setting_row(group, "Resolution (DPI)",
                           "72=screen  ·  150=standard  ·  300=print quality")
-        self.dpi_slider = Slider(Qt.Horizontal)
-        self.dpi_slider.setRange(*DPI_RANGE)
-        self.dpi_slider.setFixedWidth(220)
-        self.dpi_label = BodyLabel()
-        self.dpi_label.setFixedWidth(64)
-        self.dpi_slider.valueChanged.connect(lambda v: self.dpi_label.setText(f"{v} DPI"))
-        self.dpi_slider.setValue(pref_dpi(*DPI_RANGE))
-        self.dpi_label.setText(f"{self.dpi} DPI")
-        row.layout().addWidget(self.dpi_slider)
-        row.layout().addWidget(self.dpi_label)
+        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI")
+        self.dpi_label = self.dpi_slider.value_label
         self.body.addStretch(1)
         self.primary("Export as ZIP", self.run)
 

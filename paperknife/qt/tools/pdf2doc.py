@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from qfluentwidgets import BodyLabel, CaptionLabel, ComboBox, Slider
+from qfluentwidgets import CaptionLabel, ComboBox
 
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
 from .. import theme
-from ..pages import Divider, ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import (Divider, ToolPage, card, file_card, group_title, labelled_slider,
+                     register_page, setting_row)
 
 INFO = {
     "TXT":  "Extracts all selectable text from the PDF into a plain .txt file.",
@@ -37,21 +37,6 @@ OUT = {
 DPI_FORMATS = ("PNG", "JPEG", "PPTX")
 DPI_RANGE = (72, 300)
 QUALITY_RANGE, QUALITY_DEFAULT = (50, 100), 92
-
-
-def _slider(lo: int, hi: int, value: int, unit: str, row) -> Slider:
-    s = Slider(Qt.Horizontal)
-    s.setRange(lo, hi)
-    s.setFixedWidth(220)
-    lbl = BodyLabel()
-    lbl.setFixedWidth(64)
-    s.valueChanged.connect(lambda v: lbl.setText(f"{v}{unit}"))
-    s.setValue(value)
-    lbl.setText(f"{s.value()}{unit}")
-    s.value_label = lbl
-    row.layout().addWidget(s)
-    row.layout().addWidget(lbl)
-    return s
 
 
 @register_page("Pdf2DocTool")
@@ -85,9 +70,9 @@ class Pdf2DocPage(ToolPage):
         self.image_card = card(padding=0)
         self.body.addWidget(self.image_card)
         row = setting_row(self.image_card, "Resolution")
-        self.dpi_slider = _slider(*DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI", row)
+        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI")
         row = setting_row(self.image_card, "JPEG quality")
-        self.quality_slider = _slider(*QUALITY_RANGE, QUALITY_DEFAULT, "%", row)
+        self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%")
         lay = self.image_card.layout()
         self.quality_row = row.parent()
         self._quality_divider = next(

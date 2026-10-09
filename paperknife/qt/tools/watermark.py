@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame
-from qfluentwidgets import BodyLabel, LineEdit, PushButton, Slider
+from qfluentwidgets import LineEdit, PushButton
 
 from ...core import enhance as core_enhance
 from .. import dialogs
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, register_page,
+                     setting_row)
 
 DEFAULT_COLOR = (128, 128, 128)          # the CTk tool's #808080 swatch
 
@@ -37,26 +37,14 @@ class WatermarkPage(ToolPage):
         row.layout().addWidget(self.text)
 
         row = setting_row(group, "Font size")
-        self.size = Slider(Qt.Horizontal)
-        self.size.setRange(18, 120)
-        self.size.setValue(60)
-        self.size.setMinimumWidth(200)
-        self.size_label = BodyLabel("60 pt")
-        self.size_label.setFixedWidth(52)
-        self.size.valueChanged.connect(lambda v: self.size_label.setText(f"{int(v)} pt"))
-        row.layout().addWidget(self.size)
-        row.layout().addWidget(self.size_label)
+        self.size = labelled_slider(row, 18, 120, 60, " pt", width=200, label_width=52,
+                                    fixed=False)
+        self.size_label = self.size.value_label
 
         row = setting_row(group, "Opacity")
-        self.opacity = Slider(Qt.Horizontal)
-        self.opacity.setRange(5, 100)
-        self.opacity.setValue(25)
-        self.opacity.setMinimumWidth(200)
-        self.opacity_label = BodyLabel("25%")
-        self.opacity_label.setFixedWidth(52)
-        self.opacity.valueChanged.connect(lambda v: self.opacity_label.setText(f"{int(v)}%"))
-        row.layout().addWidget(self.opacity)
-        row.layout().addWidget(self.opacity_label)
+        self.opacity = labelled_slider(row, 5, 100, 25, "%", width=200, label_width=52,
+                                       fixed=False)
+        self.opacity_label = self.opacity.value_label
 
         row = setting_row(group, "Colour")
         self.color = DEFAULT_COLOR
