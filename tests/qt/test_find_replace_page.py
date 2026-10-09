@@ -253,6 +253,33 @@ def test_a_cancelled_replace_all_changes_nothing(window, dialogs, tmp_path):
     assert "thread" not in text and text.count("needle") == 60 * 30
 
 
+def test_a_cancel_mid_replace_puts_the_pages_already_replaced_back(window, dialogs, tmp_path,
+                                                                    monkeypatch):
+    """Cancel lands after the first page was rewritten (not in the search
+    phase): that page must be rolled back and nothing may report success."""
+    from paperknife.core import text as core_text
+    real = core_text.replace_matches
+    replaced_first = []
+
+    def first_page_then_cancel(doc, found, repl, font, stop=None, progress=lambda v: None):
+        real(doc, found[:1], repl, font, stop, progress)
+        replaced_first.append("thread" in doc[found[0][0]].get_text())
+        stop.set()                              # what Cancel does, mid-replace
+    monkeypatch.setattr(core_text, "replace_matches", first_page_then_cancel)
+    page = _open(window, _long_pdf(tmp_path / "r.pdf", pages=3))
+    page.find_edit.setText("needle")
+    page.repl_edit.setText("thread")
+    dialogs.asks.append(True)
+    page.replace_all()
+    wait_job(window)
+    assert replaced_first == [True]             # the first page really was rewritten
+    text = "".join(p.get_text() for p in page._doc)
+    assert "thread" not in text and text.count("needle") == 3 * 30
+    assert "Replaced" not in page.hit_label.text()
+    assert "Cancelled" in window.status_text()
+    assert not dialogs.errors()
+
+
 def test_drop_takes_pdfs_only(window, tmp_path):
     page = _open(window, _text_pdf(tmp_path / "in.pdf"))
     other = tmp_path / "x.txt"
