@@ -61,6 +61,8 @@ class BatchPage(CollectionPage):
         return row.parent().findChildren(CaptionLabel)[0]
 
     def _pick_dir(self, title, setter):
+        if setter == self._set_in_dir and self._busy():
+            return                      # a new input folder would refill the list
         d = dialogs.ask_dir(title)
         if d:
             setter(d)
@@ -167,13 +169,24 @@ class BatchPage(CollectionPage):
         return opts
 
     # ── shell hooks ──
+    def _busy(self) -> bool:
+        """A batch (or another job) is running: say so instead of refilling
+        the list, which holds the running batch's per-file results."""
+        win = self.window_
+        if win is not None and win.job_running():
+            from ..shell import BUSY_MSG
+            dialogs.warning("Busy", BUSY_MSG)
+            return True
+        return False
+
     def open(self):
         self._pick_dir("Choose input folder", self._set_in_dir)
 
     def accept_drop(self, path: str) -> bool:
         """A dropped folder becomes the input folder; files are refused."""
         if os.path.isdir(path):
-            self._set_in_dir(path)
+            if not self._busy():
+                self._set_in_dir(path)
             return True
         return False
 
@@ -189,6 +202,8 @@ class BatchPage(CollectionPage):
         in_dir, out_dir, op = self.in_dir, self.out_dir, self.op.currentText()
         if not in_dir or not out_dir:
             return dialogs.warning("Batch", "Set input and output folders.")
+        if self._busy():
+            return None
         files = self.refill()
         if not files:
             return dialogs.warning("Batch", "No PDF files found in input folder.")

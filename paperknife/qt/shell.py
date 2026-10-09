@@ -47,6 +47,7 @@ EDGE = 8                # px from the window edge that counts as "the edge"
 OUTSIDE_X, OUTSIDE_Y = 200, 100   # pointer this far outside still counts
 POLL_MS = 40            # edge watcher interval (runs only when needed)
 CLOSE_WAIT_S = 15       # how long close waits for a cancelled job
+BUSY_MSG = "Another job is still running. Wait for it to finish or cancel it first."
 
 GEOMETRY_KEY = "qt_window_geometry"
 STALE_PARTS_KEY = "qt_stale_parts"
@@ -483,8 +484,7 @@ class MainWindow(FluentWindow):
 
         One job at a time: while one runs this warns and returns None."""
         if self._current_job and self._current_job.is_running:
-            dialogs.warning("Busy", "Another job is still running. Wait for it to finish "
-                                    "or cancel it first.")
+            dialogs.warning("Busy", BUSY_MSG)
             return None
 
         # As in the Tk app: collect here, on the main thread, so the
@@ -529,6 +529,9 @@ class MainWindow(FluentWindow):
         )
         self._current_job = job
         return job.start()
+
+    def job_running(self) -> bool:
+        return bool(self._current_job and self._current_job.is_running)
 
     def _if_alive(self, cb):
         if self._alive:
