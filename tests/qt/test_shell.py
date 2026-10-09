@@ -435,3 +435,29 @@ def test_password_dialog_keeps_no_password_after_closing(dialog_parent):
     assert "s3cret" not in left
     pump(0.05)
     assert dialog_parent.findChildren(dmod._PasswordDialog) == []
+
+
+def _click_box(parent, button: str):
+    from PySide6.QtCore import QTimer
+    from qfluentwidgets import MessageBox
+
+    def click():
+        for b in parent.findChildren(MessageBox):
+            if b.isVisible():
+                getattr(b, button).click()
+    QTimer.singleShot(50, click)
+
+
+def test_message_boxes_are_deleted_after_closing(dialog_parent):
+    # R1-6: every info/warning/error/ask_yes_no left a hidden MessageBox.
+    from qfluentwidgets import MessageBox
+    from paperknife.qt import dialogs as dmod
+    for fn in (dmod.info, dmod.warning, dmod.error):
+        _click_box(dialog_parent, "yesButton")
+        fn("Title", "Message")
+    _click_box(dialog_parent, "yesButton")
+    assert dmod.ask_yes_no("Title", "Question?") is True
+    _click_box(dialog_parent, "cancelButton")
+    assert dmod.ask_yes_no("Title", "Question?") is False
+    pump(0.05)
+    assert dialog_parent.findChildren(MessageBox) == []
