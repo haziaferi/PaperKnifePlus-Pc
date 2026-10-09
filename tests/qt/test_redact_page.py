@@ -421,8 +421,13 @@ def test_declining_the_confirmation_changes_nothing(window, dialogs, tmp_path):
     dialogs.asks.append(False)
     dialogs.save(tmp_path / "out.pdf")
     page.save()
+    # Redaction runs in a background job: a decline must not start one at all,
+    # and the checks below mean something only once anything started has ended.
+    assert window._current_job is None
+    wait_job(window)
     assert len(page._pending) == 1 and not (tmp_path / "out.pdf").exists()
     assert "Page 1" in page._doc[0].get_text()
+    assert dialogs.saves == [str(tmp_path / "out.pdf")]     # the save dialog never opened
 
 
 def test_cancelling_the_save_dialog_applies_nothing_and_keeps_the_document(
