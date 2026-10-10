@@ -367,7 +367,9 @@ class MainWindow(FluentWindow):
             bottom = section in BOTTOM_SECTIONS
             pos = NavigationItemPosition.BOTTOM if bottom else NavigationItemPosition.SCROLL
             header = None
-            if not bottom:          # as panel.insertItemHeader, with a title that folds
+            # a group of one tool (Read: Read / Preview) sits under Home with no
+            # title to fold (owner)
+            if not bottom and len(groups[section]) > 1:   # as panel.insertItemHeader
                 header = GroupHeader(section, section.capitalize(), panel)
                 panel._insertWidgetToLayout(-1, header, pos)
                 header.setCompacted(panel.displayMode not in (NavigationDisplayMode.EXPAND,

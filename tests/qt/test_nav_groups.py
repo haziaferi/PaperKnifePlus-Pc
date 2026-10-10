@@ -107,12 +107,14 @@ def test_opening_a_tool_by_search_unfolds_its_group(window):
     assert "RotateTool" in _shown(window, ORGANISE) and _shown(window, ORGANISE) == ORGANISE
 
 
-def test_a_pdf_dropped_on_home_unfolds_the_reader_s_group(window, tmp_path):
-    _click(_header(window, "READ"))
-    assert _shown(window, ["ReaderTool"]) == []
+def test_read_preview_sits_under_home_with_no_title_and_a_drop_opens_it(window, tmp_path):
+    # owner: Read / Preview is alone in its group, so it has no title to fold
+    assert _header(window, "READ") is None
+    window.toggle_group("READ")
+    assert _shown(window, ["ReaderTool"]) == ["ReaderTool"]
     window.show_page("home")
     assert window.forward_drop([make_pdf(tmp_path / "a.pdf")]) == 1
-    assert not window.is_folded("READ") and _shown(window, ["ReaderTool"]) == ["ReaderTool"]
+    assert type(window.current_page()).__name__ == "ReaderPage"
 
 
 def test_folding_the_current_tool_s_group_hides_its_item(window):

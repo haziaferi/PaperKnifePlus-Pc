@@ -72,8 +72,11 @@ def test_nav_lists_every_tool_grouped_in_registry_order(window):
     expected = [[t.name for t in TOOLS if t.section == s] for s in sections]
     assert [keys for _h, keys in order] == expected
     headers = [h for h, _k in order]
-    assert headers == [s.capitalize() if s != "SETTINGS" else "" for s in sections]
-    assert headers[0] == "Read"
+    # no title for Preferences (the bottom) or for a group of one tool (owner:
+    # Read / Preview sits under Home)
+    one = {s for s, ks in zip(sections, expected) if len(ks) == 1}
+    assert headers == ["" if s == "SETTINGS" or s in one else s.capitalize() for s in sections]
+    assert headers[0] == "" and expected[0] == ["ReaderTool"] and headers[1] == "Organise"
 
 
 def test_home_first_and_preferences_at_bottom(window):

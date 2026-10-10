@@ -35,7 +35,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QSizePolicy, QVBoxLayout,
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLayout, QSizePolicy, QVBoxLayout,
                                QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
                             RadioButton, Slider, SwitchButton,
@@ -880,8 +880,31 @@ class ToolPage(QWidget):
         bar.addWidget(cont)
         bar.addWidget(over)
         bar.continue_button, bar.start_over_button = cont, over
-        self.layout().insertWidget(0, bar)
+        # The buttons follow the text: the library gives the spare width to the
+        # title and the (empty) description, so a wide bar pushed them to its
+        # far end.  The bar is half the page wide on every screen (owner).
+        bar.contentLabel.hide()
+        # the library's SetMinimumSize constraint resets the minimum width, so
+        # a fixed width would not hold: _size_offer sets the width itself
+        bar.hBoxLayout.setSizeConstraint(QLayout.SetNoConstraint)
+        bar.textLayout.setStretchFactor(bar.titleLabel, 0)
+        bar.textLayout.setStretchFactor(bar.contentLabel, 0)
+        # in a horizontal bar the buttons sit beside the text, in the outer
+        # layout: the spare width goes after them
+        bar.hBoxLayout.setStretchFactor(bar.textLayout, 0)
+        bar.hBoxLayout.addStretch(1)
+        self.layout().insertWidget(0, bar, 0, Qt.AlignLeft)
         self._offer = (bar, str(out))
+        self._size_offer()
+
+    def _size_offer(self):
+        if self._offer is not None:
+            bar = self._offer[0]
+            bar.setFixedWidth(max(bar.minimumSizeHint().width(), self.width() // 2))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._size_offer()
 
     def offered_output(self) -> str | None:
         return self._offer[1] if self._offer is not None else None
