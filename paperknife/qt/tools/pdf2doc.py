@@ -98,7 +98,7 @@ class Pdf2DocPage(ToolPage):
         return self.fmt.currentText()
 
     def options(self) -> tuple[int, int]:
-        """(dpi, quality) as the CTk tool passes them: the slider values when
+        """(dpi, quality) for the conversion: the slider values when
         the format shows them, else 150 and 92."""
         fmt = self.format
         dpi = int(self.dpi_slider.value()) if fmt in DPI_FORMATS else 150

@@ -8,7 +8,7 @@ from qfluentwidgets import ComboBox
 from ...core import enhance as core_enhance
 from ..pages import ToolPage, card, file_card, group_title, radio_rows, register_page, setting_row
 
-SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]     # the CTk menu's order
+SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]
 ORIENTATIONS = ["Portrait", "Landscape", "Keep original"]
 SCALES = [("fit", "Fit", "keep ratio · recommended"),
           ("stretch", "Stretch", "fill page")]

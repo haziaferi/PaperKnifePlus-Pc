@@ -30,7 +30,7 @@ class OCRPage(ToolPage):
         if self.available:
             self._build_options()
         else:
-            # As in the CTk tool: without pytesseract the page only says how to get it.
+            # Without pytesseract the page only says how to get it.
             self.missing = InfoBar.warning(MISSING_TITLE, MISSING_TEXT, orient=Qt.Vertical,
                                            isClosable=False, duration=-1,
                                            position=InfoBarPosition.NONE, parent=self)

@@ -11,7 +11,7 @@ from .. import dialogs
 from ..pages import (Refusal, ToolPage, card, file_card, group_title, muted_caption,
                      register_page, setting_row, toggle_switch)
 
-# (key, row name) in the order the CTk tool lays out its cross of fields
+# (key, row name), in the order the rows are shown
 EDGES = [("top", "Top"), ("left", "Left"), ("right", "Right"), ("bottom", "Bottom")]
 
 

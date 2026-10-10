@@ -1,8 +1,8 @@
 """The continuous reader's geometry, rendering and closing, without any user interface.
 
-Shared by the CustomTkinter ReaderTool and the Qt reader page: both stack every
-page vertically, render only the pages in (or near) the viewport on a worker
-thread, and close a document off the UI thread once no render holds it.
+The reader page stacks every page vertically, renders only the pages in (or near)
+the viewport on a worker thread, and closes a document off the UI thread once no
+render holds it.
 """
 from __future__ import annotations
 import threading

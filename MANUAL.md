@@ -421,7 +421,7 @@ To fully remove all application data after uninstalling, delete `%USERPROFILE%\.
 | Step | Tool | What it does |
 |---|---|---|
 | 1 | `rmdir` | Removes `dist\PaperKnifePlusPC\` and `build\` from previous runs |
-| 2 | PyInstaller | Bundles Python runtime + Qt 6 + app into a one-dir EXE (`paperknife.spec`, entry script `launcher.py`); excludes tkinter, customtkinter and tkinterdnd2 |
+| 2 | PyInstaller | Bundles Python runtime + Qt 6 + app into a one-dir EXE (`paperknife.spec`, entry script `paperknife/__main__.py`); excludes tkinter, customtkinter and tkinterdnd2 |
 | 3 | signtool | Signs the EXE and every bundled `.dll` and `.pyd` with SHA-256 Authenticode + RFC 3161 timestamp; any failure stops the build |
 | 4 | makensis | Compiles the NSIS script into the Setup EXE |
 | 5 | signtool | Signs the installer EXE |

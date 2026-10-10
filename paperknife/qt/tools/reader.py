@@ -38,7 +38,7 @@ class ContinuousView(GroundView):
 
     def __init__(self, background: str, parent=None):
         super().__init__(background, parent)
-        # Three lines a wheel notch: 60 px, as the CTk reader scrolled.
+        # Three lines a wheel notch: 60 px.
         self.verticalScrollBar().setSingleStep(20)
         self.verticalScrollBar().valueChanged.connect(lambda _v: self.moved.emit())
         self.zoom = ZOOM_DEFAULT

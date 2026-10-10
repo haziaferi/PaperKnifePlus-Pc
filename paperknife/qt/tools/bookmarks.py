@@ -11,7 +11,7 @@ from ..pages import (HeldDoc, OrganiserPage, _clear_layout, ask_keep_password, c
                      muted_caption, radio_rows, register_page)
 
 SUBTITLE = "Split a PDF at its chapter / section bookmarks"
-SHOWN = 60                  # outline entries listed, as the CTk tool
+SHOWN = 60                  # outline entries listed
 LEVELS = [("Top-level only (level 1)", False), ("All bookmark levels", True)]
 
 

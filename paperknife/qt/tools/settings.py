@@ -1,5 +1,5 @@
-"""Preferences — app settings (group F): setting rows grouped as the CTk tool
-groups them, and one Save that writes them all to PREFS."""
+"""Preferences — app settings (group F): setting rows in groups, and one Save
+that writes them all to PREFS."""
 from __future__ import annotations
 
 from qfluentwidgets import ComboBox, LineEdit, PushButton
@@ -87,7 +87,7 @@ class SettingsPage(ToolPage):
         }
 
     def activate(self):
-        # The CTk tool rebuilds from PREFS each time it is shown.
+        # Rebuilt from PREFS each time it is shown.
         self.fill()
 
     def pick_output_dir(self):

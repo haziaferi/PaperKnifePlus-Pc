@@ -1,39 +1,21 @@
 """
 paperknife.job_queue
-Cancellable background jobs with automatic progress-bar and Cancel-button
-lifecycle management.
+Cancellable background jobs, and atomic_output for writing a file in one move.
 
-Usage
------
-    # In a tool's _do_X method:
-    def do_work(stop: threading.Event):
-        for i, item in enumerate(items):
-            if stop.is_set():
-                return          # honour cancel
-            process(item)
-            app.after(0, lambda v=(i+1)/len(items): app._prog_update(v))
-        return f"✓  Processed {len(items)} item(s)"   # shown in the status bar
+    job = CancellableJob(work, post, on_done=..., on_error=..., on_cancel=...)
+    job.start()
 
-    app.run_job(do_work)
-
-A str returned by the worker becomes the status-bar message.  A worker that
-posts its own status with app.after(0, app._set_status(...)) keeps it: the
-generic "Done" / "Cancelled" is shown only when the worker reported nothing.
+work(stop) runs in a daemon thread and should return soon after stop is set;
+post(callback) must run callback on the UI thread (the Qt shell passes
+bridge.post).  on_done(result), on_error(exc) or on_cancel() then runs there.
 """
 from __future__ import annotations
 import contextlib
 import os
 import tempfile
-import sys
 import threading
 from pathlib import Path
 from typing import Callable, Iterator
-
-
-def _GONE_ERRORS() -> tuple[type[BaseException], ...]:
-    """The errors a scheduler raises once its window is gone."""
-    tk = sys.modules.get("tkinter")
-    return (RuntimeError, tk.TclError) if tk is not None else (RuntimeError,)
 
 
 _LIVE_PARTS: set[str] = set()       # temp files an atomic_output still owns
@@ -108,14 +90,14 @@ class CancellableJob:
     def __init__(
         self,
         fn: Callable,
-        after_fn: Callable,          # app.after(0, ...) scheduler
+        post: Callable,              # post(callback): run callback on the UI thread
         on_done: Callable | None  = None,
         on_error: Callable | None = None,
         on_cancel: Callable | None = None,
     ):
         self._stop      = threading.Event()
         self._fn        = fn
-        self._after     = after_fn
+        self._post      = post
         self._on_done   = on_done
         self._on_error  = on_error
         self._on_cancel = on_cancel
@@ -136,15 +118,6 @@ class CancellableJob:
         return self._running
 
     # ── Internal ───────────────────────────────────────────────────────────────
-    def _post(self, callback):
-        # after() from this thread raises once the window has been destroyed
-        # (RuntimeError "main thread is not in main loop", or Tk's TclError).
-        # tkinter is not imported here: a Qt build ships without it.
-        try:
-            self._after(0, callback)
-        except _GONE_ERRORS():
-            pass
-
     def _run(self):
         try:
             result = self._fn(self._stop)

@@ -2,18 +2,9 @@
 import re
 from pathlib import Path
 
-from conftest import SRC, pump
+from conftest import SRC
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def test_window_uses_the_app_icon_not_customtkinters(app):
-    # CTk puts its own logo on the window 200 ms after start, through the same
-    # iconbitmap(), unless the app set one first; conftest records the calls.
-    pump(app, 0.4)
-    given = app._harness_icons
-    assert given, "no icon was set"
-    assert Path(given[-1]) == (Path(SRC) / "assets" / "icon.ico").resolve(), given
 
 
 def test_spec_bundles_the_icon_where_the_app_looks_for_it():
@@ -52,9 +43,9 @@ def test_every_copy_of_the_version_agrees():
 def test_the_build_ships_the_qt_app_without_tk():
     src = Path(SRC)
     spec = (src / "paperknife.spec").read_text(encoding="utf-8")
-    assert re.search(r"""Analysis\(\s*\[\s*["']launcher\.py["']\s*\]""", spec)
-    assert "from paperknife.qt.__main__ import main" in (src / "launcher.py").read_text(
-        encoding="utf-8")
+    assert re.search(r"""Analysis\(\s*\[\s*["']paperknife/__main__\.py["']\s*\]""", spec)
+    assert "from paperknife.qt.__main__ import main" in (
+        src / "paperknife" / "__main__.py").read_text(encoding="utf-8")
     for name in ("tkinter", "_tkinter", "customtkinter", "tkinterdnd2"):
         assert f'"{name}"' in spec, f"{name} must be excluded from the bundle"
     assert '"PySide6"' not in spec.split("excludes=")[1].split("]")[0]

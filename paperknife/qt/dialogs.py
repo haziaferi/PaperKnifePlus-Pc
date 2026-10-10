@@ -8,7 +8,7 @@ Callers use the module, never the names:
 so tests can monkeypatch these functions (tests/qt/conftest.py does).
 
 filters, wherever taken, is either a Qt filter string ("PDF (*.pdf)") or an
-iterable of (label, patterns) pairs in the Tk style ([("PDF", "*.pdf")]);
+iterable of (label, patterns) pairs ([("PDF", "*.pdf")]);
 "All files (*.*)" is appended to a pair list.
 """
 from __future__ import annotations

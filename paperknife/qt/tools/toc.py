@@ -16,7 +16,7 @@ LEVELS = ["1", "2", "3", "4"]
 
 
 def entry_text(entry) -> str:
-    """One list line, as the CTk list shows it: indent by level, title, page."""
+    """One list line: indent by level, title, page."""
     level, title, page, *_ = entry
     return f"{'  ' * (level - 1)}▸ {title}  (p.{page})"
 

@@ -1,6 +1,6 @@
 """Metadata — a structured editor with fields only (group E, in the group C form).
 
-The page holds the chosen PDF open (as the CTk tool does) from the moment it is
+The page holds the chosen PDF open from the moment it is
 chosen until another file is chosen or the tool is left, so an encrypted file
 asks for its password once."""
 from __future__ import annotations

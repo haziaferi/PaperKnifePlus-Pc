@@ -4,8 +4,7 @@ One PDF page on a QGraphicsView: rendering, zoom, page <-> view mapping, mouse
 events in page coordinates, and overlay shapes drawn over the page.
 
 Page space is the unrotated page (PyMuPDF's coordinates); the view shows the
-page rotated as it displays and scaled by the zoom, exactly as page_canvas.py
-did for the CustomTkinter tools, so the same rectangles land in the same place.
+page rotated as it displays and scaled by the zoom.
 """
 from __future__ import annotations
 
@@ -91,7 +90,9 @@ class PageView(GroundView):
         pix = render(page, self._zoom, shrink=True)
         img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format_RGB888)
         self._pix_item = sc.addPixmap(QPixmap.fromImage(img.copy()))
-        self._scale = pix.width / max(1.0, (page.rect * page.rotation_matrix).width * self._zoom)
+        # page.rect is the page as displayed (rotation applied): rotating it again
+        # swaps width and height on a 90 / 270 page and the mapping misses the page.
+        self._scale = pix.width / max(1.0, page.rect.width * self._zoom)
         sc.setSceneRect(QRectF(0, 0, pix.width, pix.height))
 
     # ── page <-> view ────────────────────────────────────────────────────────

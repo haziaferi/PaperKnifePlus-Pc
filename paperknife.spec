@@ -55,7 +55,7 @@ def _unused_qt_file(dest: str) -> bool:
     return d.endswith("/opengl32sw.dll") or d.startswith("pyside6/translations/")
 
 a = Analysis(
-    ["launcher.py"],
+    ["paperknife/__main__.py"],
     pathex=["."],
     binaries=[],
     datas=[("assets/icon.ico", "assets")],

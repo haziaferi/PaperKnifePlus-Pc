@@ -1,14 +1,14 @@
 """
 paperknife.qt.shell
-MainWindow: the FluentWindow shell that replaces paperknife/app.py's App.
+MainWindow: the FluentWindow shell.
 
 - Navigation from tool_registry.TOOL_REGISTRY grouped by tool.section (first-seen order,
   registry order inside a group), Home first, Preferences at the bottom,
   a search box (Ctrl+K / Ctrl+F) filtering by label.
 - Pages are built on first use by page_for(tool): the class registered in
-  pages.QT_PAGES under tool.name (the CTk tool's class name).
+  pages.QT_PAGES under tool.name.
 - Status bar with colour roles, a progress strip with Cancel, run_job with
-  the CTk app's semantics, lock=True holding the page and navigation.
+  lock=True holding the page and navigation.
 - Window modes: Ctrl+Alt+S collapses / expands the navigation; Ctrl+Alt+C
   Compact Mode (navigation, page header and context panel hidden; the
   left / top / right edge brings each back, Zen's timings); the title bar
@@ -517,7 +517,7 @@ class MainWindow(FluentWindow):
         if keep_password is not None and keep_password[0] is not None:
             worker_fn = _keeping_password(worker_fn, *keep_password)
 
-        # As in the Tk app: collect here, on the main thread, so the
+        # Collect here, on the main thread, so the
         # collector never runs a widget's teardown on the worker.
         gc.collect()
         self._prog_show(label, cancellable)
@@ -552,7 +552,7 @@ class MainWindow(FluentWindow):
 
         job = CancellableJob(
             fn=worker_fn,
-            after_fn=lambda _ms, cb: bridge.post(self._if_alive, cb),
+            post=lambda cb: bridge.post(self._if_alive, cb),
             on_done=on_done,
             on_error=on_error,
             on_cancel=on_cancel,

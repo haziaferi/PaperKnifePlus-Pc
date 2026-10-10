@@ -11,7 +11,7 @@ from .. import dialogs
 from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, register_page,
                      setting_row)
 
-DEFAULT_COLOR = (128, 128, 128)          # the CTk tool's #808080 swatch
+DEFAULT_COLOR = (128, 128, 128)
 
 
 def _hex(rgb) -> str:

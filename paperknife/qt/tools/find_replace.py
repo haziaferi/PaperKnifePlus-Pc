@@ -10,8 +10,8 @@ from .. import dialogs, theme
 from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
 GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
-# The CTk tool's HIT_CUR / HIT / HIT_EDGE; the fills are see-through so the
-# text under a hit stays readable (the Tk canvas stippled the other hits).
+# Current hit, other hits, hit outline; the fills are see-through so the
+# text under a hit stays readable.
 HIT_CUR, HIT, HIT_EDGE = "#80FFD700", "#80FFFACD", "#CCCCCC"
 
 

@@ -2,7 +2,6 @@
 paperknife.qt.bridge
 post(fn, *args): run fn(*args) on the Qt main thread, from any thread.
 
-This replaces every `app.after(0, ...)` a worker thread made in the Tk app.
 A QObject that lives on the main thread owns a signal connected with a queued
 connection; emitting it from a worker puts the call on the main event loop.
 

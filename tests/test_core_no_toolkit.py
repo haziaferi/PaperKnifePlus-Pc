@@ -14,8 +14,22 @@ CORE = sorted(f"paperknife.core.{p.stem}" for p in (SRC / "paperknife" / "core")
               if p.stem != "__init__")
 TOOLKIT_FREE = ["paperknife", "paperknife.core", *CORE,
                 "paperknife.job_queue", "paperknife.prefs", "paperknife.recent",
-                "paperknife.pages", "paperknife.lineart", "paperknife.tool_base",
+                "paperknife.pages", "paperknife.lineart",
                 "paperknife.tool_registry", "paperknife._version"]
+TOOLKITS = ("tkinter", "_tkinter", "customtkinter", "tkinterdnd2")
+
+
+def test_no_module_of_the_app_imports_a_tk_toolkit():
+    """The CustomTkinter interface is gone (4.0.0): nothing may bring Tk back."""
+    import ast
+    bad = []
+    for path in sorted((SRC / "paperknife").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                     else [node.module or ""] if isinstance(node, ast.ImportFrom) else [])
+            bad += [f"{path.relative_to(SRC)}:{node.lineno} {n}" for n in names
+                    if n.split(".")[0] in TOOLKITS]
+    assert bad == []
 
 
 def test_every_core_module_is_probed():

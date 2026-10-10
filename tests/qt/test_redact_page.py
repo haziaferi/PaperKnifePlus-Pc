@@ -1,11 +1,9 @@
-"""The Qt Redact page.  Redaction is a privacy feature: every check that the
-CTk tool's tests make on redacted text, images and line art is made here on the
-file the page saved, opened with PyMuPDF.  The source PDFs and measurements are
-the CTk tests' own (loaded from those files), so both UIs face the same cases."""
+"""The Qt Redact page.  Redaction is a privacy feature: every check on redacted
+text, images and line art is made here on the file the page saved, opened with
+PyMuPDF.  The source PDFs and measurements are tests/redact_cases.py, which the
+core tests share."""
 import importlib.util
 import io
-import sys
-import types
 from pathlib import Path
 
 import pymupdf as fitz
@@ -14,33 +12,12 @@ from PIL import Image
 
 from qt_harness import make_pdf, pump, wait_job
 
-TESTS = Path(__file__).resolve().parents[1]
-
-
-def _tk_module(name):
-    """A CTk test module, for its case builders and measurements only: its
-    `from conftest import ...` gets a stub, so the Tk harness is never loaded."""
-    stub = types.ModuleType("conftest")
-    for attr in ("tool", "wait_job", "pump", "make_pdf"):
-        setattr(stub, attr, None)
-    saved = sys.modules.get("conftest")
-    sys.modules["conftest"] = stub
-    try:
-        spec = importlib.util.spec_from_file_location(f"_pk_tk_{name}", TESTS / f"{name}.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-    finally:
-        if saved is None:
-            del sys.modules["conftest"]
-        else:
-            sys.modules["conftest"] = saved
-    return mod
-
-
-CONTENT = _tk_module("test_content")
-JOBS = _tk_module("test_jobs")
-LINEART = _tk_module("test_redact_lineart")
-SECRET = CONTENT.SECRET
+# Loaded by path, so tests/ (and its conftest) never joins sys.path.
+_spec = importlib.util.spec_from_file_location(
+    "pk_redact_cases", Path(__file__).resolve().parents[1] / "redact_cases.py")
+CASES_MOD = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(CASES_MOD)
+SECRET = CASES_MOD.SECRET
 
 
 def _open(window, path):
@@ -132,7 +109,7 @@ def test_a_drag_marks_a_box_undo_and_remove_take_it_back(window, tmp_path):
 # ── the main action end to end (test_content: whole-file scrub) ──────────────
 def test_mark_all_then_apply_removes_the_secret_from_the_whole_file(window, dialogs, tmp_path):
     src, out = tmp_path / "secret.pdf", tmp_path / "redacted.pdf"
-    CONTENT._secret_pdf(src)
+    CASES_MOD._secret_pdf(src)
     page = _open(window, src)
     page.set_kind("search")
     page.search_edit.setText(SECRET)
@@ -189,7 +166,7 @@ def test_a_phrase_not_found_is_reported_and_marks_nothing(window, dialogs, tmp_p
 
 
 def test_a_cancelled_mark_all_marks_nothing(window, dialogs, tmp_path):
-    page = _open(window, JOBS._long_pdf(tmp_path / "m.pdf", pages=200))
+    page = _open(window, CASES_MOD._long_pdf(tmp_path / "m.pdf", pages=200))
     page.set_kind("search")
     page.search_edit.setText("needle")
     page.mark_search()
@@ -316,16 +293,16 @@ class _without_fills:
                                 for b in self.boxes))]
 
 
-@pytest.mark.parametrize("name", list(LINEART.CASES))
+@pytest.mark.parametrize("name", list(CASES_MOD.CASES))
 def test_line_art_is_cut_at_the_box_edge(window, dialogs, tmp_path, name):
-    doc, boxes = LINEART.CASES[name]()
+    doc, boxes = CASES_MOD.CASES[name]()
     src_bytes = doc.tobytes()
     doc.close()
     with fitz.open("pdf", src_bytes) as s:
-        w, h, before = LINEART._gray(s[0])
-        inside = LINEART._box_pixels(s[0], boxes, w, h, grow=-3)
-        near = LINEART._box_pixels(s[0], boxes, w, h, grow=2.5)
-        words_before = LINEART._words_outside(s[0], boxes)
+        w, h, before = CASES_MOD._gray(s[0])
+        inside = CASES_MOD._box_pixels(s[0], boxes, w, h, grow=-3)
+        near = CASES_MOD._box_pixels(s[0], boxes, w, h, grow=2.5)
+        words_before = CASES_MOD._words_outside(s[0], boxes)
     src = tmp_path / f"{name}.pdf"
     src.write_bytes(src_bytes)
     page = _open(window, src)
@@ -334,16 +311,16 @@ def test_line_art_is_cut_at_the_box_edge(window, dialogs, tmp_path, name):
     out = _apply_save(window, dialogs, page, tmp_path / f"{name}_redacted.pdf", fill="White")
     assert not dialogs.warnings(), "the page fell back to an image"
     with fitz.open(out) as red:
-        bw, bh, after = LINEART._gray(red[0])
+        bw, bh, after = CASES_MOD._gray(red[0])
         assert (bw, bh) == (w, h)
         ink = [i for i in inside if after[i] < 250]
         assert not ink, f"{len(ink)} ink pixels left under the boxes"
-        assert LINEART._outlines_inside(_without_fills(red[0], boxes), boxes) == []
+        assert CASES_MOD._outlines_inside(_without_fills(red[0], boxes), boxes) == []
         outside_ink = [i for i in range(w * h) if i not in near and before[i] < 250]
         changed = [i for i in outside_ink if abs(before[i] - after[i]) > 48]
         assert len(changed) <= max(2, len(outside_ink) // 1000), \
             f"{len(changed)} of {len(outside_ink)} ink pixels outside the boxes changed"
-        assert set(words_before) <= set(LINEART._words_outside(red[0], boxes))
+        assert set(words_before) <= set(CASES_MOD._words_outside(red[0], boxes))
 
 
 def _redact_case(window, dialogs, tmp_path, name, doc, boxes, fill="Black"):
@@ -355,7 +332,7 @@ def _redact_case(window, dialogs, tmp_path, name, doc, boxes, fill="Black"):
 
 
 def test_curves_stay_curves(window, dialogs, tmp_path):
-    doc, boxes = LINEART.case_signature()
+    doc, boxes = CASES_MOD.case_signature()
     out = _redact_case(window, dialogs, tmp_path, "sigc", doc, boxes)
     with fitz.open(out) as red:
         kinds = [it[0] for d in red[0].get_drawings() for it in d["items"]]
@@ -363,24 +340,24 @@ def test_curves_stay_curves(window, dialogs, tmp_path):
 
 
 def test_form_shared_by_another_page_keeps_its_line_art(window, dialogs, tmp_path):
-    doc, boxes = LINEART.case_form()
+    doc, boxes = CASES_MOD.case_form()
     before = len(doc[1].get_drawings())
     pts_before = sorted(str(it) for d in doc[1].get_drawings() for it in d["items"])
     out = _redact_case(window, dialogs, tmp_path, "form2", doc, boxes)
     with fitz.open(out) as red:
         assert len(red[1].get_drawings()) == before
         assert sorted(str(it) for d in red[1].get_drawings() for it in d["items"]) == pts_before
-        assert LINEART._outlines_inside(red[0], boxes) == []
+        assert CASES_MOD._outlines_inside(red[0], boxes) == []
 
 
 def test_drawing_order_is_kept(window, dialogs, tmp_path):
-    doc, boxes = LINEART.case_order()
+    doc, boxes = CASES_MOD.case_order()
     out = _redact_case(window, dialogs, tmp_path, "order2", doc, boxes)
     with fitz.open(out) as red:
         pg = red[0]
-        sheet = pg.get_pixmap(dpi=LINEART.DPI, clip=fitz.Rect(410, 290, 495, 310), alpha=False)
+        sheet = pg.get_pixmap(dpi=CASES_MOD.DPI, clip=fitz.Rect(410, 290, 495, 310), alpha=False)
         assert set(sheet.samples) == {255}
-        pix = pg.get_pixmap(dpi=LINEART.DPI, clip=fitz.Rect(300, 209.5, 301, 210.5), alpha=False)
+        pix = pg.get_pixmap(dpi=CASES_MOD.DPI, clip=fitz.Rect(300, 209.5, 301, 210.5), alpha=False)
         r, g, b = pix.pixel(0, 0)
         assert r > 200 and g > 200 and b < 80, (r, g, b)
 
@@ -397,7 +374,7 @@ def test_a_mesh_shading_page_becomes_an_image_and_says_so(window, dialogs, tmp_p
                            r, g, b)
     doc.update_stream(mesh, v(100, 300, 255, 0, 0) + v(500, 300, 0, 255, 0)
                       + v(300, 700, 0, 0, 255))
-    LINEART._raw_page(doc, b"BT /F1 12 Tf 50 800 Td (Kept words) Tj ET /S1 sh",
+    CASES_MOD._raw_page(doc, b"BT /F1 12 Tf 50 800 Td (Kept words) Tj ET /S1 sh",
                       f"<</Shading<</S1 {mesh} 0 R>>/Font<</F1<</Type/Font/Subtype/Type1"
                       f"/BaseFont/Helvetica>>>>>>")
     out = _redact_case(window, dialogs, tmp_path, "mesh", doc, [fitz.Rect(250, 250, 350, 350)])

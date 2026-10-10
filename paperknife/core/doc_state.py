@@ -1,6 +1,6 @@
 """DocHolder: one open document, saved safely over itself, with whole-document undo.
 
-Shared by the CustomTkinter tools (tool_base.ToolBase) and the Qt pages.
+The Qt document pages hold their file through it.
 """
 from __future__ import annotations
 import os

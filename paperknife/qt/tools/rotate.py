@@ -11,7 +11,7 @@ from .. import dialogs
 from ..pages import HeldDoc, OrganiserPage, ask_keep_password, register_page
 
 SUBTITLE = "Click a thumbnail · then rotate or move it"
-THUMB_ZOOM = 0.28           # as the CTk tool's thumbnails
+THUMB_ZOOM = 0.28           # thumbnail render scale
 
 
 @register_page("RotateTool")
