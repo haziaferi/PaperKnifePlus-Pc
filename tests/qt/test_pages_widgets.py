@@ -169,9 +169,7 @@ def test_organiser_selection_enables_actions_and_moves_a_block(qapp):
     page.move(-1)                                 # at the start: nothing moves
     assert page.order() == [1, 2, 0, 3, 4, 5]
     page.clear_pages()
-    # No document: the drop target stands in for the grid card (owner,
-    # 2026-10-10); the card keeps its own empty line for when it shows.
-    assert page.order() == [] and page.empty_label.isVisibleTo(page.grid_card)
+    assert page.order() == [] and page.empty_label.isVisibleTo(page)
     page.close()
 
 
@@ -208,10 +206,7 @@ def test_master_detail_selection_drives_tools_and_detail(qapp, tmp_path):
     page.show()
     add = page.add_tool("Add below", None, lambda: None)
     rm = page.add_tool("Delete", None, lambda: None, needs_selection=True)
-    # No document: the drop target stands in for the list card (owner,
-    # 2026-10-10); the card keeps its own empty line for when it shows.
-    assert page.empty_label.isVisibleTo(page.list_card) and add.isEnabled()
-    assert not rm.isEnabled()
+    assert page.empty_label.isVisibleTo(page) and add.isEnabled() and not rm.isEnabled()
     page.set_items(["Intro (p.1)", "  Part (p.3)"])
     assert page.count() == 2 and page.current() is None and not rm.isEnabled()
     page.select(1)

@@ -167,8 +167,8 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     win.resize(1280, 820)
     ink = (255, 255, 255) if dark else (0, 0, 0)     # the library's text / tint base
 
-    # ── shell, on Compress (with a document: no drop target in the first card's place) ──
-    page = _open(win, "CompressTool", make_pdf(tmp_path / "doc.pdf"))
+    # ── shell, on Compress ──
+    page = _open(win, "CompressTool")
     img = _grab(win)
     _has(img, _rect(win, win.status_bar, 0, 0, -1, None), P.role("window"), "window (status bar ground)")
     _has(img, _rect(win, win.status_label), P.role("muted"), "status text at rest")
@@ -338,9 +338,10 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _hover(win.stackedWidget, bottom=True)
 
     # ── Reader (workspace): page ground, rail glyphs ──
-    page = _open(win, "ReaderTool")
+    page = _open(win, "ReaderTool", make_pdf(tmp_path / "doc.pdf"))
     img = _grab(win)
-    # It shows the current document now (2026-10-10): the ground in the gap above page 1.
+    # With a document (none shows the drop target in the view's place):
+    # the ground in the gap above page 1.
     _has(img, _rect(win, page.view, 10, 1, 60, 8), P.role("page_bg"), "page ground")
     page = _open(win, "AnnotateTool")
     img = _grab(win)
