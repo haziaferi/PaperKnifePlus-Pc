@@ -11,6 +11,7 @@ from PySide6.QtCore import QPoint
 from qt_harness import make_pdf, pump
 
 NO_FOLLOW = {"MergeTool", "Img2PdfTool", "BatchTool", "SettingsTool", "Doc2PdfTool"}
+CHIP_MIN = 2 * 80           # the chip name's least room: twice the 80 px of before
 WORKSPACES = ["ReaderTool", "AnnotateTool", "EditTextTool", "FindReplaceTool", "RedactTool"]
 
 
@@ -85,7 +86,6 @@ def test_bar_row_sits_directly_under_the_subtitle_at_the_left_margin(window, tmp
 @pytest.mark.parametrize("tool", ["CompressTool", "SplitTool", "AnnotateTool"])
 def test_the_chip_shows_a_26_character_name_whole_at_1280x820(window, tmp_path, tool):
     from PySide6.QtWidgets import QLabel
-    from paperknife.qt.docui import CHIP_NAME_MIN
     window.resize(1280, 820)
     name = "Quarterly report final.pdf"
     assert len(name) == 26
@@ -94,14 +94,13 @@ def test_the_chip_shows_a_26_character_name_whole_at_1280x820(window, tmp_path, 
     pump(0.05)
     lbl = window.current_page().doc_bar.chip.name_label
     need = lbl.fontMetrics().horizontalAdvance(name)
-    assert lbl.minimumWidth() == CHIP_NAME_MIN == 2 * 80              # twice the old room
-    assert lbl.width() >= need, (lbl.width(), need)                   # the row had the room
     assert QLabel.text(lbl) == name and "…" not in QLabel.text(lbl)
+    assert lbl.width() >= need, (lbl.width(), need)                   # the row had the room
+    assert lbl.minimumWidth() == CHIP_MIN                             # twice the old room
 
 
 def test_the_chip_cuts_in_the_middle_only_when_the_row_has_no_room(window, tmp_path):
     from PySide6.QtWidgets import QLabel
-    from paperknife.qt.docui import CHIP_NAME_MIN
     window.resize(1280, 820)
     name = "Quarterly report " + "WWWWWW " * 12 + "final.pdf"       # wider than any row
     window.open_document(make_pdf(tmp_path / name))
@@ -110,7 +109,7 @@ def test_the_chip_cuts_in_the_middle_only_when_the_row_has_no_room(window, tmp_p
     page = window.current_page()
     lbl = page.doc_bar.chip.name_label
     shown = QLabel.text(lbl)
-    assert lbl.fontMetrics().horizontalAdvance(name) > lbl.width() >= CHIP_NAME_MIN
+    assert lbl.fontMetrics().horizontalAdvance(name) > lbl.width() >= CHIP_MIN
     assert "…" in shown and shown.startswith("Quarterly") and shown.endswith(".pdf")
     assert lbl.toolTip().endswith(name)
     # it stays inside the page: the header's actions keep their place
