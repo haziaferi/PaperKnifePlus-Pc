@@ -4,16 +4,17 @@ The current document's controls, in one of two layouts chosen by env
 PK_DOCUI (owner's decision 2026-10-10):
 
     nav   (default) a slot in the navigation pane directly under the search
-          box: the current document's file icon and name, a clear (x) and the
-          Open split control; "No document" + Open when there is none.  With
-          the pane collapsed to its icon strip it is a 40x40 file icon button
-          whose menu is the same list.
+          box.  With a document: one full-width drop-down button, the file
+          icon and the name (shortened in the middle, the path in the
+          tooltip); its menu is Browse…, the recent files, Clear.  With none:
+          "No document" and the Open split control.  With the pane collapsed
+          to its icon strip: a 40x40 file icon button with the same menu.
     bar   a row directly under each single-input page's subtitle: the Open
           split control, then the document as a chip (name, x).
 
 Both share OpenControl ("Open", the arrow listing the recent files then
 "Browse…") and DropTarget, the empty-state target a single-input page shows
-while it has no document.
+while it has no document: clicking it opens the file dialog.
 """
 from __future__ import annotations
 
@@ -23,8 +24,8 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
-from qfluentwidgets import (Action, BodyLabel, IconWidget, RoundMenu, SplitPushButton,
-                            TransparentToolButton)
+from qfluentwidgets import (Action, BodyLabel, RoundMenu, SplitPushButton,
+                            TransparentDropDownPushButton, TransparentToolButton)
 from qfluentwidgets.components.navigation.navigation_widget import NavigationWidget
 
 from . import theme
@@ -32,12 +33,14 @@ from . import theme
 FILE_GLYPH = 0xE8A5         # Segoe Fluent Icons: Document
 CLEAR_GLYPH = 0xE711        # Cancel (x)
 SLOT_H = 40                 # Fluent navigation item height (the brief's)
-TARGET_H = 200              # the empty-state target's height
+TARGET_H = 200              # the empty-state target's height in a page view
+TARGET_FORM_H = 120         # ... at the top of a page body (owner, 2026-10-10)
 OPEN_TEXT = "Open"
 BROWSE_TEXT = "Browse…"
 NO_DOCUMENT = "No document"
-DROP_TEXT = "Drop a PDF here"
+DROP_TEXT = "Drop a PDF here or click to choose one"
 CLEAR_TIP = "Clear"
+CLEAR_TEXT = "Clear"
 
 
 def layout() -> str:
@@ -164,58 +167,156 @@ class DocBar(QWidget):
 
 
 class DropTarget(_Rounded):
-    """The empty-state target: the width of the body, TARGET_H tall, a dashed
+    """The empty-state target: the width of the body, *height* tall, a dashed
     1 px border in the control-border role (palettes "input_underline"),
-    rounded 4 px, "Drop a PDF here" and the Open control centred in it.
-    Drops reach the page through the window (MainWindow.dropEvent)."""
+    rounded 4 px, "Drop a PDF here or click to choose one" centred in it.
+    The whole target is the button: a click (or Enter / Space) opens the
+    file dialog; under the pointer it takes the hover tint (palettes
+    "tint_hover").  Drops reach the page through the window
+    (MainWindow.dropEvent)."""
 
-    def __init__(self, window, parent=None):
+    def __init__(self, window, parent=None, height: int = TARGET_H):
         super().__init__(parent)
         self.setObjectName("dropTarget")
-        self.setFixedHeight(TARGET_H)
+        self.window_ = window
+        self.setFixedHeight(height)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName(DROP_TEXT)
+        self.hovered = False
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 16, 16, 16)
-        v.setSpacing(12)
-        v.addStretch(1)
         self.label = BodyLabel(DROP_TEXT, self)
         self.label.setAlignment(Qt.AlignCenter)
-        v.addWidget(self.label, 0, Qt.AlignHCenter)
-        self.open_control = OpenControl(window, self)
-        v.addWidget(self.open_control, 0, Qt.AlignHCenter)
-        v.addStretch(1)
+        self.label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        v.addWidget(self.label, 1, Qt.AlignCenter)
+
+    def choose(self):
+        if self.window_ is not None:
+            self.window_.browse_document()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.choose()
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.choose()
+            return
+        super().keyPressEvent(e)
+
+    def enterEvent(self, e):
+        self.hovered = True
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.hovered = False
+        self.update()
+        super().leaveEvent(e)
 
     def paintEvent(self, _e):
         p = QPainter(self)
         pen = QPen(theme.color("input_underline"), 1)
         pen.setStyle(Qt.DashLine)
-        self._outline(p, pen)
+        self._outline(p, pen, theme.color("tint_hover") if self.hovered else None)
+
+
+def slot_menu(window, parent=None) -> RoundMenu:
+    """The nav slot's list (and the collapsed button's): Browse…, the recent
+    files newest first (the current one left out), then Clear while there is
+    a current document."""
+    from .pages import same_path
+    menu = RoundMenu(parent=parent)
+    b = Action(BROWSE_TEXT, menu)
+    b.pk_path = None
+    b.triggered.connect(lambda _=False: window.browse_document())
+    menu.addAction(b)
+    cur = window.current_document
+    paths = [p for p in recent_paths() if not same_path(p, cur)]
+    if paths:
+        menu.addSeparator()
+    for p in paths:
+        a = Action(Path(p).name, menu)
+        a.setToolTip(p)
+        a.pk_path = p
+        a.triggered.connect(lambda _=False, p=p: window.open_document(p))
+        menu.addAction(a)
+    if cur:
+        menu.addSeparator()
+        c = Action(CLEAR_TEXT, menu)
+        c.pk_path = None
+        c.triggered.connect(lambda _=False: window.clear_current_document())
+        menu.addAction(c)
+    return menu
+
+
+class DocButton(TransparentDropDownPushButton):
+    """nav slot with a document: one full-width drop-down button, the file
+    icon and the name shortened in the middle to the room there is (the
+    full path in the tooltip); its menu is slot_menu, read fresh each time."""
+
+    def __init__(self, window, parent=None):
+        super().__init__(parent)
+        self.setObjectName("docButton")
+        self.window_ = window
+        self.setIcon(theme.Glyph(FILE_GLYPH))
+        self._name = ""
+
+    def set_name(self, name: str):
+        self._name = name
+        self._fit()
+
+    def name(self) -> str:
+        return self._name
+
+    def room(self) -> int:
+        """The width the name gets: the button's contents, i.e. less the style
+        sheet's paddings (the icon at the left, the arrow at the right)."""
+        from PySide6.QtWidgets import QStyle, QStyleOptionButton
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        r = self.style().subElementRect(QStyle.SE_PushButtonContents, opt, self)
+        return max(1, r.width() - 2)
+
+    def _fit(self):
+        self.setText(self.fontMetrics().elidedText(self._name, Qt.ElideMiddle, self.room()))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._fit()
+
+    def _showMenu(self):
+        old = self.menu()
+        self.setMenu(slot_menu(self.window_, self))
+        if old is not None:
+            old.deleteLater()
+        super()._showMenu()
 
 
 class DocSlot(NavigationWidget):
-    """nav layout: the navigation pane's slot under the search box."""
+    """nav layout: the navigation pane's slot under the search box.  With a
+    document: DocButton across the slot.  With none: "No document" and the
+    Open split control.  Collapsed: a 40x40 file icon button with
+    slot_menu."""
 
     def __init__(self, window, parent=None):
-        from .pages import ElidedLabel, icon_button
         super().__init__(isSelectable=False, parent=parent)
         self.window_ = window
-        self.row = QWidget(self)
-        h = QHBoxLayout(self.row)
-        h.setContentsMargins(12, 0, 0, 0)           # the icon in line with the items' icons
+        self.empty_row = QWidget(self)
+        h = QHBoxLayout(self.empty_row)
+        h.setContentsMargins(12, 0, 0, 0)           # in line with the items' icons
         h.setSpacing(4)
-        self.icon = IconWidget(theme.Glyph(FILE_GLYPH), self.row)
-        self.icon.setFixedSize(16, 16)
-        h.addWidget(self.icon, 0, Qt.AlignVCenter)
-        self.name_label = ElidedLabel(NO_DOCUMENT, self.row)
-        h.addWidget(self.name_label, 1, Qt.AlignVCenter)
-        self.clear_btn = icon_button(theme.Glyph(CLEAR_GLYPH))   # follows the theme
-        self.clear_btn.setIconSize(QSize(12, 12))
-        self.clear_btn.setParent(self.row)
-        self.clear_btn.setToolTip(CLEAR_TIP)
-        self.clear_btn.clicked.connect(lambda: window.clear_current_document())
-        h.addWidget(self.clear_btn, 0, Qt.AlignVCenter)
-        self.open_control = OpenControl(window, self.row)
+        self.name_label = BodyLabel(NO_DOCUMENT, self.empty_row)
+        h.addWidget(self.name_label, 0, Qt.AlignVCenter)
+        h.addStretch(1)
+        self.open_control = OpenControl(window, self.empty_row)
         h.addWidget(self.open_control, 0, Qt.AlignVCenter)
+        self.doc_button = DocButton(window, self)
         # collapsed: the file icon button whose menu is the same list
         self.compact_btn = TransparentToolButton(theme.Glyph(FILE_GLYPH), self)
         self.compact_btn.setFixedSize(SLOT_H, SLOT_H)
@@ -231,9 +332,7 @@ class DocSlot(NavigationWidget):
             self.setFixedSize(SLOT_H, SLOT_H)
         else:
             self.setFixedSize(self.EXPAND_WIDTH, SLOT_H)
-        self.row.setVisible(not isCompacted)
-        self.compact_btn.setVisible(isCompacted)
-        self._fit()
+        self.refresh()
         self.update()
 
     def resizeEvent(self, e):
@@ -241,22 +340,27 @@ class DocSlot(NavigationWidget):
         self._fit()
 
     def _fit(self):
-        self.row.setGeometry(0, 0, self.width(), self.height())
+        self.empty_row.setGeometry(0, 0, self.width(), self.height())
+        h = self.doc_button.sizeHint().height()
+        self.doc_button.setGeometry(0, (self.height() - h) // 2, self.width(), h)
         self.compact_btn.move(0, 0)
 
     def refresh(self):
         path = self.window_.current_document or ""
         name = Path(path).name if path else ""
-        self.icon.setVisible(bool(path))
-        self.clear_btn.setVisible(bool(path))
-        self.name_label.setText(name or NO_DOCUMENT)
-        self.name_label.setToolTip(path)
+        wide = not self.isCompacted
+        self.empty_row.setVisible(wide and not path)
+        self.doc_button.setVisible(wide and bool(path))
+        self.compact_btn.setVisible(not wide)
+        self.doc_button.set_name(name)
+        self.doc_button.setToolTip(path)
         self.compact_btn.setToolTip(name or NO_DOCUMENT)
         self.setToolTip(path)
+        self._fit()
 
     def compact_menu(self) -> RoundMenu:
-        """What the collapsed button shows (the Open control's list)."""
-        return open_menu(self.window_, self)
+        """What the collapsed button shows (the slot's list)."""
+        return slot_menu(self.window_, self)
 
     def _show_compact_menu(self):
         if self._menu is not None:

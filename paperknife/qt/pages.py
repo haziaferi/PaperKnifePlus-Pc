@@ -700,7 +700,6 @@ class ToolPage(QWidget):
         self._subtitle = subtitle           # the page's own; the document's name follows it
         self.doc_bar = None                 # bar layout: the Open control + chip row
         self.drop_target = None             # the empty-state target (single-input pages)
-        self._first_card: list | None = None
         self._offer = None                  # (InfoBar, output path): the after-job question
 
         v = QVBoxLayout(self)
@@ -794,12 +793,13 @@ class ToolPage(QWidget):
     def doc_input(self, on_change=None) -> DocInput:
         """Make this a single-input page: self.file holds its PDF (nothing
         drawn), the empty-state target goes into the body here (where a
-        FileCard went) and stands in for the first card after it while there
-        is no document; the bar layout adds its row under the subtitle."""
+        FileCard went, TARGET_FORM_H tall, the options below it stay shown)
+        while there is no document; the bar layout adds its row under the
+        subtitle."""
         from . import docui
         self.file = DocInput(self, on_change)
         self.follows_document = True
-        self.drop_target = docui.DropTarget(self.window_)
+        self.drop_target = docui.DropTarget(self.window_, height=docui.TARGET_FORM_H)
         self.body.addWidget(self.drop_target)
         self._build_doc_bar()
         return self.file
@@ -852,7 +852,7 @@ class ToolPage(QWidget):
 
     def refresh_document(self, announce: bool = False):
         """Show what the page acts on: the subtitle, the bar chip, and the
-        empty-state target in place of the first card while there is none.
+        empty-state target while there is none.
         announce: the user chose this file; it becomes the current document."""
         path = self.document_path() if self.follows_document else ""
         self._show_subtitle()
@@ -863,37 +863,8 @@ class ToolPage(QWidget):
             self.window_.set_current_document(path)
 
     def _show_target(self, empty: bool):
-        if self.drop_target is None:
-            return
-        if not self._first_card:            # found once the page is built
-            self._first_card = self._card_after_target()
-        self.drop_target.setVisible(empty)
-        for w in self._first_card:
-            w.setVisible(not empty)
-
-    def _card_after_target(self) -> list:
-        """The first card after the target in the body (and the group title
-        straight above it), which the target stands in for."""
-        from PySide6.QtWidgets import QLayout
-
-        def items(lay):
-            for i in range(lay.count()):
-                it = lay.itemAt(i)
-                if it.widget() is not None:
-                    yield it.widget()
-                elif isinstance(it.layout(), QLayout):
-                    yield from items(it.layout())
-        seen, before = False, None
-        for w in items(self.body):
-            if w is self.drop_target:
-                seen = True
-                continue
-            if not seen:
-                continue
-            if isinstance(w, SimpleCardWidget):
-                return [before, w] if before is not None else [w]
-            before = w if isinstance(w, StrongBodyLabel) else None
-        return []
+        if self.drop_target is not None:
+            self.drop_target.setVisible(empty)
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -1955,8 +1926,8 @@ def _thumb_delegate():
 
 class OrganiserPage(ToolPage):
     """Group B, page organiser (Rotate & Reorder, Split by Bookmarks): the
-    empty-state target while there is no document, then a context bar with the actions for the selected
-    pages (add_action; they are enabled only while something is selected,
+    empty-state target while there is no document, then a context bar with
+    the actions for the selected pages (add_action; they are enabled only while something is selected,
     and a hint takes their place's meaning when nothing is), then the pages
     as a thumbnail grid in a card.  Thumbnails can be dragged to a new place
     (drag_reorder=True) and are rendered a few per event-loop turn, so a long
