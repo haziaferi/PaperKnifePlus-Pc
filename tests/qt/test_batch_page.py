@@ -36,9 +36,30 @@ def _setup(page, in_dir, out_dir, op):
     return page
 
 
+def _watch_end(page):
+    """The rows' notes as a finished batch left them, read just before the
+    list and its input folder empty (owner's decision 2026-10-10: a finished
+    job clears a collection); the list stays empty when nothing finished."""
+    seen = []
+    real = page.clear_document
+
+    def spy():
+        seen.append([r.note.text() for r in page.rows])
+        real()
+    page.clear_document = spy
+    return seen
+
+
 def _go(window, page):
+    """Run; the per-file notes the batch posted (a finished batch then shows
+    an empty list and no input folder)."""
+    seen = _watch_end(page)
     page.run()
     wait_job(window)
+    del page.clear_document
+    if seen:
+        assert page.rows == [] and page.in_dir == ""
+        return seen[0]
     return [r.note.text() for r in page.rows]
 
 
@@ -340,6 +361,7 @@ def test_leaving_the_tool_mid_way_keeps_the_page_usable(window, dialogs, tmp_pat
         return real(src, out, opts, stop)
     monkeypatch.setitem(core.OPS, "PDF → TXT", held)
     page = _setup(_page(window), in_dir, out_dir, "PDF → TXT")
+    seen = _watch_end(page)
     page.run()
     assert started.wait(5) and window.job_running()
     assert window.open_tool("CompressTool")
@@ -350,10 +372,13 @@ def test_leaving_the_tool_mid_way_keeps_the_page_usable(window, dialogs, tmp_pat
     assert window.current_page() is page and page.in_dir == str(in_dir)
     release.set()
     wait_job(window)
-    assert [r.note.text() for r in page.rows] == ["✓  a.pdf", "✓  b.pdf"]
+    del page.clear_document
+    assert seen == [["✓  a.pdf", "✓  b.pdf"]]
+    assert page.rows == [] and page.in_dir == ""            # finished: the list empties
     assert (out_dir / "a.txt").exists() and (out_dir / "b.txt").exists()
     assert window.status_text() == "✓  Batch done — 2 OK, 0 errors"
     assert not dialogs.errors(), dialogs.errors()
+    page._set_in_dir(str(in_dir))
     assert _go(window, page) == ["✓  a.pdf", "✓  b.pdf"]      # and it still runs
 
 
@@ -378,6 +403,7 @@ def test_run_or_a_new_folder_during_a_batch_keeps_its_results(window, dialogs, t
         return True
     monkeypatch.setitem(core.OPS, "PDF → TXT", slow)
     page = _setup(_page(window), in_dir, out_dir, "PDF → TXT")
+    seen = _watch_end(page)
     page.run()
     assert first.wait(5)
     for _ in range(50):
@@ -396,4 +422,5 @@ def test_run_or_a_new_folder_during_a_batch_keeps_its_results(window, dialogs, t
     assert [m[1] for m in dialogs.warnings()] == ["Busy"] * 4
     release.set()
     wait_job(window)
-    assert [r.note.text() for r in page.rows] == ["✓  a.pdf", "✓  b.pdf", "✓  c.pdf"]
+    del page.clear_document
+    assert seen == [["✓  a.pdf", "✓  b.pdf", "✓  c.pdf"]]

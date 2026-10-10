@@ -10,7 +10,9 @@ import pymupdf as fitz
 import pytest
 from PIL import Image
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, subtitle_with, wait_job
+
+SUBTITLE = "Draw rectangles over sensitive content"
 
 # Loaded by path, so tests/ (and its conftest) never joins sys.path.
 _spec = importlib.util.spec_from_file_location(
@@ -431,24 +433,28 @@ def test_apply_and_save_over_the_open_input(window, dialogs, tmp_path):
         assert len(d) == 2 and "Page 1" not in d[0].get_text() and "Page 2" in d[1].get_text()
 
 
-def test_drop_takes_pdfs_only(window, tmp_path):
+def test_drop_takes_pdfs_only(window, dialogs, tmp_path):
     page = _open(window, make_pdf(tmp_path / "in.pdf", pages=1))
     _drag(page, (60, 80), (200, 110))
     other = tmp_path / "x.txt"
     other.write_text("x", encoding="utf-8")
     assert page.accept_drop(str(other)) is False
     assert len(page._doc) == 1 and len(page._pending) == 1
+    dialogs.unsaved.append("discard")             # the pending box is an unsaved edit
     assert page.accept_drop(make_pdf(tmp_path / "second.pdf", pages=3)) is True
     assert len(page._doc) == 3 and page._pending == []
-    assert page.subtitle_label.text() == "second.pdf"
+    assert page.subtitle_label.text() == subtitle_with(SUBTITLE, "second.pdf")
 
 
-def test_leaving_the_tool_closes_the_document(window, tmp_path):
+def test_leaving_the_tool_closes_the_document(window, dialogs, tmp_path):
+    # Since 2026-10-10 a pending box is an unsaved edit: leaving asks (Discard here).
     page = _open(window, make_pdf(tmp_path / "in.pdf", pages=1))
     _drag(page, (60, 80), (200, 110))
     doc = page._doc
+    dialogs.unsaved.append("discard")
     window.show_page("home")
     assert doc.is_closed and page._doc is None and page._pending == []
+
 
 
 def test_cancel_during_the_last_page_still_saves_the_redactions(window, dialogs, tmp_path,

@@ -190,8 +190,10 @@ def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, dialogs
     page, src = _open(window, tmp_path)
     held = page._doc
     assert window.open_tool("CropTool")
-    assert held.is_closed and page._doc is None
-    assert page.order() == [] and page.file.path() == ""
+    # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
+    # freed, the path kept; the page opens it again when shown.
+    assert held.is_closed and page._doc is None and page.file.path() == src
+
     other = make_pdf(tmp_path / "other.pdf", pages=1)
     os.replace(other, src)                  # fails on Windows while a handle holds src
     assert _texts(src) == ["Page 1"]

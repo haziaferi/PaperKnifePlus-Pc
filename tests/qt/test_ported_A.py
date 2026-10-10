@@ -249,8 +249,8 @@ def test_batch_ocr_finds_tesseract_in_its_default_folder_off_path(window, dialog
     page.controls["dpi"].setValue(150)
     page.run()
     wait_job(window)
-    rows = [r.note.text() for r in page.rows]
-    assert rows and rows[0].startswith("✓"), rows
+    # A finished batch empties its list (owner, 2026-10-10): its status says how it went.
+    assert window.status_text() == "✓  Batch done — 1 OK, 0 errors", window.status_text()
     with fitz.open(out_dir / "a_ocr.pdf") as doc:
         assert "Smith" in doc[0].get_text()
 

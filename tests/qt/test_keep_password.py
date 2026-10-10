@@ -263,7 +263,7 @@ def test_the_held_password_is_forgotten_when_the_document_is_closed(window, dial
     kept = core.open_password_of(held)
     assert kept is not None and kept.user_pw == OPEN_PW
     assert OPEN_PW not in repr(kept)              # never in a log line or a traceback
-    page.deactivate()                             # the tool is left: the document closes
+    page.park_document()                          # the tool is left: the document closes
     assert held.is_closed and page._doc is None
     assert core.open_password_of(held) is None
     assert OPEN_PW not in repr(vars(held))
@@ -545,7 +545,9 @@ def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialog
     dialogs.asks.append(True)
     page.save()
     wait_job(window)
+    dialogs.unsaved.append("discard")             # the failed save left the edit unsaved
     window.show_page("CompressTool")
     assert open(src, "rb").read() == before
+
     assert sorted(os.listdir(tmp_path)) == ["in.pdf"]       # no .part left either
     assert len(dialogs.errors()) == 2

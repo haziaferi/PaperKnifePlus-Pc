@@ -220,8 +220,10 @@ def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, tmp_pat
     page.file.set_path(src)
     held = page._doc
     assert window.open_tool("CompressTool")
-    assert held.is_closed and page._doc is None
-    assert page.file.path() == "" and not page.fields["title"].text()
+    # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
+    # freed, the path kept; the page opens it again when shown.
+    assert held.is_closed and page._doc is None and page.file.path() == src
+
     other = make_pdf(tmp_path / "other.pdf", pages=1)
     shutil.copyfile(other, tmp_path / "copy.pdf")
     os.replace(tmp_path / "copy.pdf", src)       # the file is not held

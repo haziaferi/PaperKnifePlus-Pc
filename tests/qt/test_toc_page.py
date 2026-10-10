@@ -3,7 +3,7 @@ import os
 
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, spy_open, subtitle_with, wait_job
 
 
 def _page(window):
@@ -65,7 +65,8 @@ def test_opening_lists_the_bookmarks_as_the_ctk_list(window, tmp_path):
     assert page.count() == 3
     assert [page.list.item(i).text() for i in range(3)] == [
         "▸ A  (p.1)", "  ▸ A1  (p.2)", "▸ B  (p.3)"]
-    assert page.subtitle_label.text() == "in.pdf"
+    assert page.subtitle_label.text() == subtitle_with(
+        "View · add · edit · delete · reorder PDF bookmarks", "in.pdf")
     page.select(1)
     assert (page.level.currentText(), page.title_edit.text(), page.page_edit.text()) == (
         "2", "A1", "2")
@@ -245,11 +246,16 @@ def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dia
 def test_leaving_the_tool_closes_its_document(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     opened = spy_open(window, monkeypatch)
-    page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=2))
+    src = make_pdf(tmp_path / "in.pdf", pages=2)
+    page.file.set_path(src)
     held = page._doc
     window.show_page("CompressTool")
     assert held.is_closed and opened == [held]
-    assert page._doc is None and page.file.path() == "" and page.count() == 0
+    # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
+    # freed, the path (and the list) kept; shown again, the page reopens it.
+    assert page._doc is None and page.file.path() == src
+    assert _page(window) is page and page._doc is not None and len(opened) == 2
+
 
 
 def test_a_file_opened_here_can_be_overwritten_after_leaving(window, dialogs, tmp_path):

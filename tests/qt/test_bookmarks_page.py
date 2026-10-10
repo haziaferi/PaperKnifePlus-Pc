@@ -3,7 +3,7 @@ import os
 
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, subtitle_with, wait_job
 
 
 def _page(window):
@@ -62,7 +62,8 @@ def test_outline_lists_levels_with_indent_and_pages(window, tmp_path):
     src = _book(tmp_path, [[1, "Intro", 1], [2, "Part", 2], [1, "End", 4]])
     page = _open(window, src)
     assert page.outline_lines() == ["▸ Intro  (p.1)", "    Part  (p.2)", "▸ End  (p.4)"]
-    assert page.subtitle_label.text() == "book.pdf"
+    assert page.subtitle_label.text() == subtitle_with(
+        "Split a PDF at its chapter / section bookmarks", "book.pdf")
 
 
 def test_outline_caps_at_sixty_entries_with_a_more_line(window, tmp_path):
@@ -161,13 +162,18 @@ def test_cancelling_the_folder_dialog_writes_nothing_and_keeps_the_document(wind
 
 def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, tmp_path):
     # CTk test_navigating_away_closes_the_open_documents and
-    # test_file_opened_in_another_tool_can_be_overwritten
+    # test_file_opened_in_another_tool_can_be_overwritten.  Since 2026-10-10
+    # (owner) leaving keeps the document: the file is closed and freed, the
+    # page keeps its path and opens it again when shown.
+    from paperknife.qt.pages import same_path
     src = _book(tmp_path, [[1, "A", 1]], pages=2)
     page = _open(window, src)
     held = page._doc
     assert window.open_tool("CropTool")
-    assert held.is_closed and page._doc is None and page.file.path() == ""
-    assert page.outline_lines() == ["Open a PDF to see its bookmarks"]
+    assert held.is_closed and page._doc is None and same_path(page.file.path(), src)
     other = make_pdf(tmp_path / "other.pdf", pages=1)
     os.replace(other, src)                  # fails on Windows while a handle holds src
     assert _texts(src) == ["Page 1"]
+    assert _page(window) is page and page._doc is not None
+    assert page.outline_lines() == ["⚠  This PDF has no bookmarks."]   # the file as it is now
+

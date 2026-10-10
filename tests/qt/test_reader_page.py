@@ -5,7 +5,7 @@ import time
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump
+from qt_harness import make_pdf, pump, subtitle_with
 
 from paperknife.core import reader as core_reader
 from paperknife.pages import render
@@ -72,7 +72,10 @@ def test_open_renders_the_visible_pages_with_their_content(window, dialogs, tmp_
     dialogs.open(src)
     page.open()
     _settle(page)
-    assert page.subtitle_label.text() == "doc.pdf" and page.path_label.text() == src
+    assert page.subtitle_label.text() == subtitle_with(
+        "Continuous smooth-scroll viewer — view-only", "doc.pdf")
+    assert page.path_label.text() == src
+
     assert 0 in page._items
     z = page._zoom
     with fitz.open(src) as d:

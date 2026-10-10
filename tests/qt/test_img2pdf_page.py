@@ -129,4 +129,6 @@ def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path):
     os.replace(a, tmp_path / "a-moved.png")
     os.replace(b, tmp_path / "b-moved.jpg")
     out.unlink()
-    assert _page(window) is page and len(page.paths()) == 2
+    # A finished job empties a collection's list (owner, 2026-10-10).
+    assert _page(window) is page and page.paths() == []
+
