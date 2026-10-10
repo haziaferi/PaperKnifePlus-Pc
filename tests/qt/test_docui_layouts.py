@@ -72,7 +72,9 @@ def test_every_page_builds_in_both_layouts(make_window, tmp_path, layout, dark):
             page = win.current_page()
             if name in NO_FOLLOW:
                 continue
+            assert not [c for c in page.findChildren(FileCard) if c.isVisibleTo(page)], name
             assert not page.drop_target.isVisibleTo(page), name
+
             sub = page.subtitle_label.text()
             if layout == "nav":
                 assert sub.endswith("a.pdf"), (name, sub)

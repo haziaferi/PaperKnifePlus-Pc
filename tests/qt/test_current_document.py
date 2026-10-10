@@ -121,7 +121,9 @@ def test_leaving_keeps_the_document(window, tmp_path, tool):
     page = _open(window, tool, src)
     assert page._doc is not None
     window.show_page("home")
+    assert _same(page.document_path(), src), tool        # kept while away
     _open(window, tool)
+
     assert page._doc is not None and _same(page.document_path(), src), tool
 
 
