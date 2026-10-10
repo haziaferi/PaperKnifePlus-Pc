@@ -7,7 +7,7 @@ from qfluentwidgets import PasswordLineEdit
 
 from ...core import password as core
 from .. import dialogs
-from ..pages import (ToolPage, card, file_card, group_title, register_page, setting_row,
+from ..pages import (ToolPage, card, group_title, register_page, setting_row,
                      toggle_switch)
 
 
@@ -25,8 +25,7 @@ class PasswordPage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Password", "Add AES-256 encryption or remove an existing password",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
 
         self.body.addWidget(group_title("Add / Change Password"))
@@ -73,17 +72,31 @@ class PasswordPage(ToolPage):
             dialogs.error(title, wrong_message)
         return doc
 
+    def _attempt(self, fn):
+        """Run one Protect / Remove attempt; when it started no job (no file,
+        a refusal, a cancelled save dialog) the fields are emptied now, as a
+        finished job's ended= empties them."""
+        if fn() is None:
+            self._forget_passwords()
+
     def protect(self):
+        self._attempt(self._protect)
+
+    def unprotect(self):
+        self._attempt(self._unprotect)
+
+    def _protect(self):
         src = self.chosen_file("Protect")
         if not src:
-            return
+            return None
         pw = self.pw1.text()
         if not pw:
-            return dialogs.warning("Protect", "Enter a password.")
+            dialogs.warning("Protect", "Enter a password.")
+            return None
         owner = core.owner_password(self.pw2.text())
         perm = core.permissions(self.allow_print.isChecked(), self.allow_copy.isChecked())
         cur = self.cur_pw.text()
-        self.run_on_file(
+        return self.run_on_file(
             "Protect", lambda doc, out, stop, _p: core.protect_pdf(doc, out, pw, owner, perm),
             "Encrypting…",
             lambda _v, out: ("success", f"✓  Protected → {Path(out).name}",
@@ -94,12 +107,12 @@ class PasswordPage(ToolPage):
                                    "in “Current password” below to change it."),
             ended=lambda _kind: self._forget_passwords(), cancellable=False)
 
-    def unprotect(self):
+    def _unprotect(self):
         src = self.chosen_file("Unprotect")
         if not src:
-            return
+            return None
         pw = self.cur_pw.text()
-        self.run_on_file(
+        return self.run_on_file(
             "Unprotect", lambda doc, out, stop, _p: core.unprotect_pdf(doc, out),
             "Removing the password…",
             lambda _v, out: ("success", f"✓  Unlocked → {Path(out).name}",

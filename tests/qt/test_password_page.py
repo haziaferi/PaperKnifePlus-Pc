@@ -239,3 +239,17 @@ def test_passwords_are_cleared_when_the_page_is_left(window, tmp_path):
     page.cur_pw.setText("old")
     window.show_page("home")
     assert (page.pw1.text(), page.pw2.text(), page.cur_pw.text()) == ("", "", "")
+
+
+def test_a_cancelled_save_dialog_clears_the_typed_passwords(window, dialogs, tmp_path):
+    """Inventory finding (phase9/memory-inventory.md, behaviour 6): Cancel in
+    the save dialog returned before any job, so the typed password stayed."""
+    page = _page(window)
+    page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    for action in (page.protect, page.unprotect):
+        page.pw1.setText("secret")
+        page.pw2.setText("boss")
+        page.cur_pw.setText("old")
+        action()                                   # no queued save path: the dialog is cancelled
+        assert window._current_job is None
+        assert (page.pw1.text(), page.pw2.text(), page.cur_pw.text()) == ("", "", "")
