@@ -20,6 +20,7 @@ _DEFAULTS: dict = {
     "window_geometry": "",        # last window geometry string (WxH+X+Y)
     "qt_window_geometry": "",     # the Qt window's saveGeometry(), base64
     "qt_stale_parts":  [],        # .part files a job left when the Qt app quit
+    "qt_nav_folded":   [],        # navigation groups folded under their title (section names)
     "appearance":      "light",   # light / dark / system
 }
 

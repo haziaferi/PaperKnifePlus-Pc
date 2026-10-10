@@ -4,7 +4,10 @@ MainWindow: the FluentWindow shell.
 
 - Navigation from tool_registry.TOOL_REGISTRY grouped by tool.section (first-seen order,
   registry order inside a group), Home first, Preferences at the bottom,
-  a search box (Ctrl+K / Ctrl+F) filtering by label.
+  a search box (Ctrl+K / Ctrl+F) filtering by label.  A group folds under
+  its title (click, Enter or Space; the state kept in PREFS qt_nav_folded);
+  a search shows matches in folded groups too, opening a tool by search or
+  open_tool unfolds its group, and the icon-only pane shows every icon.
 - Pages are built on first use by page_for(tool): the class registered in
   pages.QT_PAGES under tool.name.
 - Status bar with colour roles, a progress strip with Cancel, run_job with
@@ -24,14 +27,15 @@ from pathlib import Path
 
 import pymupdf as fitz
 from PySide6.QtCore import (QByteArray, QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect,
-                            Qt, QTimer, Signal)
+                            QRectF, Qt, QTimer, Signal)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QHBoxLayout,
                                QLineEdit, QPlainTextEdit, QTextEdit, QVBoxLayout, QWidget)
 from qfluentwidgets import (CaptionLabel, FluentWindow, NavigationItemPosition, ProgressBar,
                             PushButton, SearchLineEdit)
 from qfluentwidgets.components.navigation.navigation_panel import NavigationDisplayMode
-from qfluentwidgets.components.navigation.navigation_widget import NavigationWidget
+from qfluentwidgets.components.navigation.navigation_widget import (NavigationItemHeader,
+                                                                    NavigationWidget)
 
 from . import bridge, dialogs, pages, theme
 from ..core import password as core_password
@@ -52,6 +56,7 @@ BUSY_MSG = "Another job is still running. Wait for it to finish or cancel it fir
 
 GEOMETRY_KEY = "qt_window_geometry"
 STALE_PARTS_KEY = "qt_stale_parts"
+FOLDED_KEY = "qt_nav_folded"     # the folded navigation groups, by section
 NAV_EXPAND_WIDTH = 212
 NAV_MIN_EXPAND_WINDOW = 900
 BOTTOM_SECTIONS = ("SETTINGS",)
@@ -70,6 +75,7 @@ NAV_GLYPH: dict[str, int] = {
 }
 DEFAULT_GLYPH = 0xE8A5
 SEARCH_GLYPH = 0xE721
+CHEVRON_OPEN, CHEVRON_FOLDED = 0xE70D, 0xE76C   # ChevronDown / ChevronRight
 
 _TEXT_INPUTS = (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox)
 
@@ -126,6 +132,87 @@ class NavSearch(NavigationWidget):
             p.setBrush(c)
             p.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 5, 5)
         self._glyph.render(p, self.rect().adjusted(12, 10, -12, -10))
+
+
+# ── Navigation group title ────────────────────────────────────────────────────
+class GroupHeader(NavigationItemHeader):
+    """A navigation group's title that folds its items: a click, or Enter /
+    Space while it has the focus, emits toggled(section); a small chevron
+    at its right says which way it is (down: open, right: folded).  Fluent
+    hides it (height 0) in the icon-only pane."""
+
+    toggled = Signal(str)
+
+    def __init__(self, section: str, text: str, parent=None):
+        super().__init__(text, parent)
+        self.section = section
+        self.folded = False
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName(text)
+
+    def chevron(self) -> int:
+        """The glyph at the title's right: ChevronRight folded, else ChevronDown."""
+        return CHEVRON_FOLDED if self.folded else CHEVRON_OPEN
+
+    def set_folded(self, on: bool):
+        if on != self.folded:
+            self.folded = on
+            self.update()
+
+    def mousePressEvent(self, e):
+        e.accept()
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.toggled.emit(self.section)
+        e.accept()
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.toggled.emit(self.section)
+            return
+        super().keyPressEvent(e)
+
+    def enterEvent(self, e):
+        self.isEnter = True
+        self.update()
+
+    def leaveEvent(self, e):
+        self.isEnter = False
+        self.update()
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        self.update()
+
+    def focusOutEvent(self, e):
+        super().focusOutEvent(e)
+        self.update()
+
+    def paintEvent(self, e):
+        if self.height() == 0 or not self.isVisible() or self.isCompacted:
+            return super().paintEvent(e)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        box = QRectF(self.rect()).adjusted(4.5, 0.5, -4.5, -0.5)
+        if self.isEnter:
+            c = theme.color("text")
+            c.setAlpha(15)
+            p.setPen(Qt.NoPen)
+            p.setBrush(c)
+            p.drawRoundedRect(box, 5, 5)
+        if self.hasFocus():
+            p.setPen(theme.color("accent"))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(box, 5, 5)
+        p.end()
+        super().paintEvent(e)
+        p = QPainter(self)
+        glyph = theme.Glyph(self.chevron())
+        h = self.height()
+        glyph.render(p, QRect(self.width() - 26, (h - 10) // 2, 10, 10), fill=self.textColor())
+        p.end()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -272,10 +359,20 @@ class MainWindow(FluentWindow):
                 groups[t.section] = []
             groups[t.section].append(t)
 
+        stored = PREFS.get(FOLDED_KEY, [])
+        self._folded = {s for s in stored if isinstance(s, str)} if isinstance(stored, list) \
+            else set()
+        panel = nav.panel
         for section in order:
             bottom = section in BOTTOM_SECTIONS
             pos = NavigationItemPosition.BOTTOM if bottom else NavigationItemPosition.SCROLL
-            header = None if bottom else nav.addItemHeader(section.capitalize(), pos)
+            header = None
+            if not bottom:          # as panel.insertItemHeader, with a title that folds
+                header = GroupHeader(section, section.capitalize(), panel)
+                panel._insertWidgetToLayout(-1, header, pos)
+                header.setCompacted(panel.displayMode not in (NavigationDisplayMode.EXPAND,
+                                                              NavigationDisplayMode.MENU))
+                header.toggled.connect(self.toggle_group)
             keys = []
             for t in groups[section]:
                 key = t.name
@@ -284,6 +381,8 @@ class MainWindow(FluentWindow):
                                theme.Glyph(NAV_GLYPH.get(key, DEFAULT_GLYPH)), pos)
                 keys.append(key)
             self._sections.append((section, header, keys))
+        panel.displayModeChanged.connect(lambda _m: self._apply_nav())
+        self._apply_nav()
 
     def _add_item(self, key, text, icon, position):
         host = QWidget()
@@ -394,6 +493,7 @@ class MainWindow(FluentWindow):
         becomes the current document on a single-input page)."""
         if not self.show_page(class_name, follow=not path):
             return False
+        self._unfold_for(class_name)
         if path:
             page = self.current_page()
             if getattr(page, "follows_document", False):
@@ -505,15 +605,53 @@ class MainWindow(FluentWindow):
 
     # ── search ──
     def _filter_nav(self, text: str = ""):
-        q = text.strip().lower()
-        for _section, header, keys in self._sections:
+        self._apply_nav()
+
+    def _apply_nav(self):
+        """Which items show: a search shows its matches (folded groups too,
+        with their title) and hides the titles with none; without one, a
+        folded group shows its title only.  The icon-only pane, which has
+        no titles, shows every icon."""
+        q = self.search.edit.text().strip().lower()
+        icons = self.navigationInterface.panel.displayMode == NavigationDisplayMode.COMPACT
+        for section, header, keys in self._sections:
+            folded = header is not None and section in self._folded
             shown = 0
             for k in keys:
-                vis = not q or q in self._labels[k].lower()
+                vis = (q in self._labels[k].lower()) if q else (icons or not folded)
                 self._items[k].setVisible(vis)
                 shown += vis
             if header is not None:
-                header.setVisible(bool(shown))
+                header.set_folded(folded)
+                header.setVisible(bool(shown) if q else True)
+
+    # ── folding groups ──
+    def is_folded(self, section: str) -> bool:
+        return section in self._folded
+
+    def toggle_group(self, section: str):
+        """Fold or unfold a navigation group (kept in PREFS)."""
+        if section in self._folded:
+            self._folded.discard(section)
+        else:
+            self._folded.add(section)
+        self._save_folded()
+        self._apply_nav()
+
+    def _unfold_for(self, key: str):
+        """Opening a tool by search or open_tool shows it: its group unfolds."""
+        for section, _header, keys in self._sections:
+            if key in keys and section in self._folded:
+                self._folded.discard(section)
+                self._save_folded()
+                self._apply_nav()
+
+    def _save_folded(self):
+        setattr(PREFS, FOLDED_KEY, sorted(self._folded))
+        try:
+            PREFS.save()
+        except OSError:
+            pass
 
     def visible_tools(self) -> list[str]:
         """Tool keys the navigation shows now, in order (for tests)."""
@@ -531,6 +669,7 @@ class MainWindow(FluentWindow):
             return
         vis = self.visible_tools()
         if vis:
+            self._unfold_for(vis[0])
             self.show_page(vis[0])
 
     def focus_search(self):
@@ -1046,6 +1185,7 @@ class MainWindow(FluentWindow):
             nav = self.navigationInterface
             if self.width() >= NAV_MIN_EXPAND_WINDOW and not self.compact:
                 nav.expand(useAni=False)
+                self._apply_nav()       # expand(useAni=False) says nothing of its new mode
         self._update_edge_watch()
 
     def hideEvent(self, e):
