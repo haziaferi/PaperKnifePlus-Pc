@@ -51,8 +51,8 @@ def test_page_builds_as_a_viewer_without_a_main_action(window):
     assert type(page).__name__ == "ReaderPage"
     assert page.title_label.text() == "Read / Preview"
     assert page.subtitle_label.text() == "Continuous smooth-scroll viewer — view-only"
-    assert [b.text() for b in page._buttons] == ["Open PDF"]
-    assert not any(b.pk_primary for b in page._buttons)
+    # No action of its own (2026-10-10): the document bar's Open opens a file.
+    assert page._buttons == [] and page.doc_bar.open_control.isVisibleTo(page)
     assert page.page_label.text() == "—" and page.path_label.text() == "Open a PDF…"
 
 

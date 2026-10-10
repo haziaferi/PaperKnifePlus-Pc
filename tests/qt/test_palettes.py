@@ -210,7 +210,7 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, prim, 4, 4, -4, -4), P.role("on_accent"), "primary button text")
     # The page's own "Choose file" button went with the file card (2026-10-10):
     # the Open control's main part is the plain PushButton now.
-    btn = (win.doc_slot or page.doc_bar).open_control.button
+    btn = page.doc_bar.open_control.button
     assert btn.isVisible() and btn.text() == "Open"
     _has(img, _rect(win, btn, 3, 3, 12, -3), P.role("control"), "button fill")
     _has(img, _rect(win, btn, 8, 0, -8, 1), P.role("control_border_strong" if dark else "control_border"),

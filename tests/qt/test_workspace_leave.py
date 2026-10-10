@@ -11,10 +11,9 @@ TOOLS = ["AnnotateTool", "EditTextTool", "FindReplaceTool", "RedactTool"]
 
 
 def _names(page, name):
-    """The page says it acts on *name*: its subtitle (PK_DOCUI=nav, or a
-    subtitle that only said to open a file) or its bar chip (bar)."""
-    chip = page.doc_bar.chip.name_label.text() if page.doc_bar is not None else ""
-    return name in page.subtitle_label.text() or chip == name
+    """The page says it acts on *name*: its document bar's chip (and its
+    subtitle, when that only said to open a file)."""
+    return page.doc_bar.chip.name_label.text() == name
 
 
 @pytest.mark.parametrize("tool", TOOLS)

@@ -18,13 +18,10 @@ truncated_pdf = _builders.truncated_pdf
 
 def subtitle_with(base: str, name: str) -> str:
     """A page's subtitle while it acts on the file *name* (owner, 2026-10-10):
-    PK_DOCUI=nav "<base> · <name>", bar the base alone (the chip names the
-    file); a base that only says to open a file gives way to the name."""
-    from paperknife.qt import docui
+    its own (the document bar's chip names the file); a base that only says
+    to open a file gives way to the name."""
     from paperknife.qt.pages import HINT_SUBTITLE
-    if base == HINT_SUBTITLE:
-        return name
-    return f"{base} · {name}" if docui.layout() == "nav" else base
+    return name if base == HINT_SUBTITLE else base
 
 
 def pump(seconds: float = 0.2):

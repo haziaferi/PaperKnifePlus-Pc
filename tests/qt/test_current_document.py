@@ -84,8 +84,7 @@ def test_a_recent_file_chosen_from_the_open_control_becomes_current_and_loads(wi
     RECENT.push(old, 3)
     RECENT.push(new, 3)
     page = _open(window, "MetadataTool")
-    # the layout's one Open control (no document: the nav slot's, or the bar's)
-    control = (window.doc_slot or page.doc_bar).open_control
+    control = page.doc_bar.open_control              # the one Open control
     menu = control.menu()
     acts = [a for a in menu.actions() if not a.isSeparator()]
     assert [a.text() for a in acts] == ["new.pdf", "old.pdf", BROWSE_TEXT]   # newest first
