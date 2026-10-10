@@ -16,6 +16,17 @@ image_pdf = _builders.image_pdf
 truncated_pdf = _builders.truncated_pdf
 
 
+def subtitle_with(base: str, name: str) -> str:
+    """A page's subtitle while it acts on the file *name* (owner, 2026-10-10):
+    PK_DOCUI=nav "<base> · <name>", bar the base alone (the chip names the
+    file); a base that only says to open a file gives way to the name."""
+    from paperknife.qt import docui
+    from paperknife.qt.pages import HINT_SUBTITLE
+    if base == HINT_SUBTITLE:
+        return name
+    return f"{base} · {name}" if docui.layout() == "nav" else base
+
+
 def pump(seconds: float = 0.2):
     """Run the Qt event loop for *seconds* (timers, queued posts)."""
     from PySide6.QtCore import QEventLoop, QTimer
@@ -84,8 +95,9 @@ class Dialogs:
         self.opens: list = []           # str for ask_open, list for ask_open_many
         self.dirs: list = []
         self.asks: list = []            # answers for ask_yes_no: queue one per prompt
-        self.unexpected: list = []      # ask_yes_no calls nobody queued an answer for
+        self.unexpected: list = []      # ask_yes_no / ask_unsaved calls nobody queued an answer for
         self.passwords: list = []       # answers for ask_password (default None)
+        self.unsaved: list = []         # answers for ask_unsaved: "save" / "discard" / "cancel"
         self.colors: list = []
         self.msgs: list[tuple[str, str, str]] = []
 
@@ -127,6 +139,13 @@ def _install(mp, d: Dialogs):
             raise AssertionError(f"unexpected ask_yes_no: {title!r}: {msg!r}")
         return bool(d.asks.pop(0))
 
+    def ask_unsaved(name="", *a, **k):
+        d.msgs.append(("ask_unsaved", f"Save changes to {name}?", ""))
+        if not d.unsaved:
+            d.unexpected.append((f"Save changes to {name}?", ""))
+            raise AssertionError(f"unexpected ask_unsaved: {name!r}")
+        return d.unsaved.pop(0)
+
     def ask_password(title="", prompt="", *a, **k):
         d.msgs.append(("ask_password", str(title), str(prompt)))
         return _pop(d.passwords, None)
@@ -142,6 +161,7 @@ def _install(mp, d: Dialogs):
     mp.setattr(dmod, "ask_color", lambda *a, **k: _pop(d.colors, None))
     mp.setattr(dmod, "ask_yes_no", ask_yes_no)
     mp.setattr(dmod, "ask_password", ask_password)
+    mp.setattr(dmod, "ask_unsaved", ask_unsaved, raising=False)   # (absent before 2026-10-10)
     for kind in ("info", "warning", "error"):
         mp.setattr(dmod, kind, rec(kind))
 

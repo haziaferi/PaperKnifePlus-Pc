@@ -17,8 +17,9 @@ Harness for the Qt shell (paperknife.qt).  Independent of tests/conftest.py
 - Dialogs are stubbed through the one seam, paperknife.qt.dialogs (helpers
   in qt_harness.py, imported by the tests as `from qt_harness import ...`): queue
   return values with dialogs.save(...) / .open(...) / .dirs / .asks /
-  .passwords; every message is recorded in dialogs.msgs.  An ask_yes_no with
-  no queued answer, or a queued answer no prompt used, fails the test.
+  .unsaved / .passwords; every message is recorded in dialogs.msgs.  An
+  ask_yes_no or ask_unsaved with no queued answer, or a queued answer no
+  prompt used, fails the test.
 - The real pointer is never read or moved: every window gets a fixed
   simulated pointer (window centre) that tests may change.
 """
@@ -97,8 +98,10 @@ def dialogs(monkeypatch):
     d = Dialogs()
     _install(monkeypatch, d)
     yield d
-    assert not d.unexpected, f"ask_yes_no with no queued answer: {d.unexpected}"
+    assert not d.unexpected, f"a question with no queued answer: {d.unexpected}"
+
     assert not d.asks, f"queued ask_yes_no answers no prompt used: {d.asks}"
+    assert not d.unsaved, f"queued ask_unsaved answers no prompt used: {d.unsaved}"
 
 
 @pytest.fixture

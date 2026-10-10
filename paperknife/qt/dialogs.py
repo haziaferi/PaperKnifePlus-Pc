@@ -167,6 +167,23 @@ def ask_yes_no(title: str, msg: str) -> bool:
     return QMessageBox.question(None, title, msg) == QMessageBox.Yes
 
 
+def ask_unsaved(name: str) -> str:
+    """"Save changes to <name>?" with Save / Discard / Cancel: "save",
+    "discard" or "cancel" (also when the box is closed)."""
+    title = f"Save changes to {name}?"
+    box = _fluent_box(title, "", cancel="Cancel", yes="Save")
+    if box is None:
+        r = QMessageBox.question(None, title, "", QMessageBox.Save | QMessageBox.Discard
+                                 | QMessageBox.Cancel)
+        return {QMessageBox.Save: "save", QMessageBox.Discard: "discard"}.get(r, "cancel")
+    from PySide6.QtCore import Qt
+    from qfluentwidgets import PushButton
+    discard = PushButton("Discard", box.buttonGroup)
+    discard.clicked.connect(lambda: box.done(2))
+    box.buttonLayout.insertWidget(1, discard, 1, Qt.AlignVCenter)
+    return {1: "save", 2: "discard"}.get(_exec_once(box), "cancel")
+
+
 # ── Password ──────────────────────────────────────────────────────────────────
 def ask_password(title: str = "Password required",
                  prompt: str = "This PDF is password-protected. Enter the password:"):
