@@ -100,9 +100,11 @@ If you are working with the source distribution rather than the compiled install
 
 On first launch the Home page shows seven quick-action buttons (Read / Preview, Merge, Split, Password, Compress, Annotate, OCR) and an empty Recent files grid. Click a recent file to open it in Read / Preview; **Clear history** empties the list. A PDF dropped on Home also opens in Read / Preview.
 
-The navigation pane on the left lists Home, then the tools in labelled groups (Read, Organise, Enhance, Convert, Content), with Preferences at the bottom. The search box at its top filters tools by name (`Ctrl+K` or `Ctrl+F`); `Enter` opens the first match. The pane is expanded when the window is at least 900 px wide; `Ctrl+Alt+S` collapses or expands it.
+The navigation pane on the left lists Home, then the tools in labelled groups (Read, Organise, Enhance, Convert, Content), with Preferences at the bottom; Home and Preferences are in no group. Click a group's title (or press `Enter` or `Space` on it) to fold its tools under it, and again to unfold them; the chevron at the title's right points down when the group is open and right when it is folded. Folded groups stay folded at the next start. The search box at its top filters tools by name (`Ctrl+K` or `Ctrl+F`), folded groups included, and clearing it folds them again; `Enter` opens the first match. Opening a tool from the search, a Home quick action or a file dropped on Home unfolds its group. The pane is expanded when the window is at least 900 px wide; `Ctrl+Alt+S` collapses or expands it. Collapsed to icons, it shows every tool's icon.
 
 Every tool page has its title at the top left and its main action (the accent button) at the top right. Under the pages, the status line reports the last result; a coloured line starts with ✓ (done), ⚠ (warning) or ✗ (error). While a job runs, a progress bar with **Cancel** appears above the status line; a job that works on the document a page shows holds that page and the navigation until it ends.
+
+**The current document.** The app holds one current document. Opening or dropping a PDF anywhere, opening a recent file, and a tool's **Open** make it current, and every tool that works on one PDF shows it when you open that tool. Such a tool has the document bar under its title: **Open**, whose main part opens the file dialog and whose arrow lists the recent files, then **Browse…**; and a chip with the file's name (whole when the row has room, else shortened in the middle; the full path in its tooltip) and **✕** (Clear), which lets the document go. With no document, the page shows a dashed target, "Drop a PDF here or click to choose one": a click on it (or `Enter` or `Space`) opens the file dialog. In the single-file tools it sits above the options; in the workspaces it takes the page's place.
 
 Read / Preview, Edit Text, Find & Replace, Annotate and Redact open as a document workspace: a tool rail at the left (not in Read / Preview), the page in the centre with page arrows and **Zoom** under it, and a context panel at the right. Drag the panel's edge to resize it (220–480 px), double-click the edge or use the panel's hide / show buttons to toggle it.
 
@@ -167,7 +169,13 @@ The navigation pane lists 26 tools in five groups, with Preferences at the botto
 | | Metadata | View and edit document properties | 5.20 |
 | (bottom) | Preferences | Output folder, recent files, colour mode, DPI, compress level, OCR language | 5.26 |
 
-A tool that works on one file shows a file card at the top: drop a file on it or click **Choose file** (`Ctrl+O`), and **Change** to pick another. Dropping a file the tool does not take leaves it unchanged and the status line says so.
+A tool that works on one PDF uses the current document (Section 4.1): open one with the document bar's **Open** (`Ctrl+O`) or its list of recent files, click the empty page's target, or drop a PDF on the window. Moving to another tool keeps the document: the tool you leave closes the file, so other tools can overwrite it, and opens it again when you come back. A tool with unsaved edits keeps its own file. Doc / Text → PDF, whose input is not a PDF, keeps its file card: drop a file on it or click **Choose file** (`Ctrl+O`), and **Change** to pick another. Dropping a file the tool does not take leaves it unchanged and the status line says so.
+
+Merge, Image → PDF and Batch keep their lists (Batch its folders) while you move around; adding files to them does not change the current document, and a finished job empties them.
+
+After a job that writes one PDF, or a save to a new file in an editor, a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Split by Bookmarks, Extract Images, Batch) or a file that is not a PDF (PDF → Images, PDF → Doc / Text) ask nothing, and the current document stays.
+
+Unsaved edits in Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact are never dropped silently: leaving the tool, opening another document, **✕**, **Start over** and closing the window ask "Save changes to *name*?" with **Save** (the step goes on once the file is saved), **Discard** and **Cancel**.
 
 Page ranges, where a tool accepts them, are written like `1-3, 5, 8-end`. A range that names a page the document does not have, or runs backwards, is refused with a message before anything is written.
 
@@ -175,7 +183,7 @@ A password-protected PDF asks for its open password when it is opened. The passw
 
 ### 5.1 Read / Preview
 
-A view-only viewer: open a PDF with **Open PDF** or `Ctrl+O`, scroll through all pages continuously, and change the size with the **Zoom** slider (50–300 %) or `Ctrl` + mouse wheel. The strip under the pages shows which pages are in view; its arrows jump one page.
+A view-only viewer of the current document: open a PDF with the document bar's **Open**, `Ctrl+O` or the empty page's target, scroll through all pages continuously, and change the size with the **Zoom** slider (50–300 %) or `Ctrl` + mouse wheel. The strip under the pages shows which pages are in view; its arrows jump one page.
 
 ### 5.2 Merge
 
@@ -185,6 +193,8 @@ Merge combines two or more PDF files into a single output document. Files are pr
 - Click a file to select it, then use **Up / Down** (or `Alt+Up` / `Alt+Down`) to reorder or **Remove** (or `Delete`) to remove it.
 - Optionally enter a page range in each file's range field; blank includes all pages.
 - Click **Merge** and choose an output path.
+
+The list stays while you visit other tools and empties after a finished merge.
 
 ### 5.3 Split
 
@@ -216,6 +226,8 @@ Choose an **Operation**, an **Input folder** (**Browse…**, or drop a folder on
 
 Password-protected files are skipped with an error; open them in the single-file tool instead.
 
+A finished batch, errors included, empties the list and the input folder; the status line keeps the counts. A cancelled batch keeps them, with each file's result.
+
 ### 5.8 Compress
 
 Three levels balance quality against file size:
@@ -241,7 +253,7 @@ The page has two groups.
 - **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Protect PDF**. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions. To change the password of an already-protected PDF, also enter its current password in the **Remove Password** group's **Current password** field.
 - **Remove Password:** enter the current password and click **Remove Password** to save an unencrypted copy.
 
-The password fields are emptied when the job ends and when you leave the tool.
+The password fields are emptied at every end of an attempt (the job ended, the save dialog was cancelled, or the attempt was refused) and when you leave the tool.
 
 > ⚠️ **Warning:** Without the password the file cannot be opened. PaperKnife+ PC cannot recover lost passwords.
 
@@ -288,7 +300,7 @@ Shows Title, Author, Subject, Keywords, Creator, Producer, Creation date, and Mo
 
 ### 5.21 Image → PDF
 
-Add JPG, PNG, WEBP, BMP, TIFF, or GIF images with **Add Images** (or drop them on the list), order them with **Up / Down** (or `Alt+Up` / `Alt+Down`), and click **Convert to PDF**. Each image becomes one page of its own size, upright according to its EXIF orientation; transparency is flattened onto white.
+Add JPG, PNG, WEBP, BMP, TIFF, or GIF images with **Add Images** (or drop them on the list), order them with **Up / Down** (or `Alt+Up` / `Alt+Down`), and click **Convert to PDF**. Each image becomes one page of its own size, upright according to its EXIF orientation; transparency is flattened onto white. The list stays while you visit other tools and empties after a finished conversion.
 
 ### 5.22 PDF → Images
 
@@ -325,7 +337,7 @@ Click **Save Preferences** (or `Ctrl+S`) to keep changes; **Restore defaults** r
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl + O` | Open: choose the file of the current tool; add files in Merge and Image → PDF; choose the input folder in Batch |
+| `Ctrl + O` | Open: the file dialog for the current document, as the document bar's **Open** (Section 4.1); add files in Merge and Image → PDF; choose the input folder in Batch; choose the file in Doc / Text → PDF |
 | `Ctrl + S` | Save in Rotate & Reorder, Bookmarks / TOC, Edit Text, Find & Replace, Annotate, Redact (**Apply and save**, after confirmation), Metadata, and Preferences; other tools ignore it |
 | `Ctrl + Z` | Undo in Edit Text, Find & Replace, Annotate, and Redact |
 | `Delete` | Remove the selected file (Merge, Image → PDF), annotation (Annotate), pending box (Redact), or bookmark (Bookmarks / TOC); ignored while typing in a field |
@@ -347,7 +359,7 @@ While a job holds the page (Section 4.1), `Ctrl+O`, `Ctrl+S`, `Ctrl+Z`, `Delete`
 | Item | Path |
 |---|---|
 | Application binaries | `%LOCALAPPDATA%\PaperKnifePlusPC\` |
-| User preferences | `%USERPROFILE%\.paperknifepluspc\prefs.json` |
+| User preferences, window place, folded navigation groups | `%USERPROFILE%\.paperknifepluspc\prefs.json` |
 | Recent files list | `%USERPROFILE%\.paperknifepluspc\recent.json` |
 | Add/Remove Programs | `HKCU\Software\Microsoft\Windows\...\Uninstall\PaperKnifePlusPC` |
 | App registry key | `HKCU\Software\potatameister\PaperKnifePlusPC` |
@@ -434,7 +446,7 @@ To fully remove all application data after uninstalling, delete `%USERPROFILE%\.
 
 PaperKnife+ PC makes zero network connections. There is no telemetry, no analytics, no crash reporting, and no update check. The following data is stored locally only:
 
-- `prefs.json` — your preferences (Section 5.26), the last window size and position, and the paths of temporary files a job interrupted by quitting left behind, which are deleted at the next start.
+- `prefs.json` — your preferences (Section 5.26), the last window size and position, the folded navigation groups, and the paths of temporary files a job interrupted by quitting left behind, which are deleted at the next start.
 - `recent.json` — recently opened files: path, file name, size, page count, and access time.
 
 Apart from the operation you invoke, the only file content read is the first page of each recent file, rendered as a thumbnail on the Home screen (kept in memory only). Neither file holds a password: an open password stays with the open document only (Section 5). Deleting `%USERPROFILE%\.paperknifepluspc\` removes all application data completely.
@@ -452,6 +464,13 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **Changed:** the password of a protected input is kept on the open document only and asked again each time it is opened; a new PDF written from it asks whether to keep the password. The Password tool empties its fields after each job.
 - **Changed:** `Ctrl+S` always means save; tools whose main action is not a save, such as Split, ignore it (Section 6).
 - **New:** Compact Mode (`Ctrl+Alt+C`), navigation pane toggle (`Ctrl+Alt+S`), auto-hiding title bar; the window's place and maximized state are restored.
+- **New:** one current document the single-file tools and the workspaces follow, set by opening or dropping a PDF anywhere, a recent file, or a tool's Open (Section 4.1). A document bar under each such page's title holds **Open** (the file dialog; its arrow lists the recent files, then **Browse…**) and the file's name with **✕**; pages no longer show a file card, except Doc / Text → PDF. Read / Preview and the editing workspaces have no Open button of their own; `Ctrl+O` still opens.
+- **New:** a page with no document shows a target, "Drop a PDF here or click to choose one"; a click opens the file dialog.
+- **Changed:** leaving a tool keeps its document instead of clearing it: the file is closed while you are away and opened again when you come back.
+- **New:** after a job that writes one PDF, "*name* is ready" with **Continue with it** / **Start over**; opening another tool counts as Continue. Jobs with several outputs ask nothing. Merge, Image → PDF and Batch keep their lists while you move around and empty them after a finished job.
+- **New:** Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact ask "Save changes to *name*?" (**Save** / **Discard** / **Cancel**) before unsaved edits are left, replaced, cleared, or closed with the window.
+- **New:** navigation groups fold under their title (click, `Enter` or `Space`); the folded groups are kept in `prefs.json`, and a search still finds tools in them.
+- **Fixed:** Password kept a typed password after a cancelled save dialog or a refused attempt; its fields are now emptied at every end of an attempt.
 - **Unchanged:** the same 26 tools, and the same `prefs.json` and `recent.json`.
 - **Removed:** the `customtkinter` and `tkinterdnd2` dependencies.
 
