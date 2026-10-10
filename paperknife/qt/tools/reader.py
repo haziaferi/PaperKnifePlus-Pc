@@ -95,7 +95,6 @@ class ReaderPage(WorkspacePage):
         self.zoom_slider.blockSignals(False)
         self.page_label.setText("—")
 
-        self.secondary("Open PDF", self.open)
         self._fill_panel()
 
     # ── panel ────────────────────────────────────────────────────────────────

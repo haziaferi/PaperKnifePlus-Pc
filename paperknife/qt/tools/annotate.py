@@ -40,7 +40,6 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
-        self.secondary("Open", self.open)
         self.primary("Save", self.save)
         self.enable_band(lambda: ("line" if self.kind == "line" else "rect",
                                   theme.hex_color("accent")),

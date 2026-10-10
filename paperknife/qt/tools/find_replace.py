@@ -26,7 +26,6 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self._hits: list = []           # (page_num, [rect per line of the match])
         self._hit_idx = -1
         self.add_rail("undo", GLYPH_UNDO, "Undo (Ctrl+Z)", self.undo, toggle=False)
-        self.secondary("Open", self.open)
         self.secondary("Find All", self.find_all)
         self.secondary("Replace All", self.replace_all)
         self.primary("Save", self.save)

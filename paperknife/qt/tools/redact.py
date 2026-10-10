@@ -45,7 +45,6 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo last (Ctrl+Z)", self.undo, toggle=False)
-        self.secondary("Open", self.open)
         self.primary("Apply and save", self.save, danger=True)
         self.enable_band(lambda: ("rect", theme.hex_color("danger")), self._add_box,
                          drag_needs_doc=True)
