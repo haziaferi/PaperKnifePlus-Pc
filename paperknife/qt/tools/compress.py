@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ...core import enhance as core_enhance
 from ...prefs import PREFS
-from ..pages import ToolPage, card, file_card, group_title, radio_rows, register_page
+from ..pages import ToolPage, card, group_title, radio_rows, register_page
 
 LEVELS = [
     ("light", "Light", "Clean and deflate only. Safe for every file."),
@@ -32,8 +32,7 @@ class CompressPage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Compress", "Reduce file size by cleaning streams and downsampling images",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Compression level"))
         group = card(padding=0)

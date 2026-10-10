@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
-from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, register_page,
+from ..pages import (ToolPage, card, group_title, labelled_slider, register_page,
                      setting_row)
 
 DPI_RANGE = (72, 300)
@@ -16,8 +16,7 @@ class Pdf2ImgPage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("PDF → Images", "Export every page as a PNG · bundled in a ZIP",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Options"))
         group = card(padding=0)

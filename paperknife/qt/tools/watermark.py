@@ -8,7 +8,7 @@ from qfluentwidgets import LineEdit, PushButton
 
 from ...core import enhance as core_enhance
 from .. import dialogs
-from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, register_page,
+from ..pages import (ToolPage, card, group_title, labelled_slider, register_page,
                      setting_row)
 
 DEFAULT_COLOR = (128, 128, 128)
@@ -23,8 +23,7 @@ class WatermarkPage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Watermark", "Stamp a diagonal text watermark across every page",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Watermark"))
         group = card(padding=0)

@@ -6,7 +6,7 @@ from pathlib import Path
 from qfluentwidgets import ComboBox
 
 from ...core import enhance as core_enhance
-from ..pages import ToolPage, card, file_card, group_title, radio_rows, register_page, setting_row
+from ..pages import ToolPage, card, group_title, radio_rows, register_page, setting_row
 
 SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]
 ORIENTATIONS = ["Portrait", "Landscape", "Keep original"]
@@ -19,8 +19,7 @@ class NormalisePage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Normalise Pages", "Resize all pages to a standard paper size",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
 
         self.body.addWidget(group_title("Page size"))

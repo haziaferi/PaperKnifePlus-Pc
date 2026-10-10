@@ -18,10 +18,15 @@ and MainWindow.page_for(tool) builds it the first time the tool is opened.
 Optional hooks the shell calls when a page defines them:
     open() / save() / undo()     Ctrl+O / Ctrl+S / Ctrl+Z
     delete()                     Delete (not while a text field has focus)
-    accept_drop(path) -> bool    a file dropped on the window (ToolPage
-                                 forwards it to its file cards)
+    accept_drop(path) -> bool    a file dropped on the window (a single-input
+                                 page makes it the current document)
     activate() / deactivate()    the page is shown / left
     open_path(path)              open this file (a Home recent-file click)
+
+A single-input page (doc_input(), or a WorkspacePage) follows the window's
+current document: document_path() / load_document(path) / clear_document(),
+and an editor adds is_dirty() / discard_changes() / save(after=None) for the
+unsaved-edits question (MainWindow.settle_unsaved).
 """
 from __future__ import annotations
 
@@ -78,6 +83,11 @@ ROW_MIN_HEIGHT = 64
 CONTROL_H = 32              # Fluent's standard control height: no control is shorter
 ACTION_SIZE = (160, CONTROL_H)
 CARD_RADIUS = 4             # WinUI ControlCornerRadius (settings cards, expanders)
+
+# The current document (owner's decisions 2026-10-10)
+HINT_SUBTITLE = "Open a PDF to start"       # a subtitle that gives way to the file name
+CONTINUE_TEXT = "Continue with it"          # after a job: the output becomes current
+START_OVER_TEXT = "Start over"              # after a job: the tool and the document clear
 
 
 # ── Small widgets ─────────────────────────────────────────────────────────────
@@ -501,6 +511,61 @@ def file_card(on_change=None, exts=(".pdf",)) -> FileCard:
     return FileCard(on_change, exts)
 
 
+def same_path(a: str | None, b: str | None) -> bool:
+    """Whether two paths name the same file (case and form ignored)."""
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+class DocInput:
+    """The PDF a single-input page acts on (in place of a FileCard, which
+    pages no longer show): the same API, path() / set_path() / clear() /
+    accepts() / accept_drop() / choose(), with nothing drawn.  The page shows
+    it through refresh_document (subtitle, bar chip, empty-state target).
+
+    set_path(path) is a choice of file: on_change(path) runs, then the page
+    tells the window, which makes *path* the current document when it is
+    still the page's file (a load that failed puts the old one back)."""
+
+    exts = (".pdf",)
+
+    def __init__(self, page, on_change=None):
+        self._page = page
+        self._on_change = on_change
+        self._path = ""
+
+    def path(self) -> str:
+        return self._path
+
+    def set_path(self, path: str, notify: bool = True):
+        new = str(path) if path else ""
+        self._path = new
+        if notify and self._on_change is not None:
+            self._on_change(new)
+        self._page.refresh_document(announce=notify and bool(new) and self._path == new)
+
+    def clear(self):
+        self.set_path("", notify=False)
+
+    def accepts(self, path: str) -> bool:
+        return os.path.isfile(path) and Path(path).suffix.lower() == ".pdf"
+
+    def accept_drop(self, path: str) -> bool:
+        if not self.accepts(path):
+            return False
+        self.set_path(path)
+        return True
+
+    def choose(self):
+        win = self._page.window_
+        if win is not None:
+            return win.browse_document()
+        p = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
+        if p:
+            self.set_path(p)
+
+
 def ask_keep_password(*docs) -> OpenPassword | None:
     """Before a PDF is written from *docs* (one input, or a merge's): when the
     input was opened with a password, ask whether the new file keeps it.  The
@@ -520,53 +585,70 @@ def ask_keep_password(*docs) -> OpenPassword | None:
 
 
 class HeldDoc(DocHolder):
-    """A page that keeps its file card's (self.file) document open in
+    """A page that keeps its input's (self.file) document open in
     self._doc; self._src is the file it was read from."""
     _src: str = ""
 
     def open_held(self, path: str, title: str | None = None):
-        """Open *path* as the held document and close the one before; with
-        *title*, the file name becomes the subtitle.  When it cannot be opened
-        the document already open stays and the card goes back to its file.
-        The new document, or None."""
+        """Open *path* as the held document and close the one before (the
+        page's subtitle names it: refresh_document).  When it cannot be opened
+        the document already open stays and the input goes back to its file.
+        The new document, or None.  *title* is not used any more."""
         doc = self.window_.open_pdf_safe(path)
         if doc is None:
             self.file.set_path(self._src if self._doc is not None else "", notify=False)
             return None
         self._close_doc()
         self._doc, self._src = doc, path
-        if title is not None:
-            self.set_title(title, Path(path).name)
+        self._dirty = False
         return doc
 
     def release_held(self, title: str | None = None, subtitle: str = ""):
-        """Close the held document and empty the card; with *title*, put the
-        page's own subtitle back."""
+        """Close the held document and empty the input (*title* and
+        *subtitle* are not used any more: the subtitle never changes)."""
         self._close_doc()
         self._src = ""
+        self._dirty = False
         self.file.clear()
-        if title is not None:
-            self.set_title(title, subtitle)
+
+    def saved_elsewhere(self, out: str) -> bool:
+        """Whether *out* is a file other than the one the document came from."""
+        return not same_path(out, self._src)
+
+    def park_document(self):
+        """The page is left: a document with no unsaved edits is closed, so
+        its file is free for other tools to overwrite; the input keeps the
+        path and the page reopens it when shown (MainWindow._follow)."""
+        if self._doc is not None and not self.is_dirty():
+            self._close_doc()
+
+    def is_parked(self) -> bool:
+        return self._doc is None and bool(self.file.path())
 
 
 class WorkspaceDoc(DocHolder):
     """The document a WorkspacePage edits, held in self._doc."""
 
-    def open_document(self, path: str, title: str):
+    _src_path: str = ""
+
+    def open_document(self, path: str, title: str = ""):
         """Open *path* in place of the document shown, at page 1 with no undo
-        history; the file name becomes the subtitle.  The new document, or
-        None (the old one stays) when it cannot be opened."""
+        history and no unsaved edits; it becomes the current document.  The
+        new document, or None (the old one stays) when it cannot be opened.
+        *title* is not used any more (the subtitle names the file)."""
         doc = self.window_.open_pdf_safe(path)
         if doc is None:
             return None
         self._close_doc()
         self._doc, self._pg, self._undo_stack = doc, 0, []
-        self.set_title(title, Path(path).name)
+        self._src_path, self._dirty = str(path), False
+        self.refresh_document(announce=True)
         return doc
 
-    def save(self):
+    def save(self, after=None):
         """Ctrl+S: save the document to a file the user chooses (save_name
-        offered); the box says "<saved_what> saved"."""
+        offered); the box says "<saved_what> saved".  after(): run once it
+        is saved (the unsaved-edits question's Save)."""
         if self._doc is None:
             return dialogs.warning("Save", "Open a PDF first.")
         out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
@@ -579,8 +661,13 @@ class WorkspaceDoc(DocHolder):
             # A save over the open file goes on from an in-memory copy of it.
             self.show_current()
             if kind == "done":
+                self._dirty = False
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
+                if not same_path(out, self._src_path):
+                    self.offer_output(out)
+                if callable(after):
+                    after()
 
         win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
                     lock=True, then=done, cancellable=False, keep_password=(kept, [out]))
@@ -610,6 +697,11 @@ class ToolPage(QWidget):
         self._compact = False
         self._ctx_before_compact = True     # the panel as the user left it
         self._buttons: list = []
+        self._subtitle = subtitle           # the page's own; the document's name follows it
+        self.doc_bar = None                 # bar layout: the Open control + chip row
+        self.drop_target = None             # the empty-state target (single-input pages)
+        self._first_card: list | None = None
+        self._offer = None                  # (InfoBar, output path): the after-job question
 
         v = QVBoxLayout(self)
         v.setContentsMargins(*PAGE_MARGINS)
@@ -628,6 +720,7 @@ class ToolPage(QWidget):
         self.subtitle_label.setVisible(bool(subtitle))
         titles.addWidget(self.title_label)
         titles.addWidget(self.subtitle_label)
+        self._titles = titles
         hh.addLayout(titles)
         hh.addStretch(1)
         self.header_actions = QHBoxLayout()
@@ -671,10 +764,201 @@ class ToolPage(QWidget):
 
     # ── title ──
     def set_title(self, title: str, subtitle: str | None = None):
+        """The title, and with *subtitle* the page's own subtitle (the
+        document's name follows it: _show_subtitle)."""
         self.title_label.setText(title)
         if subtitle is not None:
-            self.subtitle_label.setText(subtitle)
-            self.subtitle_label.setVisible(bool(subtitle))
+            self._subtitle = subtitle
+        self._show_subtitle()
+
+    def _show_subtitle(self):
+        """nav layout: "<subtitle> · <file name>" while the page has a
+        document; bar layout: the subtitle (the chip names the file).  A
+        subtitle that only says to open a file (HINT_SUBTITLE) gives way to
+        the file name in either layout."""
+        from . import docui
+        path = self.document_path() if self.follows_document else ""
+        name, base = (Path(path).name if path else ""), self._subtitle
+        if name and base == HINT_SUBTITLE:
+            text = name
+        elif name and docui.layout() == "nav":
+            text = f"{base} · {name}" if base else name
+        else:
+            text = base
+        self.subtitle_label.setText(text)
+        self.subtitle_label.setVisible(bool(text))
+
+    # ── the document (single-input pages) ──
+    follows_document = False    # True: the page shows the window's current document
+
+    def doc_input(self, on_change=None) -> DocInput:
+        """Make this a single-input page: self.file holds its PDF (nothing
+        drawn), the empty-state target goes into the body here (where a
+        FileCard went) and stands in for the first card after it while there
+        is no document; the bar layout adds its row under the subtitle."""
+        from . import docui
+        self.file = DocInput(self, on_change)
+        self.follows_document = True
+        self.drop_target = docui.DropTarget(self.window_)
+        self.body.addWidget(self.drop_target)
+        self._build_doc_bar()
+        return self.file
+
+    def _build_doc_bar(self):
+        from . import docui
+        if docui.layout() == "bar" and self.doc_bar is None:
+            self.doc_bar = docui.DocBar(self.window_, self.header)
+            self._titles.addWidget(self.doc_bar)
+
+    def document_path(self) -> str:
+        """The file this page acts on ("" for none)."""
+        f = getattr(self, "file", None)
+        return f.path() if isinstance(f, DocInput) else ""
+
+    def document_name(self) -> str:
+        return Path(self.document_path()).name
+
+    def load_document(self, path: str) -> bool:
+        """Show *path* (the window's current document); whether it is shown."""
+        self.file.set_path(path)
+        return same_path(self.document_path(), path)
+
+    def clear_document(self):
+        """Empty the page's input (Start over, the clear action)."""
+        f = getattr(self, "file", None)
+        if isinstance(f, (DocInput, FileCard)):
+            f.clear()
+        self.refresh_document()
+
+    _dirty = False
+
+    def is_dirty(self) -> bool:
+        """Edits since the last save or open (the editing screens)."""
+        return False
+
+    def park_document(self):
+        """The page is left (after deactivate): a page holding its document
+        open lets the file go and keeps the path (HeldDoc, WorkspacePage)."""
+
+    def is_parked(self) -> bool:
+        """The document is parked: to be reopened when the page is shown."""
+        return False
+
+    def discard_changes(self):
+        """Drop the unsaved edits: the page lets its document go (it opens
+        it afresh the next time it follows the current document)."""
+        self.clear_document()
+        self._dirty = False
+
+    def refresh_document(self, announce: bool = False):
+        """Show what the page acts on: the subtitle, the bar chip, and the
+        empty-state target in place of the first card while there is none.
+        announce: the user chose this file; it becomes the current document."""
+        path = self.document_path() if self.follows_document else ""
+        self._show_subtitle()
+        if self.doc_bar is not None:
+            self.doc_bar.show_path(path)
+        self._show_target(not path)
+        if announce and path and self.window_ is not None:
+            self.window_.set_current_document(path)
+
+    def _show_target(self, empty: bool):
+        if self.drop_target is None:
+            return
+        if not self._first_card:            # found once the page is built
+            self._first_card = self._card_after_target()
+        self.drop_target.setVisible(empty)
+        for w in self._first_card:
+            w.setVisible(not empty)
+
+    def _card_after_target(self) -> list:
+        """The first card after the target in the body (and the group title
+        straight above it), which the target stands in for."""
+        from PySide6.QtWidgets import QLayout
+
+        def items(lay):
+            for i in range(lay.count()):
+                it = lay.itemAt(i)
+                if it.widget() is not None:
+                    yield it.widget()
+                elif isinstance(it.layout(), QLayout):
+                    yield from items(it.layout())
+        seen, before = False, None
+        for w in items(self.body):
+            if w is self.drop_target:
+                seen = True
+                continue
+            if not seen:
+                continue
+            if isinstance(w, SimpleCardWidget):
+                return [before, w] if before is not None else [w]
+            before = w if isinstance(w, StrongBodyLabel) else None
+        return []
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if self.follows_document:
+            self.refresh_document()
+
+    # ── after a job: the question (owner: ask once) ──
+    def offer_output(self, out: str):
+        """A job wrote one PDF, *out*: an InfoBar at the top of the page,
+        "<name> is ready", with Continue with it / Start over."""
+        from qfluentwidgets import InfoBar, InfoBarIcon, InfoBarPosition
+        self.dismiss_offer()
+        bar = InfoBar(InfoBarIcon.SUCCESS, f"{Path(out).name} is ready", "",
+                      Qt.Horizontal, isClosable=False, duration=-1,
+                      position=InfoBarPosition.NONE, parent=self)
+        bar.setObjectName("afterJobBar")
+        cont = PushButton(CONTINUE_TEXT, bar)
+        cont.clicked.connect(self.continue_with_output)
+        over = PushButton(START_OVER_TEXT, bar)
+        over.clicked.connect(self.start_over)
+        bar.addWidget(cont)
+        bar.addWidget(over)
+        bar.continue_button, bar.start_over_button = cont, over
+        self.layout().insertWidget(0, bar)
+        self._offer = (bar, str(out))
+
+    def offered_output(self) -> str | None:
+        return self._offer[1] if self._offer is not None else None
+
+    def offer_bar(self):
+        return self._offer[0] if self._offer is not None else None
+
+    def dismiss_offer(self):
+        if self._offer is None:
+            return
+        bar, _out = self._offer
+        self._offer = None
+        bar.hide()
+        self.layout().removeWidget(bar)
+        bar.setParent(None)
+        bar.deleteLater()
+
+    def continue_with_output(self):
+        """The output becomes the current document; this tool shows it."""
+        out = self.offered_output()
+        self.dismiss_offer()
+        if out and self.window_ is not None:
+            self.window_.open_document(out)
+
+    def start_over(self):
+        """This tool and the current document are cleared."""
+        win = self.window_
+        if win is not None and not win.settle_unsaved(self, self.start_over):
+            return
+        self.dismiss_offer()
+        self.clear_document()
+        if win is not None:
+            win.set_current_document(None)
+
+    def leave_offer(self):
+        """The page is left with the question open: as Continue with it."""
+        out = self.offered_output()
+        self.dismiss_offer()
+        if out and self.window_ is not None:
+            self.window_.set_current_document(out)
 
     # ── actions ──
     def _action_layout(self) -> QHBoxLayout:
@@ -760,27 +1044,35 @@ class ToolPage(QWidget):
 
         A PDF output (save with ".pdf", or *parts*: work writes PDFs into the
         chosen folder) from an input opened with a password asks once whether
-        the new files keep it (ask_keep_password)."""
+        the new files keep it (ask_keep_password).  One PDF written (save with
+        ".pdf") puts the after-job question up (offer_output); a folder of
+        outputs asks nothing.
+
+        The job, or None when none was started (no file, a refusal, a
+        cancelled save dialog, another job running)."""
         if src is None:
             src = self.chosen_file(title)
             if not src:
-                return
+                return None
         win = self.window_
         doc = open_doc(src) if open_doc is not None else win.open_pdf_safe(src)
         if doc is None:
-            return
+            return None
         if prepare is not None:
             try:
                 prepare(doc)
             except Refusal as e:
                 doc.close()
-                return dialogs.warning(title, str(e))
+                dialogs.warning(title, str(e))
+                return None
             except ValueError as e:
                 doc.close()
-                return dialogs.error(title, str(e))
+                dialogs.error(title, str(e))
+                return None
         out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
         if not out:
-            return doc.close()
+            doc.close()
+            return None
         pdf_out = parts or (save is not None and save[1].lower() == ".pdf")
         kept = ask_keep_password(doc) if pdf_out else None
         progress = win.progress_callback()
@@ -794,22 +1086,40 @@ class ToolPage(QWidget):
             win.set_status(status, role)
             box = dialogs.warning if warning_box and role == "warning" else dialogs.info
             box(box_title, text)
+            if save is not None and save[1].lower() == ".pdf":
+                self.offer_output(out)
 
-        if win.run_job(lambda stop: work(doc, out, stop, progress),
-                       label if isinstance(label, str) else label(),
-                       then=then, cancellable=cancellable,
-                       keep_password=(kept, out if parts else [out])) is None:
+        job = win.run_job(lambda stop: work(doc, out, stop, progress),
+                          label if isinstance(label, str) else label(),
+                          then=then, cancellable=cancellable,
+                          keep_password=(kept, out if parts else [out]))
+        if job is None:
             doc.close()
+        return job
 
     # ── shell hooks ──
     def open(self):
-        """Ctrl+O: Choose file on the first visible file card."""
+        """Ctrl+O: the file dialog for the current document (a single-input
+        page), else Choose file on the first visible file card."""
+        if isinstance(getattr(self, "file", None), DocInput):
+            return self.file.choose()
         for fc in self.findChildren(FileCard):
             if fc.isVisibleTo(self):
                 return fc.choose()
 
     def accept_drop(self, path: str) -> bool:
-        """Give a dropped file to the first visible file card that takes it."""
+        """A dropped PDF becomes the current document (a single-input page,
+        through the window: unsaved edits are asked about), else the first
+        visible file card that takes it gets it."""
+        f = getattr(self, "file", None)
+        if isinstance(f, DocInput):
+            if not f.accepts(path):
+                return False
+            if self.window_ is not None:
+                self.window_.open_document(path)
+            else:
+                f.set_path(path)
+            return True
         for fc in self.findChildren(FileCard):
             if fc.isVisibleTo(self) and fc.accept_drop(path):
                 return True
@@ -896,6 +1206,16 @@ class WorkspacePage(ToolPage):
         mv.setSpacing(0)
         self.view = (view_cls or PageView)(theme.hex_color("page_bg"))
         mv.addWidget(self.view, 1)
+        # No document: the empty-state target in the page view's place.
+        from . import docui
+        self.target_box = QWidget()
+        tv = QVBoxLayout(self.target_box)
+        tv.setContentsMargins(16, 16, 16, 16)
+        tv.addStretch(1)
+        self.drop_target = docui.DropTarget(window)
+        tv.addWidget(self.drop_target)
+        tv.addStretch(1)
+        mv.addWidget(self.target_box, 1)
         mv.addWidget(Divider())
         strip = QHBoxLayout()
         strip.setContentsMargins(8, 4, 12, 4)
@@ -947,6 +1267,51 @@ class WorkspacePage(ToolPage):
         # baked for one theme: redo them when Preferences or Windows switch it.
         from qfluentwidgets import qconfig
         qconfig.themeChangedFinished.connect(self._apply_theme)
+        self._build_doc_bar()
+        self._show_target(True)
+
+    follows_document = True
+
+    def _show_target(self, empty: bool):
+        self.target_box.setVisible(empty)
+        self.view.setVisible(not empty)
+
+    def document_path(self) -> str:
+        """The file shown (also while it is parked: closed while the page is away)."""
+        return self._src_path
+
+    def load_document(self, path: str) -> bool:
+        """Open *path*; a parked document comes back at the page it was on."""
+        pg = self._pg if self.is_parked() and same_path(path, self._src_path) else 0
+        self.open_path(path)
+        doc = getattr(self, "_doc", None)
+        if doc is not None and 0 < pg < len(doc):
+            self._pg = pg
+            self.on_page()
+            self.show_current()
+        return doc is not None and same_path(self.document_path(), path)
+
+    def clear_document(self):
+        """Close the document (the page's own state goes with it: subclasses)."""
+        self._close_doc()
+        self._src_path, self._dirty = "", False
+        self.show_current()
+        self.refresh_document()
+
+    def park_document(self):
+        """The page is left: a document with no unsaved edits is closed (its
+        file free for other tools); the page keeps the path and its page
+        number and reopens it when shown again (MainWindow._follow)."""
+        if getattr(self, "_doc", None) is not None and not self.is_dirty():
+            self._close_doc()
+            self._undo_stack = []
+            self.show_current()
+
+    def is_parked(self) -> bool:
+        return getattr(self, "_doc", None) is None and bool(self._src_path)
+
+    def is_dirty(self) -> bool:
+        return getattr(self, "_doc", None) is not None and self._dirty
 
     def _style_split(self):
         accent = theme.hex_color("accent")
@@ -1083,16 +1448,24 @@ class WorkspacePage(ToolPage):
         a.start(QVariantAnimation.DeleteWhenStopped)
 
     # ── document ──
+    _src_path = ""
+
     def open(self):
+        if self.window_ is not None:
+            return self.window_.browse_document()
         path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
         if path:
             self.open_path(path)
 
     def accept_drop(self, path: str) -> bool:
-        """A dropped PDF is opened (open_path)."""
+        """A dropped PDF becomes the current document, shown here (through
+        the window: unsaved edits are asked about first)."""
         if not str(path).lower().endswith(".pdf"):
             return False
-        self.open_path(path)
+        if self.window_ is not None:
+            self.window_.open_document(path)
+        else:
+            self.open_path(path)
         return True
 
     # ── pages ──
@@ -1510,6 +1883,10 @@ class CollectionPage(ToolPage):
     def delete(self):
         self.remove_selected()
 
+    def clear_document(self):
+        """Start over / a finished job: the list empties (owner)."""
+        self.clear_rows()
+
     def accept_drop(self, path: str) -> bool:
         if self.accepts(path):
             self.add_paths([path])
@@ -1578,7 +1955,7 @@ def _thumb_delegate():
 
 class OrganiserPage(ToolPage):
     """Group B, page organiser (Rotate & Reorder, Split by Bookmarks): the
-    file card on top, then a context bar with the actions for the selected
+    empty-state target while there is no document, then a context bar with the actions for the selected
     pages (add_action; they are enabled only while something is selected,
     and a hint takes their place's meaning when nothing is), then the pages
     as a thumbnail grid in a card.  Thumbnails can be dragged to a new place
@@ -1587,7 +1964,7 @@ class OrganiserPage(ToolPage):
     at the right (self.settings, as CollectionPage).  A page whose centre is
     not a thumbnail grid (an outline) calls set_centre(widget).
 
-    The file card's on_change calls self.load(path); a subclass overrides
+    The input's (doc_input) on_change calls self.load(path); a subclass overrides
     load() to open the document and call set_pages(keys, render, label).
 
         set_pages(keys, render, label)  render(key) -> QImage; label(key) -> str
@@ -1603,8 +1980,7 @@ class OrganiserPage(ToolPage):
         from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
-        self.file = file_card(self.load)
-        self.body.addWidget(self.file)
+        self.doc_input(self.load)
         self.body.addSpacing(8)
 
         bar = QWidget()
@@ -1788,13 +2164,10 @@ class OrganiserPage(ToolPage):
         self.hint_label.setText(self._hint if not n else
                                 f"{n} page{'s' if n != 1 else ''} selected")
 
-    def accept_drop(self, path: str) -> bool:
-        return self.file.accept_drop(path)
-
 
 class MasterDetailPage(ToolPage):
-    """Group E, structured editor (Bookmarks / TOC): the file card on top, then
-    the list of entries in a card with its toolbar (add_tool; buttons made
+    """Group E, structured editor (Bookmarks / TOC): the empty-state target
+    while there is no document, then the list of entries in a card with its toolbar (add_tool; buttons made
     with needs_selection=True are enabled only while an entry is selected)
     and, at the right, a detail column of fixed width (SETTINGS_W) with the
     selected entry's fields: detail_begin(title) empties it, detail_field(label)
@@ -1802,7 +2175,7 @@ class MasterDetailPage(ToolPage):
     them).  A tool with fields but no list (Metadata) uses the group C form
     instead.
 
-    The file card's on_change calls self.load(path).
+    The input's (doc_input) on_change calls self.load(path).
 
         set_items(texts, keep=None)  keep = the index to select afterwards
         current() -> index | None; select(i); on_select(i) (override)
@@ -1813,8 +2186,7 @@ class MasterDetailPage(ToolPage):
         from qfluentwidgets import ListWidget
         super().__init__(title, subtitle, tool=tool, window=window, scroll=False,
                          parent=parent)
-        self.file = file_card(self.load)
-        self.body.addWidget(self.file)
+        self.doc_input(self.load)
         self.body.addSpacing(8)
         cols = QHBoxLayout()
         cols.setSpacing(16)
@@ -1950,6 +2322,3 @@ class MasterDetailPage(ToolPage):
         for b in self._tools:
             if b.pk_needs_selection:
                 b.setEnabled(has)
-
-    def accept_drop(self, path: str) -> bool:
-        return self.file.accept_drop(path)

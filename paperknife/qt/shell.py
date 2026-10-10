@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pymupdf as fitz
 from PySide6.QtCore import (QByteArray, QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect,
-                            Qt, QTimer)
+                            Qt, QTimer, Signal)
 from PySide6.QtGui import QCursor, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QHBoxLayout,
                                QLineEdit, QPlainTextEdit, QTextEdit, QVBoxLayout, QWidget)
@@ -131,6 +131,10 @@ class NavSearch(NavigationWidget):
 # ══════════════════════════════════════════════════════════════════════════════
 class MainWindow(FluentWindow):
 
+    # The current document changed: its path, or None (owner's decision
+    # 2026-10-10: one document the single-input screens follow).
+    current_document_changed = Signal(object)
+
     def __init__(self, tools=None):
         super().__init__()
         theme.window_follows_palette(self)
@@ -167,6 +171,7 @@ class MainWindow(FluentWindow):
         self._pointer = QCursor.pos     # tests replace this; never move the real mouse
         self._anims: dict[str, QPropertyAnimation] = {}
         self.status_role = "muted"
+        self.current_document: str | None = None
 
         self._build_body()
         self._build_nav()
@@ -247,6 +252,13 @@ class MainWindow(FluentWindow):
                       position=NavigationItemPosition.TOP)
         self.search.edit.textChanged.connect(self._filter_nav)
         self.search.edit.returnPressed.connect(self._open_first_match)
+
+        # PK_DOCUI=nav (the default): the current document's slot, under the search box
+        from . import docui
+        self.doc_slot = None
+        if docui.layout() == "nav":
+            self.doc_slot = docui.DocSlot(self)
+            nav.addWidget("document", self.doc_slot, position=NavigationItemPosition.TOP)
 
         self._items: dict[str, NavigationWidget] = {}
         self._labels: dict[str, str] = {}
@@ -346,19 +358,29 @@ class MainWindow(FluentWindow):
     def current_page(self) -> QWidget | None:
         return self._pages.get(self._current_key) if self._current_key else None
 
-    def show_page(self, key: str) -> bool:
+    def show_page(self, key: str, follow: bool = True) -> bool:
         """Switch to the page *key* ("home" or a tool class name); False when
-        refused (a job holds the view) or unknown."""
+        refused (a job holds the view, unsaved edits kept by Cancel) or
+        unknown.  A page left with unsaved edits asks first; one left with
+        the after-job question open counts it as Continue with it.  follow:
+        a single-input page shown takes the current document."""
         if self._locked or key not in self._hosts:
             if self._current_key:          # keep the selection on the shown page
                 self.navigationInterface.setCurrentItem(self._current_key)
             return False
         old = self.current_page()
         if key != self._current_key and old is not None:
+            if not self.settle_unsaved(old, lambda: self.show_page(key, follow)):
+                self.navigationInterface.setCurrentItem(self._current_key)
+                return False
+            if hasattr(old, "leave_offer"):
+                old.leave_offer()
             if self.compact:
                 old.set_compact(False)
             if hasattr(old, "deactivate"):
                 old.deactivate()
+            if hasattr(old, "park_document"):
+                old.park_document()
         page = self._ensure_page(key)
         changed = key != self._current_key
         self._current_key = key
@@ -370,18 +392,117 @@ class MainWindow(FluentWindow):
                 page.set_compact(True)
             if hasattr(page, "activate"):
                 page.activate()
+            if follow:
+                self._follow(page)
         return True
 
     def open_tool(self, class_name: str, path: str | None = None) -> bool:
-        """Open a tool (by class name); with *path*, hand it the file."""
-        if not self.show_page(class_name):
+        """Open a tool (by class name); with *path*, hand it the file (it
+        becomes the current document on a single-input page)."""
+        if not self.show_page(class_name, follow=not path):
             return False
         if path:
             page = self.current_page()
+            if getattr(page, "follows_document", False):
+                self.open_document(path)
+                return True
             fn = getattr(page, "open_path", None) or getattr(page, "accept_drop", None)
             if callable(fn):
                 fn(path)
         return True
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # THE CURRENT DOCUMENT
+    # ══════════════════════════════════════════════════════════════════════════
+    def set_current_document(self, path: str | None):
+        """Make *path* (or None) the current document, and say so.  An
+        after-job question about another file goes."""
+        path = str(path) if path else None
+        page = self.current_page()
+        out = page.offered_output() if page is not None and hasattr(page, "offered_output") \
+            else None
+        if out and not pages.same_path(out, path):
+            page.dismiss_offer()
+        if path == self.current_document:
+            return
+        self.current_document = path
+        self.current_document_changed.emit(path)
+
+    def open_document(self, path: str) -> bool:
+        """Open *path* as the current document (the Open control, a recent
+        file, a drop): a single-input page shown loads it, after asking about
+        its unsaved edits; elsewhere it only becomes current.  Whether it did."""
+        if not path or self._locked:
+            return False
+        path = str(path)
+        page = self.current_page()
+        if getattr(page, "follows_document", False):
+            held = page.document_path()
+            if held and pages.same_path(held, path):
+                self.set_current_document(held)
+                page.refresh_document()
+                return True
+            if not self.settle_unsaved(page, lambda: self.open_document(path)):
+                return False
+            return page.load_document(path)
+        if not (os.path.isfile(path) and path.lower().endswith(".pdf")):
+            self.set_status(f"This tool does not open {Path(path).name}", "warning")
+            return False
+        self.set_current_document(path)
+        return True
+
+    def browse_document(self) -> bool:
+        """The Open control's main part: the file dialog, then open_document."""
+        if self._locked:
+            return False
+        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
+        return self.open_document(path) if path else False
+
+    def clear_current_document(self) -> bool:
+        """The clear (x) action: the shown page lets its document go (after
+        asking about unsaved edits) and there is no current document."""
+        if self._locked:
+            return False
+        page = self.current_page()
+        if getattr(page, "follows_document", False) and page.document_path():
+            if not self.settle_unsaved(page, self.clear_current_document):
+                return False
+            page.clear_document()
+        self.set_current_document(None)
+        return True
+
+    def _follow(self, page):
+        """A single-input page shown takes the current document, unless it
+        holds unsaved edits (it keeps its file then); a document it parked
+        on leaving is opened again."""
+        if not getattr(page, "follows_document", False):
+            return
+        cur = self.current_document
+        held = page.document_path()
+        if not page.is_dirty():
+            if not pages.same_path(cur, held):
+                if cur:
+                    page.load_document(cur)
+                elif held:
+                    page.clear_document()
+            elif page.is_parked():
+                page.load_document(held)
+        page.refresh_document()
+
+    def settle_unsaved(self, page, retry) -> bool:
+        """Before *page*'s document is left, switched or cleared: when it has
+        unsaved edits, "Save changes to <name>?"  True: go on now (none, or
+        Discard).  False: stop (Cancel, or Save, which runs retry() once the
+        save is done)."""
+        if page is None or not callable(getattr(page, "is_dirty", None)) or not page.is_dirty():
+            return True
+        choice = dialogs.ask_unsaved(page.document_name())
+        if choice == "discard":
+            page.discard_changes()
+            return True
+        if choice == "save":
+            page.save(after=retry)
+        return False
 
     def _on_current_changed(self, index: int):
         w = self.stackedWidget.widget(index)
@@ -955,6 +1076,11 @@ class MainWindow(FluentWindow):
             e.ignore()
             return
         job = self._current_job
+        if not (job and job.is_running):        # (a running job asks its own question)
+            for page in list(self._pages.values()):
+                if not self.settle_unsaved(page, self.close):
+                    e.ignore()
+                    return
         if job and job.is_running:
             if not dialogs.ask_yes_no("Job running",
                                       "A job is still running. Cancel it and quit?"):

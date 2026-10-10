@@ -12,7 +12,6 @@ import os
 import queue
 import threading
 from collections import OrderedDict
-from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap
@@ -122,8 +121,8 @@ class ReaderPage(WorkspacePage):
         self._gen += 1
         self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
         self._pg = 0
-        self.set_title(TITLE, Path(path).name)
         self.path_label.setText(path)
+        self.refresh_document(announce=True)
         self._relayout()
         self.view.verticalScrollBar().setValue(0)
         self._update_viewport()
@@ -156,6 +155,23 @@ class ReaderPage(WorkspacePage):
             self._items.clear()
             self.view.scene().clear()
             self.page_label.setText("—")
+
+    # ── the current document ─────────────────────────────────────────────────
+    def document_path(self) -> str:
+        """The file read here (kept while the tool is away and its file closed)."""
+        return self._path
+
+    def park_document(self):
+        pass                        # deactivate closes it; activate reopens it
+
+    def is_parked(self) -> bool:
+        return False
+
+    def clear_document(self):
+        self.deactivate()
+        self._path, self._scroll_frac = "", 0.0
+        self.path_label.setText("Open a PDF…")
+        self.refresh_document()
 
     # ── layout: page geometry only, no rendering ─────────────────────────────
     def _relayout(self):

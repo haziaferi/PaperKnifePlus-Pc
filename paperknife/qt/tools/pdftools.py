@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import pdftools as core
-from ..pages import ToolPage, card, file_card, group_title, register_page, setting_row
+from ..pages import ToolPage, card, group_title, register_page, setting_row
 
 
 def repair_report(repaired: bool, out: str):
@@ -18,8 +18,7 @@ def repair_report(repaired: bool, out: str):
 class PdfToolsPage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("PDF Tools", "Repair corrupt files", tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         # No PDF/A or Linearise: PyMuPDF 1.28 has no save(pdfa=) and
         # save(linear=True) raises "Linearisation is no longer supported".

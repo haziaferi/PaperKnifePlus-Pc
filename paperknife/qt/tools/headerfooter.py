@@ -12,7 +12,7 @@ from qfluentwidgets import ComboBox, LineEdit
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs, theme
-from ..pages import (RadioChoice, ToolPage, card, file_card, group_title, muted_caption,
+from ..pages import (RadioChoice, ToolPage, card, group_title, muted_caption,
                      radio_button, register_page, setting_row)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
@@ -75,8 +75,7 @@ class HeaderFooterPage(ToolPage):
         super().__init__("Header / Footer",
                          "Stamp text into the top or bottom margin of every page",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
 
         self.body.addWidget(group_title("Content"))

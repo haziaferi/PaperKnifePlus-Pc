@@ -38,6 +38,8 @@ class Img2PdfPage(CollectionPage):
                 return
             win.set_status(f"✓  Converted {len(paths)} image(s) → {Path(out).name}", "success")
             dialogs.info("Done", f"PDF saved:\n{out}")
+            self.clear_rows()               # a finished job empties the list (owner)
+            self.offer_output(out)
 
         win.set_status(f"Converting {len(paths)} image(s)…")
         win.run_job(work, f"Converting {len(paths)} image(s)…", then=then)

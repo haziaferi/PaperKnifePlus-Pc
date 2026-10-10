@@ -8,7 +8,7 @@ from qfluentwidgets import LineEdit
 from ...core import crop as core
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (Refusal, ToolPage, card, file_card, group_title, muted_caption,
+from ..pages import (Refusal, ToolPage, card, group_title, muted_caption,
                      register_page, setting_row, toggle_switch)
 
 # (key, row name), in the order the rows are shown
@@ -30,8 +30,7 @@ class CropPage(ToolPage):
         super().__init__("Crop / Trim",
                          "Adjust page crop box by specifying margins in points (1 pt = 0.353 mm)",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
 
         self.body.addWidget(group_title("Margins to remove (in points)"))

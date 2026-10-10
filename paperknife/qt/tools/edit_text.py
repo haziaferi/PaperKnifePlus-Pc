@@ -77,12 +77,10 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self._sel_bi = None
         self.build_panel()
 
-    def deactivate(self):
-        self._close_doc()
+    def clear_document(self):
         self._blocks, self._sel_bi, self._undo_stack = [], None, []
-        self.set_title("Edit Text", "Open a PDF to start")
+        super().clear_document()
         self.build_panel()
-        self.show_current()
 
     # ── overlay and mouse ────────────────────────────────────────────────────
     def draw_overlay(self, page):
@@ -136,6 +134,7 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
             self.show_current()
             return dialogs.error("Edit Text", f"The edit could not be applied:\n{e}")
 
+        self._dirty = True
         self._sel_bi = None
         self.build_panel()
         if own_font:
@@ -151,6 +150,7 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         if not self._undo_stack or self._doc is None:
             return
         self._pop_undo()
+        self._dirty = True
         self._sel_bi = None
         self.build_panel()
         self.show_current()

@@ -31,6 +31,8 @@ EXT2FMT = {
 
 @register_page("Doc2PdfTool")
 class Doc2PdfPage(ToolPage):
+    # Its input is a document or an image, not a PDF: it keeps its own file
+    # card and does not follow the current document (always a PDF).
     def __init__(self, tool=None, window=None):
         super().__init__(
             "Doc / Text → PDF",
@@ -105,6 +107,8 @@ class Doc2PdfPage(ToolPage):
             win.set_status(f"✓  {fmt} → PDF: {Path(out).name}",
                            "warning" if notes else "success")
             dialogs.info("Done", f"Converted PDF saved:\n{out}{note}")
+            if kind == "done":
+                self.offer_output(out)
 
         win.set_status(f"Converting {fmt} → PDF…")
         win.run_job(work, f"Converting {fmt} → PDF…", then=then)

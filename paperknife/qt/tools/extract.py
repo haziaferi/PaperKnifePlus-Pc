@@ -4,7 +4,7 @@ from __future__ import annotations
 from qfluentwidgets import ComboBox
 
 from ...core import convert as core_convert
-from ..pages import (spin_box, ToolPage, card, file_card, group_title, muted_caption, register_page,
+from ..pages import (spin_box, ToolPage, card, group_title, muted_caption, register_page,
                      setting_row)
 
 FORMATS = ["Keep original", "PNG", "JPEG"]
@@ -17,8 +17,7 @@ class ExtractPage(ToolPage):
         super().__init__("Extract Images",
                          "Pull every embedded image out of a PDF and save to a folder",
                          tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Options"))
         group = card(padding=0)

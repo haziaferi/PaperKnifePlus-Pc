@@ -78,6 +78,8 @@ class MergePage(CollectionPage):
             win.set_status(f"✓  Merged {n} file(s) · {pg_total} pages → "
                            f"{Path(out).name}", "success")
             dialogs.info("Merge Complete", f"Merged PDF saved:\n{out}")
+            self.clear_rows()               # a finished job empties the list (owner)
+            self.offer_output(out)
 
         win.set_status("Merging…")
         if win.run_job(work, f"Merging {n} PDF(s)…", then=then,

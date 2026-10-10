@@ -226,7 +226,19 @@ class BatchPage(CollectionPage):
             else:
                 msg, role = (f"✓  Batch done — {ok} OK, {err} errors",
                              "success" if not err else "warning")
+                finished.append(True)
             bridge.post(win.set_status, msg, role)
 
+        finished: list = []
+
+        def then(kind, _value):
+            # A finished batch empties the list and its input folder (owner);
+            # a cancelled one keeps them with each file's result.
+            if kind == "done" and finished:
+                self.clear_document()
+
         win.set_status(f"Batch {op} on {len(files)} file(s)…")
-        win.run_job(work, f"Batch {op} · {len(files)} file(s)…")
+        win.run_job(work, f"Batch {op} · {len(files)} file(s)…", then=then)
+
+    def clear_document(self):
+        self._set_in_dir("")

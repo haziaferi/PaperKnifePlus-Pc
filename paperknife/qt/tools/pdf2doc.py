@@ -8,7 +8,7 @@ from qfluentwidgets import CaptionLabel, ComboBox
 from ...core import convert as core_convert
 from ...prefs import pref_dpi
 from .. import theme
-from ..pages import (ToolPage, card, file_card, group_title, labelled_slider,
+from ..pages import (ToolPage, card, group_title, labelled_slider,
                      register_page, setting_row)
 
 INFO = {
@@ -46,8 +46,7 @@ class Pdf2DocPage(ToolPage):
             "PDF → Doc / Text",
             "Export a PDF to TXT · HTML · DOCX · PPTX · XLSX · XML · RTF · PNG · JPEG",
             tool=tool, window=window)
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Output"))
         group = card(padding=0)

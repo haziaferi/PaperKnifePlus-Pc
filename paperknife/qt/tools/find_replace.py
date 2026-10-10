@@ -67,12 +67,10 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.hit_label.setText("")
         self.show_current()
 
-    def deactivate(self):
-        self._close_doc()
+    def clear_document(self):
         self._undo_stack, self._hits, self._hit_idx = [], [], -1
         self.hit_label.setText("")
-        self.set_title("Find & Replace", "Open a PDF to start")
-        self.show_current()
+        super().clear_document()
 
     # ── search ───────────────────────────────────────────────────────────────
     def find_all(self):
@@ -153,6 +151,8 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
                 self._pop_undo()
             if kind == "done":
                 count = state["count"]
+                if count:
+                    self._dirty = True
                 self._hits, self._hit_idx = [], -1
                 self.hit_label.setText(f"Replaced {count} occurrence(s)")
                 win.set_status(f"✓  Replaced {count} occurrence(s) · Save to write to disk",
@@ -178,6 +178,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         if not self._undo_stack or self._doc is None:
             return
         self._pop_undo()
+        self._dirty = True
         self._hits, self._hit_idx = [], -1
         self.hit_label.setText("Replace undone")
         self.show_current()

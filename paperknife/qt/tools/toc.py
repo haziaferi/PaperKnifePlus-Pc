@@ -81,15 +81,24 @@ class TocPage(HeldDoc, MasterDetailPage):
         if doc is None:
             return
         self._toc = [list(e) for e in doc.get_toc()]
+        self._saved_toc = [list(e) for e in self._toc]
         self._refresh_list()
 
     def _clear(self):
-        self.release_held("Bookmarks / TOC", "View · add · edit · delete · reorder PDF bookmarks")
+        self.release_held()
         self._toc = []
+        self._saved_toc = []
         self._refresh_list()
+        self.refresh_document()
 
-    def deactivate(self):
+    def clear_document(self):
         self._clear()
+
+    _saved_toc: list = []
+
+    def is_dirty(self) -> bool:
+        """Bookmarks added, changed, moved or deleted since the file was opened or saved."""
+        return self._doc is not None and self._toc != self._saved_toc
 
     # ── edit operations ──────────────────────────────────────────────────────
     def _move(self, d: int):
@@ -149,7 +158,7 @@ class TocPage(HeldDoc, MasterDetailPage):
         self._delete()
 
     # ── save ─────────────────────────────────────────────────────────────────
-    def save(self):
+    def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Save", "Open a PDF first.")
         problem = organise.toc_level_error(self._toc)
@@ -175,8 +184,13 @@ class TocPage(HeldDoc, MasterDetailPage):
         def then(kind, _value):
             if kind != "done":
                 return
+            self._saved_toc = [list(e) for e in toc]    # the edits are saved
             win.set_status(f"✓  Saved {len(toc)} bookmark(s) → {Path(out).name}", "success")
             dialogs.info("Saved", f"PDF with updated bookmarks:\n{out}")
+            if self.saved_elsewhere(out):
+                self.offer_output(out)
+            if callable(after):
+                after()
 
         win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
                     keep_password=(kept, [out]))

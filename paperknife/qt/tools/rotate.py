@@ -34,12 +34,30 @@ class RotatePage(HeldDoc, OrganiserPage):
             return
         self._extra = {i: 0 for i in range(len(doc))}
         self.set_pages(list(range(len(doc))), self.render, lambda k: f"p.{k + 1}")
+        self._saved = self._state()
 
-    def deactivate(self):
+    def clear_document(self):
         self._timer.stop()
         self.clear_pages()
-        self.release_held("Rotate & Reorder", SUBTITLE)
+        self.release_held()
         self._extra = {}
+        self._saved = None
+        self.refresh_document()
+
+    def park_document(self):
+        if self._doc is not None and not self.is_dirty():
+            self._timer.stop()              # no thumbnail may render from a closed file
+            self._queue = []
+        super().park_document()
+
+    _saved = None
+
+    def _state(self):
+        return self.order(), dict(self._extra)
+
+    def is_dirty(self) -> bool:
+        """Pages turned or moved since the file was opened or saved."""
+        return self._doc is not None and self._saved is not None and self._state() != self._saved
 
     def render(self, key: int) -> QImage:
         """Page *key* as a thumbnail, turned by its extra rotation."""
@@ -60,7 +78,7 @@ class RotatePage(HeldDoc, OrganiserPage):
         self.move(d)
 
     # ── save ─────────────────────────────────────────────────────────────────
-    def save(self):
+    def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Save", "Open a PDF first.")
         out = dialogs.ask_save("reordered.pdf", ".pdf", [("PDF", "*.pdf")])
@@ -80,8 +98,13 @@ class RotatePage(HeldDoc, OrganiserPage):
             if self._queue:
                 self._timer.start()
             if kind == "done":
+                self._saved = (order, extra)        # the edits are saved
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF saved:\n{out}")
+                if self.saved_elsewhere(out):
+                    self.offer_output(out)
+                if callable(after):
+                    after()
 
         if win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
                        keep_password=(kept, [out])) is None and self._queue:

@@ -9,7 +9,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
 from ...core import ocr as core_ocr
 from ...prefs import PREFS, pref_dpi
 from .. import bridge
-from ..pages import (ToolPage, card, file_card, group_title, labelled_slider, muted_caption,
+from ..pages import (ToolPage, card, group_title, labelled_slider, muted_caption,
                      radio_rows, register_page, setting_row)
 
 MODES = [("overlay", "Overlay", "invisible text layer"),
@@ -40,8 +40,7 @@ class OCRPage(ToolPage):
         self.run_button.setEnabled(self.available)
 
     def _build_options(self):
-        self.file = file_card()
-        self.body.addWidget(self.file)
+        self.doc_input()
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Recognition"))
         group = card(padding=0)

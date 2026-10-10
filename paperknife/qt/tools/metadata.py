@@ -1,8 +1,8 @@
 """Metadata — a structured editor with fields only (group E, in the group C form).
 
 The page holds the chosen PDF open from the moment it is
-chosen until another file is chosen or the tool is left, so an encrypted file
-asks for its password once."""
+chosen until another file becomes the current document or it is cleared (leaving
+the tool keeps it), so an encrypted file asks for its password once."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from qfluentwidgets import LineEdit
 
 from ...core import metadata as core
 from .. import dialogs
-from ..pages import (HeldDoc, ToolPage, ask_keep_password, card, file_card, group_title,
+from ..pages import (HeldDoc, ToolPage, ask_keep_password, card, group_title,
                      register_page, setting_row)
 
 
@@ -24,8 +24,7 @@ class MetadataPage(HeldDoc, ToolPage):
                          "View and edit the PDF's document properties · Ctrl+S to save",
                          tool=tool, window=window)
         self._loaded: dict[str, str] = {}
-        self.file = file_card(on_change=self._load)
-        self.body.addWidget(self.file)
+        self.doc_input(self._load)
         self.body.addSpacing(16)
         self.body.addWidget(group_title("Document properties"))
         group = card(padding=0)
@@ -61,15 +60,24 @@ class MetadataPage(HeldDoc, ToolPage):
         self._loaded = {}
         self.clear()
 
-    def deactivate(self):
+    def clear_document(self):
         self._reset()
+        self.refresh_document()
+
+    def _meta(self) -> dict[str, str]:
+        return {key: self.fields[key].text() for key, _ in core.FIELDS}
+
+    def is_dirty(self) -> bool:
+        """Fields typed since the file was opened or saved."""
+        return self._doc is not None and self._meta() != {
+            key: self._loaded.get(key, "") for key, _ in core.FIELDS}
 
     def clear(self):
         for edit in self.fields.values():
             edit.setText("")
 
     # ── save ─────────────────────────────────────────────────────────────────
-    def save(self):
+    def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Save", "Open a PDF first.")
         meta = {key: self.fields[key].text() for key, _ in core.FIELDS}
@@ -91,8 +99,13 @@ class MetadataPage(HeldDoc, ToolPage):
 
         def then(kind, _value):
             if kind == "done":
+                self._loaded = dict(meta)       # the edits are saved
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF with updated metadata saved:\n{out}")
+                if self.saved_elsewhere(out):
+                    self.offer_output(out)
+                if callable(after):
+                    after()
 
         win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
                     keep_password=(kept, [out]))

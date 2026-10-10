@@ -113,12 +113,10 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.sel_xref = None
         self.build_panel()
 
-    def deactivate(self):
-        self._close_doc()
+    def clear_document(self):
         self._undo_stack, self.sel_xref = [], None
-        self.set_title("Annotate", "Open a PDF to start")
+        super().clear_document()
         self.build_panel()
-        self.show_current()
 
     # ── mouse ────────────────────────────────────────────────────────────────
     def _add_at(self, start, end, click: bool):
@@ -144,6 +142,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             self.window_.set_status(f"Annotation error: {ex}", "danger")
         if ann is not None:
             self._undo_stack.append((self._pg, ann.xref))
+            self._dirty = True
         self.show_current()
 
     def draw_overlay(self, page):
@@ -161,6 +160,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             annot = core_annotate.by_xref(page, xref)
             if annot is not None:
                 page.delete_annot(annot)
+                self._dirty = True
                 break
         self.show_current()
 
@@ -171,6 +171,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         annot = core_annotate.by_xref(page, self.sel_xref)
         if annot is not None:
             page.delete_annot(annot)
+            self._dirty = True
         self.sel_xref = None
         self.build_panel()
         self.show_current()

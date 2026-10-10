@@ -14,7 +14,7 @@ from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 from ...core import redact as core_redact
 from .. import dialogs, theme
 from ..pages import (WorkspaceDoc, WorkspacePage, ask_keep_password, muted_caption,
-                     register_page)
+                     register_page, same_path)
 
 # Segoe Fluent Icons code points
 GLYPHS = {"box": 0xE739, "search": 0xE721, "undo": 0xE7A7}
@@ -123,12 +123,14 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self.build_panel()
         self.show_current()
 
-    def deactivate(self):
-        self._close_doc()
+    def clear_document(self):
         self._pending, self._secrets = [], {}
-        self.set_title("Redact", SUBTITLE)
+        super().clear_document()
         self.build_panel()
-        self.show_current()
+
+    def is_dirty(self) -> bool:
+        """Boxes pending, or pages redacted in memory and not saved yet."""
+        return self._doc is not None and (bool(self._pending) or self._dirty)
 
     # ── mouse ────────────────────────────────────────────────────────────────
     def _add_box(self, start, end, click: bool):
@@ -191,7 +193,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
             self.show_current()
 
     # ── apply and save ───────────────────────────────────────────────────────
-    def save(self):
+    def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Apply", "Open a PDF first.")
         if not self._pending:
@@ -237,7 +239,9 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
             self._refresh_boxes()
             self.show_current()
             if not saved:
+                self._dirty = self._dirty or bool(modes)    # redacted in memory, not saved
                 return
+            self._dirty = False
             removed = saved[0]
             whole = [str(p + 1) for p, m in modes.items() if m == "whole"]
             image = [str(p + 1) for p, m in modes.items() if m == "image"]
@@ -255,6 +259,10 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
                     "by an image of itself. Its text can no longer be selected or searched.")
             extra = ("\n\nAlso removed from: " + ", ".join(removed)) if removed else ""
             dialogs.info("Saved", f"Redacted PDF saved:\n{out}{extra}")
+            if not same_path(out, self._src_path):
+                self.offer_output(out)
+            if callable(after):
+                after()
 
         win.run_job(work, f"Redacting {pages} page(s)…", lock=True, then=then,
                     keep_password=(kept, [out]))

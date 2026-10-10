@@ -102,10 +102,11 @@ class BookmarksPage(HeldDoc, OrganiserPage):
         self._toc = doc.get_toc()
         self._show_outline(self._toc)
 
-    def deactivate(self):
-        self.release_held("Split by Bookmarks", SUBTITLE)
+    def clear_document(self):
+        self.release_held()
         self._toc = []
         self._show_message("Open a PDF to see its bookmarks", "muted")
+        self.refresh_document()
 
     # ── split ────────────────────────────────────────────────────────────────
     def run(self):
