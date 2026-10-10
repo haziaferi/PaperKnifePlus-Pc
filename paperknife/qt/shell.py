@@ -253,13 +253,6 @@ class MainWindow(FluentWindow):
         self.search.edit.textChanged.connect(self._filter_nav)
         self.search.edit.returnPressed.connect(self._open_first_match)
 
-        # PK_DOCUI=nav (the default): the current document's slot, under the search box
-        from . import docui
-        self.doc_slot = None
-        if docui.layout() == "nav":
-            self.doc_slot = docui.DocSlot(self)
-            nav.addWidget("document", self.doc_slot, position=NavigationItemPosition.TOP)
-
         self._items: dict[str, NavigationWidget] = {}
         self._labels: dict[str, str] = {}
         self._tool_by_key: dict[str, object] = {}

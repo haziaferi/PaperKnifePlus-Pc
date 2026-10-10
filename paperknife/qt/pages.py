@@ -698,7 +698,7 @@ class ToolPage(QWidget):
         self._ctx_before_compact = True     # the panel as the user left it
         self._buttons: list = []
         self._subtitle = subtitle           # the page's own; the document's name follows it
-        self.doc_bar = None                 # bar layout: the Open control + chip row
+        self.doc_bar = None                 # the document bar: the Open control + chip row
         self.drop_target = None             # the empty-state target (single-input pages)
         self._offer = None                  # (InfoBar, output path): the after-job question
 
@@ -771,19 +771,11 @@ class ToolPage(QWidget):
         self._show_subtitle()
 
     def _show_subtitle(self):
-        """nav layout: "<subtitle> · <file name>" while the page has a
-        document; bar layout: the subtitle (the chip names the file).  A
-        subtitle that only says to open a file (HINT_SUBTITLE) gives way to
-        the file name in either layout."""
-        from . import docui
+        """The page's own subtitle (the bar's chip names the file); one that
+        only says to open a file (HINT_SUBTITLE) gives way to the file name."""
         path = self.document_path() if self.follows_document else ""
         name, base = (Path(path).name if path else ""), self._subtitle
-        if name and base == HINT_SUBTITLE:
-            text = name
-        elif name and docui.layout() == "nav":
-            text = f"{base} · {name}" if base else name
-        else:
-            text = base
+        text = name if name and base == HINT_SUBTITLE else base
         self.subtitle_label.setText(text)
         self.subtitle_label.setVisible(bool(text))
 
@@ -794,7 +786,7 @@ class ToolPage(QWidget):
         """Make this a single-input page: self.file holds its PDF (nothing
         drawn), the empty-state target goes into the body here (where a
         FileCard went, TARGET_FORM_H tall, the options below it stay shown)
-        while there is no document; the bar layout adds its row under the
+        while there is no document; the document bar goes under the
         subtitle."""
         from . import docui
         self.file = DocInput(self, on_change)
@@ -806,7 +798,7 @@ class ToolPage(QWidget):
 
     def _build_doc_bar(self):
         from . import docui
-        if docui.layout() == "bar" and self.doc_bar is None:
+        if self.doc_bar is None:
             self.doc_bar = docui.DocBar(self.window_, self.header)
             self._titles.addWidget(self.doc_bar)
 
