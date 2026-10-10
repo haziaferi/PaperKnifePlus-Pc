@@ -548,6 +548,5 @@ def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialog
     dialogs.unsaved.append("discard")             # the failed save left the edit unsaved
     window.show_page("CompressTool")
     assert open(src, "rb").read() == before
-
     assert sorted(os.listdir(tmp_path)) == ["in.pdf"]       # no .part left either
     assert len(dialogs.errors()) == 2

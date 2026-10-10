@@ -212,7 +212,6 @@ def test_master_detail_selection_drives_tools_and_detail(qapp, tmp_path):
     # 2026-10-10); the card keeps its own empty line for when it shows.
     assert page.empty_label.isVisibleTo(page.list_card) and add.isEnabled()
     assert not rm.isEnabled()
-
     page.set_items(["Intro (p.1)", "  Part (p.3)"])
     assert page.count() == 2 and page.current() is None and not rm.isEnabled()
     page.select(1)

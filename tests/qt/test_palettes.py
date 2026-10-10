@@ -212,7 +212,6 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     # the Open control's main part is the plain PushButton now.
     btn = (win.doc_slot or page.doc_bar).open_control.button
     assert btn.isVisible() and btn.text() == "Open"
-
     _has(img, _rect(win, btn, 3, 3, 12, -3), P.role("control"), "button fill")
     _has(img, _rect(win, btn, 8, 0, -8, 1), P.role("control_border_strong" if dark else "control_border"),
          "button top edge")
@@ -343,7 +342,6 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     img = _grab(win)
     # It shows the current document now (2026-10-10): the ground in the gap above page 1.
     _has(img, _rect(win, page.view, 10, 1, 60, 8), P.role("page_bg"), "page ground")
-
     page = _open(win, "AnnotateTool")
     img = _grab(win)
     rail_btn = next(w for w in (page.rail.itemAt(i).widget() for i in range(page.rail.count()))

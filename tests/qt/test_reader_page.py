@@ -75,7 +75,6 @@ def test_open_renders_the_visible_pages_with_their_content(window, dialogs, tmp_
     assert page.subtitle_label.text() == subtitle_with(
         "Continuous smooth-scroll viewer — view-only", "doc.pdf")
     assert page.path_label.text() == src
-
     assert 0 in page._items
     z = page._zoom
     with fitz.open(src) as d:

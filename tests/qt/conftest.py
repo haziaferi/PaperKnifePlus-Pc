@@ -99,7 +99,6 @@ def dialogs(monkeypatch):
     _install(monkeypatch, d)
     yield d
     assert not d.unexpected, f"a question with no queued answer: {d.unexpected}"
-
     assert not d.asks, f"queued ask_yes_no answers no prompt used: {d.asks}"
     assert not d.unsaved, f"queued ask_unsaved answers no prompt used: {d.unsaved}"
 
