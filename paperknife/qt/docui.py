@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtCore import QPoint, QRectF, QSize, Qt
 from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import (Action, BodyLabel, IconWidget, RoundMenu, SplitPushButton,
@@ -122,7 +122,8 @@ class DocChip(_Rounded):
         self.name_label = ElidedLabel("", self)
         self.name_label.setMinimumWidth(80)
         h.addWidget(self.name_label, 1)
-        self.clear_btn = icon_button(theme.glyph_icon(CLEAR_GLYPH, 12))
+        self.clear_btn = icon_button(theme.Glyph(CLEAR_GLYPH))   # follows the theme
+        self.clear_btn.setIconSize(QSize(12, 12))
         self.clear_btn.setToolTip(CLEAR_TIP)
         self.clear_btn.clicked.connect(
             lambda: window is not None and window.clear_current_document())
@@ -207,7 +208,8 @@ class DocSlot(NavigationWidget):
         h.addWidget(self.icon, 0, Qt.AlignVCenter)
         self.name_label = ElidedLabel(NO_DOCUMENT, self.row)
         h.addWidget(self.name_label, 1, Qt.AlignVCenter)
-        self.clear_btn = icon_button(theme.glyph_icon(CLEAR_GLYPH, 12))
+        self.clear_btn = icon_button(theme.Glyph(CLEAR_GLYPH))   # follows the theme
+        self.clear_btn.setIconSize(QSize(12, 12))
         self.clear_btn.setParent(self.row)
         self.clear_btn.setToolTip(CLEAR_TIP)
         self.clear_btn.clicked.connect(lambda: window.clear_current_document())
