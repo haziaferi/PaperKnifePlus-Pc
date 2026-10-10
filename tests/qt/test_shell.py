@@ -74,7 +74,7 @@ def test_nav_lists_every_tool_grouped_in_registry_order(window):
     headers = [h for h, _k in order]
     # no title for Preferences (the bottom) or for a group of one tool (owner:
     # Read / Preview sits under Home)
-    one = {s for s, ks in zip(sections, expected) if len(ks) == 1}
+    one = {s for s, ks in zip(sections, expected, strict=True) if len(ks) == 1}
     assert headers == ["" if s == "SETTINGS" or s in one else s.capitalize() for s in sections]
     assert headers[0] == "" and expected[0] == ["ReaderTool"] and headers[1] == "Organise"
 

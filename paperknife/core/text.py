@@ -11,24 +11,41 @@ def span_rgb(color: int) -> tuple[float, float, float]:
     return ((color >> 16) / 255, ((color >> 8) & 0xFF) / 255, (color & 0xFF) / 255)
 
 
+def erase_box(bbox, origin, size: float, horizontal: bool = True) -> fitz.Rect:
+    """The box that erases one run of letters and nothing of its neighbours.
+
+    A character box runs from the font's ascender to its descender, so on
+    tightly spaced lines it reaches into the line above and below, and a
+    redaction with it takes their letters too; the middle band of the letters
+    (0.15 to 0.55 of the size above the baseline) is clear of both.  Text that
+    does not run left to right keeps its box."""
+    r = fitz.Rect(bbox)
+    if not horizontal:
+        return r
+    return fitz.Rect(r.x0, origin[1] - 0.55 * size, r.x1, origin[1] - 0.15 * size)
+
+
 def find_matches(page, needle: str) -> list[dict]:
     """Case-sensitive matches of *needle* in the page text.
 
-    Each match is {"rects": one rect per text line it covers, "origin": baseline
-    point of its first character, "span": the span that character belongs to}.
+    Each match is {"rects": one rect per text line it covers, "erase": the
+    erase_box of each of those lines, "origin": baseline point of its first
+    character, "span": the span that character belongs to}.
     page.search_for is case-insensitive and returns a wrapped match as several
     unrelated rects, so the page characters are searched directly.
     """
-    chars = []   # (c, bbox | None, origin, span, line_no); bbox None = line break
+    chars = []   # (c, bbox | None, origin, span, line_no, horizontal); bbox None = line break
     raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE | fitz.TEXT_MEDIABOX_CLIP)
     line_no = 0
     for block in raw.get("blocks", []):
         for line in block.get("lines", []):
             if chars and not chars[-1][0].isspace():
-                chars.append((" ", None, None, None, line_no))
+                chars.append((" ", None, None, None, line_no, True))
+            flat = tuple(line.get("dir", (1, 0))) == (1, 0)
             for span in line["spans"]:
                 for ch in span["chars"]:
-                    chars.append((ch["c"], fitz.Rect(ch["bbox"]), ch["origin"], span, line_no))
+                    chars.append((ch["c"], fitz.Rect(ch["bbox"]), ch["origin"], span, line_no,
+                                  flat))
             line_no += 1
     text = "".join(c[0] for c in chars)
     matches = []
@@ -36,9 +53,12 @@ def find_matches(page, needle: str) -> list[dict]:
     while i >= 0 and needle:
         part = [c for c in chars[i:i + len(needle)] if c[1] is not None]
         by_line: dict[int, fitz.Rect] = {}
-        for _, bbox, _, _, ln in part:
+        erase: dict[int, fitz.Rect] = {}
+        for _, bbox, origin, span, ln, flat in part:
             by_line[ln] = by_line[ln] | bbox if ln in by_line else fitz.Rect(bbox)
-        matches.append({"rects": list(by_line.values()),
+            box = erase_box(bbox, origin, span["size"], flat)
+            erase[ln] = erase[ln] | box if ln in erase else box
+        matches.append({"rects": list(by_line.values()), "erase": list(erase.values()),
                         "origin": fitz.Point(part[0][2]), "span": part[0][3]})
         i = text.find(needle, i + len(needle))
     return matches
@@ -77,7 +97,7 @@ def replace_matches(doc, found: list, repl: str, font, stop=None,
         progress(0.5 + (i + 1) / n * 0.5)
         page = doc[pg_num]
         for m in matches:
-            for r in m["rects"]:
+            for r in m["erase"]:
                 page.add_redact_annot(r)
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
                               graphics=fitz.PDF_REDACT_LINE_ART_NONE)
@@ -168,8 +188,9 @@ def write_block(page, block: dict, new_tx: str) -> bool:
         line_height = font_size * 1.2
 
     for line in lines_raw:
+        flat = tuple(line.get("dir", (1, 0))) == (1, 0)
         for span in line.get("spans", []):
-            page.add_redact_annot(fitz.Rect(span["bbox"]))
+            page.add_redact_annot(erase_box(span["bbox"], span["origin"], span["size"], flat))
     # Defaults would also blank image pixels and line art under each span box.
     page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
                           graphics=fitz.PDF_REDACT_LINE_ART_NONE)
