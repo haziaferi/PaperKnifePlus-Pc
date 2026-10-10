@@ -10,13 +10,20 @@ from qt_harness import make_pdf, pump
 TOOLS = ["AnnotateTool", "EditTextTool", "FindReplaceTool", "RedactTool"]
 
 
+def _names(page, name):
+    """The page says it acts on *name*: its subtitle (PK_DOCUI=nav, or a
+    subtitle that only said to open a file) or its bar chip (bar)."""
+    chip = page.doc_bar.chip.name_label.text() if page.doc_bar is not None else ""
+    return name in page.subtitle_label.text() or chip == name
+
+
 @pytest.mark.parametrize("tool", TOOLS)
 def test_coming_back_after_leaving_shows_the_document_again(window, tmp_path, tool):
     src = make_pdf(tmp_path / "doc.pdf", pages=2)
     assert window.open_tool(tool, src)
     pump(0.1)
     page = window.current_page()
-    assert page.view._page is not None and "doc.pdf" in page.subtitle_label.text()
+    assert page.view._page is not None and _names(page, "doc.pdf")
     old = page._doc
     window.show_page("home")
     pump(0.05)
@@ -29,4 +36,5 @@ def test_coming_back_after_leaving_shows_the_document_again(window, tmp_path, to
     pump(0.05)
     assert page._doc is not None and page._doc is not old
     assert page.view._page is not None and page.page_label.text() == "1 / 2"
-    assert "doc.pdf" in page.subtitle_label.text()
+    assert _names(page, "doc.pdf")
+
