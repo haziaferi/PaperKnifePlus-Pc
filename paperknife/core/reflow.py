@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import pymupdf as fitz
 
 from ..pages import textwriter_point
+from .native import Emitter, NativeFont
 from .text import erase_box, span_rgb, unicode_font
 
 LINE, PARAGRAPH, PAGE = "line", "paragraph", "page"
@@ -78,7 +79,64 @@ class FontBook:
         self._fonts: dict[tuple, tuple] = {}
         self._used: dict[int, dict] = {}
         self._shared: dict[int, set] = {}
+        self._native: dict[tuple, NativeFont | None] = {}
+        self._by_xref: dict[int, NativeFont | None] = {}
         self.helv = fitz.Font("helv")
+
+    def native(self, src_page, span: dict) -> NativeFont | None:
+        """The font object *span* was drawn in, written through by code
+        (core.native).  The text layer names a font ("Garamond") but Word
+        embeds several subsets of one font on a page, each holding other
+        letters: the one whose widths match how the page spaced the span's
+        letters is it; none, or more than one, and there is no native font."""
+        key = (src_page.number, span["font"], tuple(round(v, 1) for v in span["bbox"]))
+        if key not in self._native:
+            self._native[key] = self._match(src_page, span)
+        return self._native[key]
+
+    def _match(self, src_page, span) -> NativeFont | None:
+        want = _norm_font(span["font"])
+        cands = []
+        for xref, ext, _t, base, *_rest in src_page.get_fonts(full=True):
+            have = _norm_font(base)
+            if ext not in ("n/a", "") and (have == want or have.startswith(want)
+                                           or want.startswith(have)):
+                if xref not in self._by_xref:
+                    nf = NativeFont(self.doc, xref)
+                    self._by_xref[xref] = nf if nf.ok else None
+                if self._by_xref[xref] is not None:
+                    cands.append(self._by_xref[xref])
+        chars = [c for c in span.get("chars", []) if not c["c"].isspace()]
+        size = span["size"]
+        fits = []
+        for nf in cands:
+            if nf.encode("".join(c["c"] for c in chars)) is None:
+                continue                         # this subset lacks some of the letters
+            errs = [abs((b["origin"][0] - a["origin"][0]) - nf.width(a["c"], size))
+                    for a, b in zip(chars, chars[1:], strict=False)
+                    if abs(b["origin"][1] - a["origin"][1]) < 0.1]
+            err = statistics.median(errs) if errs else None
+            if err is None or err < 0.06 * size:
+                fits.append((err if err is not None else 0.0, nf, err is None))
+        if not fits:
+            return None
+        fits.sort(key=lambda f: f[0])
+        if fits[0][2] and len(fits) > 1:
+            return None                          # nothing to tell the subsets apart by
+        return fits[0][1]
+
+    def native_for(self, src_page, span: dict, s: str) -> NativeFont | None:
+        """The native font when it has a code for every character of *s*."""
+        nf = self.native(src_page, span)
+        return nf if nf is not None and nf.encode(s) is not None else None
+
+    def measure(self, page, src_page, span: dict, s: str) -> float:
+        """How wide *s* is drawn: by the font's own widths when it is written
+        natively, else by the font TextWriter would use."""
+        nf = self.native_for(src_page, span, s)
+        if nf is not None:
+            return nf.width(s, span["size"])
+        return self.pick(page, src_page, span, s).text_length(s, fontsize=span["size"])
 
     def used(self, page) -> dict[str, dict]:
         """{font name: {character: glyph id}} as the page draws them.  The
@@ -137,7 +195,25 @@ class FontBook:
         if own is not None and all(own.has_glyph(ord(c)) for c in letters) and (
                 complete or all(used.get(c) == own.has_glyph(ord(c)) for c in letters)):
             return own
-        return unicode_font(s) or self.helv
+        return self.styled(span, s) or unicode_font(s) or self.helv
+
+    def styled(self, span: dict, s: str):
+        """A built-in font of the span's style (serif or not, bold, italic)
+        that has every letter of *s*, or None."""
+        flags, name = span.get("flags", 0), span["font"].lower()
+        bold = bool(flags & 16) or "bold" in name or "black" in name
+        italic = bool(flags & 2) or "italic" in name or "oblique" in name
+        serif = bool(flags & 4) and "sans" not in name
+        family = ("ti" if serif else "he")
+        code = family + {(False, False): ("ro" if serif else "lv"), (True, False): "bo",
+                         (False, True): "it", (True, True): "bi"}[(bold, italic)]
+        key = ("styled", code)
+        if key not in self._fonts:
+            self._fonts[key] = (fitz.Font(code), True)
+        font = self._fonts[key][0]
+        if all(font.has_glyph(ord(c)) for c in s if not c.isspace()):
+            return font
+        return None
 
     def width(self, page, span, s: str) -> float:
         return self.pick(page, page, span, s).text_length(s, fontsize=span["size"])
@@ -402,12 +478,11 @@ class Wrapper:
         self.page, self.book, self.doc = page, book, doc
 
     def width(self, seq, a, b) -> float:
-        return sum(self.book.pick(self.page, self.doc[src], span, t).text_length(t, fontsize=span["size"])
+        return sum(self.book.measure(self.page, self.doc[src], span, t)
                    for t, span, src in _runs(seq, a, b))
 
     def space(self, ch: Ch) -> float:
-        return self.book.pick(self.page, self.doc[ch.src], ch.span, " ").text_length(
-            " ", fontsize=ch.span["size"])
+        return self.book.measure(self.page, self.doc[ch.src], ch.span, " ")
 
     def wrap(self, seq, start, widths, stop_at=None):
         """Greedy lines from seq[start:]: [(first word start, end)], each within
@@ -587,13 +662,16 @@ class Engine:
                     for r, why in marks:
                         if r.intersects(box):
                             return why if pno == self._pno else f"on page {pno + 1}, {why}"
-        # A character beyond U+FFFF (the math alphabet 𝐴-𝑧) comes back from
-        # TextWriter's text layer cut short (𝐾 U+1D43E reads as ᵃ U+1D43),
-        # whatever font draws it; a letter no font holds would come out wrong.
+        # Text the page's own font can draw by code is written natively.  The
+        # rest goes through TextWriter, whose text layer cuts a character
+        # beyond U+FFFF short (𝐾 U+1D43E reads as ᵃ U+1D43) whatever font
+        # draws it, and a letter no font holds would come out wrong.
         for pno, draws in plan.draw.items():
             for d in draws:
                 for _x, runs in d.words:
                     for t, span, src in runs:
+                        if self.book.native_for(self.doc[src], span, t) is not None:
+                            continue
                         for c in t:
                             if c.isspace():
                                 continue
@@ -740,6 +818,7 @@ class Engine:
                     for _t, span, src in runs:
                         self.book.own(self.doc[src], span["font"])
                         self.book.used(self.doc[src])
+                        self.book.native(self.doc[src], span)
         for pno in sorted(set(plan.erase) | set(plan.draw)):
             page = self.doc[pno]
             for ln in plan.erase.get(pno, []):
@@ -750,14 +829,26 @@ class Engine:
                 page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
                                       graphics=fitz.PDF_REDACT_LINE_ART_NONE,
                                       text=fitz.PDF_REDACT_TEXT_REMOVE)
+            em = Emitter(page)
             for d in sorted(plan.draw.get(pno, []), key=lambda d: d.base):
-                self._draw(page, d)
+                self._draw(page, d, em)
+            em.flush()
 
-    def _draw(self, page, d: Draw):
+    def _draw(self, page, d: Draw, em: Emitter):
         tw, color = None, None
-        for x, runs in d.words:
-            for text, span, src in runs:
+        for wi, (x, runs) in enumerate(d.words):
+            for ri, (text, span, src) in enumerate(runs):
                 rgb = span_rgb(span["color"])
+                nf = self.book.native_for(self.doc[src], span, text) if em.usable else None
+                if nf is not None:
+                    em.show(nf, x, d.base, nf.encode(text), span["size"], rgb)
+                    x += nf.width(text, span["size"])
+                    # a real space after the word, not only a gap: a reader
+                    # can miss a narrow gap (after a math letter, say)
+                    space = nf.encode(" ")
+                    if ri == len(runs) - 1 and wi < len(d.words) - 1 and space is not None:
+                        em.show(nf, x, d.base, space, span["size"], rgb)
+                    continue
                 if tw is not None and rgb != color:
                     tw.write_text(page)
                     tw = None

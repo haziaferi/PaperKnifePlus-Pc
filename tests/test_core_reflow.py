@@ -271,3 +271,32 @@ def test_a_character_beyond_the_basic_plane_skips_the_change():
     ok = reflow.Plan()
     ok.add(0, draw=[reflow.Draw(100.0, [(72.0, [("with K arbitrary", span, 0)])], 13.0, 11.0)])
     assert eng._finish(ok) is ok
+
+
+def _font_objects(doc):
+    return {f[0] for page in doc for f in page.get_fonts(full=True)}
+
+
+def test_text_goes_back_through_the_page_s_own_font():
+    # core.native: the page's own font object and glyph codes, no new font
+    doc = make([marked(60, 1), para(30, 2)])
+    fonts = _font_objects(doc)
+    long = "a much longer phrase in its place"
+    res = reflow.replace_all(doc, "Zmark", long)
+    assert res.done == 1 and not res.skips and not res.fallback_fonts
+    assert _font_objects(doc) == fonts                  # nothing re-embedded
+    assert long in " ".join(doc[0].get_text(sort=True).split())
+
+
+def test_a_one_byte_font_is_written_back_by_its_codes_too():
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_font(fontname="F1", fontbuffer=fitz.Font("tiro").buffer)
+    page.insert_textbox(fitz.Rect(72, 72, 400, 300), para(50, 3) + " Zmark " + para(20, 4),
+                        fontsize=11, fontname="tiro")
+    kinds = {f[2] for f in page.get_fonts(full=True)}
+    before = " ".join(page.get_text(sort=True).split())
+    res = reflow.replace_all(doc, "Zmark", "Zmarked")
+    assert res.done == 1, res.skips
+    assert " ".join(doc[0].get_text(sort=True).split()) == before.replace("Zmark", "Zmarked")
+    assert kinds                                        # whatever kind, it reads back exactly
