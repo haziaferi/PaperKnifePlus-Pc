@@ -80,14 +80,18 @@ class FontBook:
         self._shared: dict[int, set] = {}
         self.helv = fitz.Font("helv")
 
-    def used(self, page) -> dict[str, set]:
+    def used(self, page) -> dict[str, dict]:
+        """{font name: {character: glyph id}} as the page draws them.  The
+        glyph id matters: a font with its own encoding (TeX math fonts) maps
+        "K" in its cmap to another letter's glyph, and only the page's own
+        choice is sure."""
         if page.number not in self._used:
-            out: dict[str, set] = {}
-            raw = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
-            for blk in raw["blocks"]:
-                for ln in blk.get("lines", []):
-                    for sp in ln["spans"]:
-                        out.setdefault(sp["font"], set()).update(c["c"] for c in sp["chars"])
+            out: dict[str, dict] = {}
+            for tr in page.get_texttrace():
+                got = out.setdefault(tr["font"], {})
+                for ucs, gid, *_rest in tr["chars"]:
+                    if ucs > 0:
+                        got.setdefault(chr(ucs), gid)
             self._used[page.number] = out
         return self._used[page.number]
 
@@ -129,8 +133,9 @@ class FontBook:
         those letters in it, else a built-in one."""
         own, complete = self.own(src_page, span["font"])
         letters = [c for c in s if not c.isspace()]
+        used = self.used(src_page).get(span["font"], {})
         if own is not None and all(own.has_glyph(ord(c)) for c in letters) and (
-                complete or all(c in self.used(src_page).get(span["font"], ()) for c in letters)):
+                complete or all(used.get(c) == own.has_glyph(ord(c)) for c in letters)):
             return own
         return unicode_font(s) or self.helv
 
@@ -582,6 +587,23 @@ class Engine:
                     for r, why in marks:
                         if r.intersects(box):
                             return why if pno == self._pno else f"on page {pno + 1}, {why}"
+        # A character beyond U+FFFF (the math alphabet 𝐴-𝑧) comes back from
+        # TextWriter's text layer cut short (𝐾 U+1D43E reads as ᵃ U+1D43),
+        # whatever font draws it; a letter no font holds would come out wrong.
+        for pno, draws in plan.draw.items():
+            for d in draws:
+                for _x, runs in d.words:
+                    for t, span, src in runs:
+                        for c in t:
+                            if c.isspace():
+                                continue
+                            bad = ord(c) > 0xFFFF
+                            if not bad:
+                                font = self.book.pick(self.doc[pno], self.doc[src], span, c)
+                                bad = not font.has_glyph(ord(c))
+                            if bad:
+                                why = f"it holds a character that cannot be drawn again ({c})"
+                                return why if pno == self._pno else f"on page {pno + 1}, {why}"
         return plan
 
     # -- planning -------------------------------------------------------------

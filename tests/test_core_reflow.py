@@ -254,3 +254,20 @@ def test_text_added_at_the_end_of_a_paragraph_takes_its_last_style():
     assert res.done == 1, res.skips
     by_position = " ".join(doc[0].get_text(sort=True).split())
     assert by_position.startswith(old + " and a closing sentence added here " + para(20, 2))
+
+
+def test_a_character_beyond_the_basic_plane_skips_the_change():
+    # TextWriter's text layer cuts U+1D43E (math italic K) to U+1D43, whatever
+    # font draws it (seen in the owner's colour paper; TextWriter cannot even
+    # write one for a test page), so a plan that would redraw one is refused
+    doc = make([para(20, 1)])
+    eng = reflow.Engine(doc)
+    eng._pno = 0
+    span = lines(doc[0])[0].chars[0].span
+    k = "\U0001D43E"
+    plan = reflow.Plan()
+    plan.add(0, draw=[reflow.Draw(100.0, [(72.0, [(f"with {k} arbitrary", span, 0)])], 13.0, 11.0)])
+    assert eng._finish(plan) == f"it holds a character that cannot be drawn again ({k})"
+    ok = reflow.Plan()
+    ok.add(0, draw=[reflow.Draw(100.0, [(72.0, [("with K arbitrary", span, 0)])], 13.0, 11.0)])
+    assert eng._finish(ok) is ok
