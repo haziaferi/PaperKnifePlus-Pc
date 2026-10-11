@@ -2,7 +2,7 @@
 import pymupdf as fitz
 import pytest
 
-from paperknife.core import annotate, redact, text
+from paperknife.core import annotate, redact, reflow, text
 
 
 def _page_with(lines):
@@ -41,25 +41,20 @@ def test_find_matches_is_case_sensitive_and_spans_lines():
     assert len(text.find_matches(page, "beta gamma")[0]["rects"]) == 2
 
 
-def test_replace_matches_rewrites_the_text():
+def test_reflow_replace_all_rewrites_the_text():
     doc, page = _page_with(["The cat sat"])
-    found = [(0, text.find_matches(page, "cat"))]
     seen = []
-    import threading
-    text.replace_matches(doc, found, "dog", text.unicode_font("dog"), stop=threading.Event(),
-                         progress=seen.append)
+    res = reflow.replace_all(doc, "cat", "dog", progress=seen.append)
+    assert res.done == 1 and not res.skips
     assert "dog" in doc[0].get_text() and "cat" not in doc[0].get_text()
     assert seen == [1.0]
 
 
-def test_word_wrap_and_write_block():
-    font = fitz.Font("helv")
-    lines = text.word_wrap("one two three four five six", font, 12, 60)
-    assert len(lines) > 1 and " ".join(lines) == "one two three four five six"
-    assert text.word_wrap("a\n\nb", font, 12, 500) == ["a", "", "b"]
+def test_reflow_rewrite_unit_rewrites_a_paragraph():
     doc, page = _page_with(["Original block text"])
-    block = next(b for b in page.get_text("dict")["blocks"] if b["type"] == 0)
-    assert text.write_block(page, block, "Rewritten") is True
+    lines, _o = reflow.page_lines(page)
+    unit = reflow.units(lines, reflow.PARAGRAPH)[0]
+    assert reflow.rewrite_unit(doc, 0, unit, "Rewritten").done == 1
     assert "Rewritten" in page.get_text() and "Original" not in page.get_text()
 
 

@@ -99,7 +99,8 @@ def test_find_all_counts_draws_and_steps_through_hits(window, dialogs, tmp_path)
     wait_job(window)
     assert len(page._hits) == 6 and page._hit_idx == 0 and page._pg == 0
     assert page.hit_label.text() == "Found 6 hit(s)"
-    assert len(page.view._overlays) == 2          # the two hits of the shown page
+    # the two hits of the shown page, and the line they would reflow
+    assert len(page.view._overlays) == 3
     for _ in range(2):
         page.jump(1)
     assert page._pg == 1 and page.hit_label.text() == "Hit 3 / 6"
@@ -223,13 +224,12 @@ def test_cropped_page_keeps_the_baseline(window, dialogs, tmp_path):
 
 
 def test_a_failed_replace_puts_every_page_back(window, dialogs, tmp_path, monkeypatch):
-    from paperknife.core import text as core_text
-    real = core_text.replace_matches
+    from paperknife.core import reflow
 
-    def half_then_fail(doc, found, repl, font, stop=None, progress=lambda v: None):
-        real(doc, found[:1], repl, font, stop, progress)
+    def half_then_fail(doc, needle, repl, unit, stop=None, progress=lambda v: None):
+        doc[0].insert_text((40, 20), repl, fontsize=10)      # one page already written
         raise RuntimeError("writer failed")
-    monkeypatch.setattr(core_text, "replace_matches", half_then_fail)
+    monkeypatch.setattr(reflow, "replace_all", half_then_fail)
     page = _open(window, _long_pdf(tmp_path / "r.pdf", pages=3))
     page.find_edit.setText("needle")
     page.repl_edit.setText("thread")
@@ -257,15 +257,20 @@ def test_a_cancel_mid_replace_puts_the_pages_already_replaced_back(window, dialo
                                                                     monkeypatch):
     """Cancel lands after the first page was rewritten (not in the search
     phase): that page must be rolled back and nothing may report success."""
-    from paperknife.core import text as core_text
-    real = core_text.replace_matches
+    from paperknife.core import reflow
+    real = reflow.replace_all
     replaced_first = []
 
-    def first_page_then_cancel(doc, found, repl, font, stop=None, progress=lambda v: None):
-        real(doc, found[:1], repl, font, stop, progress)
-        replaced_first.append("thread" in doc[found[0][0]].get_text())
+    def first_page_then_cancel(doc, needle, repl, unit, stop=None, progress=lambda v: None):
+        one = fitz.open()
+        one.insert_pdf(doc, from_page=0, to_page=0)
+        real(one, needle, repl, unit)
+        doc.delete_page(0)
+        doc.insert_pdf(one, from_page=0, to_page=0, start_at=0)
+        replaced_first.append("thread" in doc[0].get_text())
         stop.set()                              # what Cancel does, mid-replace
-    monkeypatch.setattr(core_text, "replace_matches", first_page_then_cancel)
+        return None
+    monkeypatch.setattr(reflow, "replace_all", first_page_then_cancel)
     page = _open(window, _long_pdf(tmp_path / "r.pdf", pages=3))
     page.find_edit.setText("needle")
     page.repl_edit.setText("thread")
@@ -320,3 +325,57 @@ def test_leaving_the_tool_closes_the_document(window, tmp_path, how):
     else:
         window.open_tool("AnnotateTool")
     assert doc.is_closed and page._doc is None
+
+
+# ── reflow (owner, 2026-10-11) ───────────────────────────────────────────────
+def _para_pdf(path, picture=False):
+    doc = fitz.open()
+    page = doc.new_page()
+    words = ("alpha beta gamma delta epsilon zeta theta iota kappa lambda " * 6).split()
+    words[7] = "Zmark"
+    page.insert_textbox(fitz.Rect(72, 72, 380, 300), " ".join(words), fontsize=11, fontname="tiro")
+    page.insert_textbox(fitz.Rect(72, 310, 380, 420), "The next paragraph stays below.",
+                        fontsize=11, fontname="tiro")
+    if picture:
+        pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 20), False)
+        pix.clear_with(100)
+        page.insert_image(fitz.Rect(72, 430, 200, 480), pixmap=pix)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_the_reflow_choice_defaults_to_paragraph(window):
+    window.open_tool("FindReplaceTool")
+    pump(0.05)
+    page = window.current_page()
+    assert [page.unit_box.itemText(i) for i in range(page.unit_box.count())] == [
+        "Line", "Paragraph", "Page"]
+    assert page.unit_box.currentText() == "Paragraph" and page.unit() == "paragraph"
+    assert page.skip_list.isHidden()
+
+
+def test_a_longer_replacement_rewraps_the_paragraph_and_moves_the_next(window, dialogs, tmp_path):
+    page = _open(window, _para_pdf(tmp_path / "in.pdf"))
+    before = _words(page._doc[0], "next")[0]
+    long = " ".join(["a much longer phrase in its place"] * 4)
+    _replace(window, dialogs, page, "Zmark", long)
+    text = " ".join(page._doc[0].get_text(sort=True).split())
+    assert f"theta {long} kappa" in text
+    after = _words(page._doc[0], "next")[0]
+    assert after.y0 > before.y0 + 5                       # pushed down a line
+    assert page.skip_list.isHidden() and window.status_text().startswith("✓")
+
+
+def test_a_change_that_cannot_move_its_text_is_listed(window, dialogs, tmp_path):
+    page = _open(window, _para_pdf(tmp_path / "in.pdf", picture=True))
+    page._pg = 0
+    _replace(window, dialogs, page, "Zmark", "a much longer phrase in its place " * 3)
+    assert "Zmark" in page._doc[0].get_text()             # left as it was
+    assert page.skip_list.isVisible() and page.skip_list.count() == 1
+    item = page.skip_list.item(0).text()
+    assert item.startswith("Page 1 · A picture is in the way\n") and "Zmark" in item
+    assert page.hit_label.text() == "Replaced 0 occurrence(s) · 1 left as they were:"
+    assert window.status_text().startswith("⚠")
+    page.undo()
+    assert page.skip_list.isHidden()

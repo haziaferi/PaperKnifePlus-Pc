@@ -1,14 +1,13 @@
-"""Erasing a word or a block must not take letters from the lines next to it.
+"""Erasing a word or a paragraph must not take letters from the lines next to it.
 
 Character boxes run from the font's ascender to its descender, so on tightly
 spaced lines they reach into the line above and below; a redaction with those
 boxes removed whole words of the neighbouring lines (12 of 23 program-shipped
-PDFs in _qt-2026-10-09/phase10/fr_probe.py)."""
-import threading
-
+PDFs in _qt-2026-10-09/phase10/fr_probe.py).  core.reflow erases with
+text.erase_box, the middle band of the letters."""
 import pymupdf as fitz
 
-from paperknife.core import text
+from paperknife.core import reflow
 
 
 def _tight_page(lines, size=12, leading=10.5):
@@ -25,26 +24,19 @@ def _lines(page):
 
 def test_replacing_a_word_keeps_the_lines_above_and_below():
     doc = _tight_page(["Verkaufer fur den Betrag", "hiermit verkaufe an die", "Kaufer und Verkaufer"])
-    found = text.find_all(doc, "verkaufe")
-    assert len(found) == 1 and len(found[0][1]) == 1
-    text.replace_matches(doc, found, "sells", text.unicode_font("sells"), stop=threading.Event())
-    got = _lines(doc[0])
-    assert "Verkaufer fur den Betrag" in got
-    assert "Kaufer und Verkaufer" in got
-    assert any("sells" in ln for ln in got) and not any("verkaufe " in ln for ln in got)
+    res = reflow.replace_all(doc, "verkaufe", "sells", unit=reflow.LINE)
+    assert res.done == 1, res.skips
+    got = " ".join(doc[0].get_text(sort=True).split())
+    assert "Verkaufer fur den Betrag" in got and "Kaufer und Verkaufer" in got
+    assert "hiermit sells an die" in got
 
 
-def test_rewriting_a_block_keeps_the_next_block():
-    doc = fitz.open()
-    page = doc.new_page()
-    page.insert_text((72, 100), "First block line", fontsize=12, fontname="tiro")
-    page.insert_text((72, 110.5), "Second block stays", fontsize=12, fontname="tiro")
-    blocks = text.text_blocks(page)
-    first = next(b for _i, b in blocks if text.block_text(b).startswith("First"))
-    if text.block_text(first).count("\n"):          # MuPDF made one block of both
-        first["lines"] = first["lines"][:1]
-        first["bbox"] = first["lines"][0]["bbox"]
-    text.write_block(page, first, "Rewritten")
+def test_rewriting_a_line_keeps_the_next_line():
+    doc = _tight_page(["First block line", "Second block stays"])
+    page = doc[0]
+    lines, _o = reflow.page_lines(page)
+    first = [ln for ln in lines if ln.text.startswith("First")]
+    assert reflow.rewrite_unit(doc, 0, first, "Rewritten", unit=reflow.LINE).done == 1
     got = _lines(page)
     assert "Second block stays" in got
     assert "Rewritten" in got and "First block line" not in got

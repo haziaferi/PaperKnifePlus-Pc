@@ -1,10 +1,20 @@
-"""Find & Replace — a document workspace (group A): the find / replace fields
-and the hit count in the context panel, the hits drawn over the page."""
+"""Find & Replace — a document workspace (group A): the find / replace fields,
+how far a change reflows, and the hit count in the context panel; the hits,
+and the text each would reflow, drawn over the page.
+
+A replacement reflows its line, paragraph or page column like a word
+processor (core.reflow, owner 2026-10-11); a change that would move text past
+a picture, line art, a link, a table, two columns or the end of the document
+is left as it was and listed after the job."""
 from __future__ import annotations
 
 
-from qfluentwidgets import BodyLabel, LineEdit, PushButton
+import pymupdf as fitz
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QListWidgetItem
+from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
+from ...core import reflow
 from ...core import text as core_text
 from .. import dialogs, theme
 from ..pages import WorkspaceDoc, WorkspacePage, register_page
@@ -13,6 +23,7 @@ GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
 # Current hit, other hits, hit outline; the fills are see-through so the
 # text under a hit stays readable.
 HIT_CUR, HIT, HIT_EDGE = "#80FFD700", "#80FFFACD", "#CCCCCC"
+UNIT_NAMES = {"Line": reflow.LINE, "Paragraph": reflow.PARAGRAPH, "Page": reflow.PAGE}
 
 
 @register_page("FindReplaceTool")
@@ -25,6 +36,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self._undo_stack: list = []
         self._hits: list = []           # (page_num, [rect per line of the match])
         self._hit_idx = -1
+        self.skips: list = []           # reflow.Skip of the last Replace All
         self.add_rail("undo", GLYPH_UNDO, "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.secondary("Find All", self.find_all)
         self.secondary("Replace All", self.replace_all)
@@ -45,6 +57,14 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.repl_edit = LineEdit()
         self.repl_edit.setPlaceholderText("Replacement text…")
         row.addWidget(self.repl_edit, 1)
+        row = self.panel_field("Reflow")
+        self.unit_box = ComboBox()
+        self.unit_box.addItems(list(UNIT_NAMES))
+        self.unit_box.setCurrentText("Paragraph")
+        self.unit_box.setToolTip("How much text a change re-wraps: its line, its paragraph, "
+                                 "or the page's column")
+        self.unit_box.currentTextChanged.connect(lambda _t: self.show_current())
+        row.addWidget(self.unit_box, 1)
         row = self.panel_field("Hits")
         self.prev_hit = PushButton("◀ Prev")
         self.next_hit = PushButton("Next ▶")
@@ -57,6 +77,34 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.hit_label.setWordWrap(True)
         self.panel_body.addSpacing(8)
         self.panel_body.addWidget(self.hit_label)
+        self.skip_list = ListWidget()
+        self.skip_list.setWordWrap(True)
+        self.skip_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.skip_list.setMinimumHeight(160)
+        self.skip_list.itemClicked.connect(self._open_skip)
+        self.skip_list.hide()
+        self.panel_body.addWidget(self.skip_list, 1)
+
+    def unit(self) -> str:
+        return UNIT_NAMES[self.unit_box.currentText()]
+
+    def _show_skips(self, skips):
+        self.skips = list(skips)
+        self.skip_list.clear()
+        line = self.skip_list.fontMetrics().lineSpacing()
+        for s in self.skips:
+            # what stopped it first, then where: "Page 2 · A picture is in the way"
+            item = QListWidgetItem(f"Page {s.page + 1} · {s.reason[:1].upper()}{s.reason[1:]}\n"
+                                   f"{s.text}")
+            item.setToolTip(s.text)
+            item.setSizeHint(QSize(0, 3 * line + 12))
+            self.skip_list.addItem(item)
+        self.skip_list.setVisible(bool(self.skips))
+
+    def _open_skip(self, item):
+        s = self.skips[self.skip_list.row(item)]
+        self._pg = s.page
+        self.show_current()
 
     # ── document ─────────────────────────────────────────────────────────────
     def open_path(self, path: str):
@@ -64,11 +112,13 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
             return
         self._hits, self._hit_idx = [], -1
         self.hit_label.setText("")
+        self._show_skips([])
         self.show_current()
 
     def clear_document(self):
         self._undo_stack, self._hits, self._hit_idx = [], [], -1
         self.hit_label.setText("")
+        self._show_skips([])
         super().clear_document()
 
     # ── search ───────────────────────────────────────────────────────────────
@@ -122,14 +172,13 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
                 f"Replace ALL occurrences of:\n  '{needle}'\nwith:\n  '{repl}'\n\n"
                 "This modifies the PDF in memory (save to keep changes)."):
             return
-        # insert_text(fontname="helv") encodes Latin-1 only and turns anything else
-        # into "·"; an embedded built-in font keeps the characters.
-        font = core_text.unicode_font(repl)
-        if font is None:
+        # A letter no font can draw would come out as "·".
+        if repl and core_text.unicode_font(repl) is None:
             return dialogs.error(
                 "Replace", "The replacement contains characters no built-in font can draw.")
         win = self.window_
-        state = {"count": 0, "snapshot": False}
+        unit = self.unit()
+        state = {"result": None, "snapshot": False}
         first_half, second_half = win.progress_callback(0.5), win.progress_callback()
 
         def work(stop):
@@ -139,23 +188,35 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
             self._push_undo()
             state["snapshot"] = True
             try:
-                core_text.replace_matches(self._doc, found, repl, font, stop, second_half)
+                state["result"] = reflow.replace_all(self._doc, needle, repl, unit, stop,
+                                                     second_half)
             except Exception as e:
                 raise RuntimeError(f"Nothing was replaced:\n{e}") from e
-            state["count"] = sum(len(ms) for _, ms in found)
 
         def then(kind, _value):
             # All or nothing: pages already done would keep their text removed.
             if kind != "done" and state["snapshot"]:
                 self._pop_undo()
             if kind == "done":
-                count = state["count"]
-                if count:
+                res = state["result"] or reflow.Result()
+                if res.done:
                     self._dirty = True
                 self._hits, self._hit_idx = [], -1
-                self.hit_label.setText(f"Replaced {count} occurrence(s)")
-                win.set_status(f"✓  Replaced {count} occurrence(s) · Save to write to disk",
-                               "success")
+                self._show_skips(res.skips)
+                left = len(res.skips)
+                self.hit_label.setText(f"Replaced {res.done} occurrence(s)"
+                                       + (f" · {left} left as they were:" if left else ""))
+                fonts = ", ".join(sorted(res.fallback_fonts))
+                if left:
+                    win.set_status(f"⚠  Replaced {res.done} · {left} left as they were — "
+                                   "see the list · Save to write to disk", "warning")
+                elif fonts:
+                    win.set_status(f"⚠  Replaced {res.done} occurrence(s) — some letters are not "
+                                   f"in the font '{fonts}' and were drawn in a built-in one · "
+                                   "Save to write to disk", "warning")
+                else:
+                    win.set_status(f"✓  Replaced {res.done} occurrence(s) · Save to write to disk",
+                                   "success")
             self.show_current()
 
         win.run_job(work, f"Replacing '{needle}'…", lock=True, then=then)
@@ -163,6 +224,16 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
     # ── render ───────────────────────────────────────────────────────────────
     def draw_overlay(self, page):
         accent = theme.hex_color("accent")
+        here = [rects for pg_num, rects in self._hits if pg_num == self._pg]
+        if here:
+            # the text each hit would reflow, outlined thinly around it
+            lines, _o = reflow.page_lines(page)
+            for u in reflow.units(lines, self.unit()):
+                box = fitz.Rect(u[0].bbox)
+                for ln in u[1:]:
+                    box |= ln.bbox
+                if any(box.intersects(r) for rects in here for r in rects):
+                    self.view.add_rect(box, accent, width=1, pad=3, dash=True)
         for hi, (pg_num, rects) in enumerate(self._hits):
             if pg_num != self._pg:
                 continue
@@ -179,5 +250,6 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self._pop_undo()
         self._dirty = True
         self._hits, self._hit_idx = [], -1
+        self._show_skips([])
         self.hit_label.setText("Replace undone")
         self.show_current()

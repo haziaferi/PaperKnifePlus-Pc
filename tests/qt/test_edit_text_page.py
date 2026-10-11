@@ -1,4 +1,4 @@
-"""The Qt Edit Text page: click a block, edit it in the panel, save.
+"""The Qt Edit Text page: click a paragraph, edit it in the panel, save.
 
 Ports the checks of the CTk tool's tests (tests/test_content.py Edit Text,
 tests/test_page_canvas.py, tests/test_review.py RC-01/RC-07/RC-02)."""
@@ -224,16 +224,17 @@ def test_edit_on_cropped_page_keeps_the_baseline(window, tmp_path):
     assert after and abs(after[0].y1 - before.y1) < 2, (before, after)
 
 
-def test_font_not_built_in_falls_back_with_a_warning(window, tmp_path, monkeypatch):
-    from paperknife.core import text as core_text
+def test_letters_the_font_cannot_draw_fall_back_with_a_warning(window, tmp_path, monkeypatch):
+    from paperknife.core import reflow
     page = _open(window, _edit_pdf(tmp_path / "e.pdf"))
-    monkeypatch.setattr(core_text, "block_font", lambda name: (fitz.Font("helv"), False))
+    monkeypatch.setattr(reflow.FontBook, "own", lambda self, page, name: (None, False))
     _select_hello(page)
     page.edit_box.setPlainText("Hi")
     page.apply_edit()
     assert "Hi" in page._doc[0].get_text()
     assert window.status_role == "warning"
-    assert window.status_label.text().startswith("⚠  Edit applied in Helvetica: the block's font '")
+    assert window.status_label.text().startswith(
+        "⚠  Edit applied — some letters are not in the font '")
 
 
 def test_save_writes_the_edited_text(window, dialogs, tmp_path):
@@ -295,3 +296,66 @@ def test_leaving_the_tool_closes_the_document(window, tmp_path, target):
     else:
         assert window.open_tool(target)
     assert doc.is_closed and page._doc is None
+
+
+# ── reflow (owner, 2026-10-11) ───────────────────────────────────────────────
+def _panel_title(page):
+    from qfluentwidgets import SubtitleLabel
+    return page._panel_box.findChildren(SubtitleLabel)[0].text()
+
+
+def _para_pdf(path, picture=False):
+    doc = fitz.open()
+    page = doc.new_page()
+    words = ("alpha beta gamma delta epsilon zeta theta iota kappa lambda " * 5).split()
+    page.insert_textbox(fitz.Rect(72, 72, 380, 300), " ".join(words), fontsize=11, fontname="tiro")
+    page.insert_textbox(fitz.Rect(72, 310, 380, 420), "The next paragraph stays below.",
+                        fontsize=11, fontname="tiro")
+    if picture:
+        pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 20), False)
+        pix.clear_with(100)
+        page.insert_image(fitz.Rect(72, 430, 200, 480), pixmap=pix)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_a_click_selects_the_whole_paragraph_as_one_text(window, tmp_path):
+    page = _open(window, _para_pdf(tmp_path / "p.pdf"))
+    assert page.unit_box.currentText() == "Paragraph"
+    _click(page, 100, 80)
+    assert page.edit_box is not None
+    text = page.edit_box.toPlainText()
+    assert "\n" not in text and text.startswith("alpha beta") and text.endswith("lambda")
+    assert _panel_title(page) == "Selected paragraph"
+
+
+def test_line_choice_selects_one_line(window, tmp_path):
+    page = _open(window, _para_pdf(tmp_path / "p.pdf"))
+    page.unit_box.setCurrentText("Line")
+    pump(0.05)
+    _click(page, 100, 80)
+    assert _panel_title(page) == "Selected line"
+    assert len(page.edit_box.toPlainText()) < 70
+
+
+def test_a_longer_edit_moves_the_next_paragraph_down(window, tmp_path):
+    page = _open(window, _para_pdf(tmp_path / "p.pdf"))
+    before = _words(page._doc[0], "next")[0]
+    _click(page, 100, 80)
+    page.edit_box.setPlainText(page.edit_box.toPlainText() + " and many more words " * 6)
+    page.apply_edit()
+    after = _words(page._doc[0], "next")[0]
+    assert after.y0 > before.y0 + 5
+    assert window.status_label.text() == "✓  Edit applied — use Save to write to disk"
+
+
+def test_an_edit_that_cannot_move_its_text_is_refused_and_says_why(window, dialogs, tmp_path):
+    page = _open(window, _para_pdf(tmp_path / "p.pdf", picture=True))
+    _click(page, 100, 80)
+    old = page.edit_box.toPlainText()
+    page.edit_box.setPlainText(old + " and many more words " * 12)
+    page.apply_edit()
+    assert ("warning", "Edit Text", "The edit was not applied: a picture is in the way.") in dialogs.msgs
+    assert "many more" not in page._doc[0].get_text()
+    assert not page._undo_stack
