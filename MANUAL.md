@@ -196,6 +196,8 @@ Merge combines two or more PDF files into a single output document. Files are pr
 
 The list stays while you visit other tools and empties after a finished merge.
 
+The merged file has a top-level bookmark for each input, named after its file, with that file's own bookmarks under it, and takes the document properties (title, author, subject, keywords, XMP) of the first file. Pages are numbered 1 to N; the inputs' own page labels are not kept. Each input's form fields, comments, links, layers and attachments come along; a link to a named destination becomes a link to its page. A page range leaves out the bookmarks to the pages it does not include.
+
 ### 5.3 Split
 
 Split extracts pages from a PDF into separate files in a folder you choose.
@@ -203,9 +205,11 @@ Split extracts pages from a PDF into separate files in a folder you choose.
 - Enter comma-separated page ranges (e.g., `1-3, 5, 7-9`); each range becomes one file.
 - Leave the field blank to write one PDF per page.
 
+Each part keeps what belongs to its pages: the bookmarks, form fields, links and page labels that go with them, and the document's properties, XMP, layers and attachments.
+
 ### 5.4 Rotate & Reorder
 
-Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. Click **Save PDF** to write the result.
+Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. Click **Save PDF** to write the result; the file keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
 
 ### 5.5 Split by Bookmarks
 
@@ -470,6 +474,7 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **New:** after a job that writes one PDF, "*name* is ready" with **Continue with it** / **Start over**; opening another tool counts as Continue. Jobs with several outputs ask nothing. Merge, Image → PDF and Batch keep their lists while you move around and empty them after a finished job.
 - **New:** Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact ask "Save changes to *name*?" (**Save** / **Discard** / **Cancel**) before unsaved edits are left, replaced, cleared, or closed with the window.
 - **New:** navigation groups fold under their title (click, `Enter` or `Space`); the folded groups are kept in `prefs.json`, and a search still finds tools in them.
+- **Fixed:** Rotate & Reorder, Split and Split by Bookmarks dropped the form fields (Rotate & Reorder), bookmarks, page labels, layers, document properties, XMP and the links to named destinations; Merge dropped all of them but the form fields. Merge now writes a bookmark per input file (Section 5.2).
 - **Fixed:** Password kept a typed password after a cancelled save dialog or a refused attempt; its fields are now emptied at every end of an attempt.
 - **Unchanged:** the same 26 tools, and the same `prefs.json` and `recent.json`.
 - **Removed:** the `customtkinter` and `tkinterdnd2` dependencies.

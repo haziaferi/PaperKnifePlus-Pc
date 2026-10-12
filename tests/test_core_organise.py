@@ -64,6 +64,225 @@ def test_reorder_moves_and_rotates(tmp_path):
         assert [p.rotation for p in d] == [0, 90, 0]
 
 
+def _rich_pdf(path, pages=4):
+    """Pages "Page N" with what belongs to the document: a bookmark per page
+    (one by a named destination), a web-address bookmark, roman-then-arabic
+    page labels, a text field per page, properties and XMP."""
+    make_pdf(path, pages=pages)
+    doc = fitz.open(path)
+    for i, p in enumerate(doc):
+        w = fitz.Widget()
+        w.field_type, w.field_name = fitz.PDF_WIDGET_TYPE_TEXT, f"f{i + 1}"
+        w.rect = fitz.Rect(72, 200, 272, 230)
+        p.add_widget(w)
+    doc.set_toc([[1, f"Chapter {i + 1}", i + 1] for i in range(pages)]
+                + [[1, "Web", -1, {"kind": fitz.LINK_URI, "uri": "https://example.org"}]])
+    doc.set_page_labels([{"startpage": 0, "prefix": "", "style": "r", "firstpagenum": 1},
+                         {"startpage": 2, "prefix": "", "style": "D", "firstpagenum": 1}])
+    doc.set_metadata({"title": "Rich", "author": "Tester"})
+    doc.set_xml_metadata("<x:xmpmeta xmlns:x='adobe:ns:meta/'/>")
+    doc.saveIncr()
+    doc.close()
+    return str(path)
+
+
+def _parts(path):
+    with fitz.open(path) as d:
+        return {
+            "text": [p.get_text().strip() for p in d],
+            "labels": [p.get_label() for p in d],
+            "toc": [(e[1], e[2]) for e in d.get_toc()],
+            "fields": sorted(w.field_name for p in d for w in p.widgets()),
+            "form": bool(d.is_form_pdf),
+            "title": d.metadata["title"],
+            "xmp": bool(d.get_xml_metadata()),
+        }
+
+
+def test_reorder_keeps_what_belongs_to_the_document(tmp_path):
+    # insert_pdf into a new file, as before, lost all of this but the text.
+    src = _rich_pdf(tmp_path / "in.pdf")
+    out = tmp_path / "out.pdf"
+    with fitz.open(src) as doc:
+        organise.reorder(doc, [3, 0, 1, 2], {0: 0, 1: 0, 2: 0, 3: 0}, str(out))
+    got = _parts(out)
+    assert got["text"] == ["Page 4", "Page 1", "Page 2", "Page 3"]
+    assert got["labels"] == ["2", "i", "ii", "1"]          # each page keeps its label
+    assert got["toc"] == [("Chapter 1", 2), ("Chapter 2", 3), ("Chapter 3", 4),
+                          ("Chapter 4", 1), ("Web", -1)]
+    assert got["fields"] == ["f1", "f2", "f3", "f4"] and got["form"]
+    assert got["title"] == "Rich" and got["xmp"]
+
+
+def test_split_part_keeps_only_its_own_bookmarks_and_fields(tmp_path):
+    src = _rich_pdf(tmp_path / "in.pdf")
+    with fitz.open(src) as doc:
+        organise.split_ranges(doc, [(1, 2)], str(tmp_path), "in", threading.Event(),
+                              lambda v: None)
+    got = _parts(tmp_path / "in_part01_p2-3.pdf")
+    assert got["text"] == ["Page 2", "Page 3"]
+    assert got["labels"] == ["ii", "1"]
+    assert got["toc"] == [("Chapter 2", 1), ("Chapter 3", 2), ("Web", -1)]
+    assert got["fields"] == ["f2", "f3"] and got["form"]
+    with fitz.open(tmp_path / "in_part01_p2-3.pdf") as d:      # no orphan fields
+        assert d.xref_get_key(d.pdf_catalog(), "AcroForm/Fields")[1].count(" 0 R") == 2
+    assert got["title"] == "Rich" and got["xmp"]
+
+
+def test_split_into_many_parts_each_keeps_its_own(tmp_path):
+    # More parts than CUT_LEAF: the halves are cut first, the parts from them.
+    n = 3 * organise.CUT_LEAF + 1
+    src = _rich_pdf(tmp_path / "in.pdf", pages=n)
+    seen = []
+    with fitz.open(src) as doc:
+        labels = [p.get_label() for p in doc]
+        assert organise.split_ranges(doc, [(i, i) for i in range(n)], str(tmp_path), "in",
+                                     threading.Event(), seen.append) == n
+    assert seen[-1] == 1.0 and len(seen) == n
+    for i in range(n):
+        got = _parts(tmp_path / f"in_part{i + 1:02d}_p{i + 1}-{i + 1}.pdf")
+        assert got["text"] == [f"Page {i + 1}"] and got["labels"] == [labels[i]]
+        assert got["toc"] == [(f"Chapter {i + 1}", 1), ("Web", -1)]
+        assert got["fields"] == [f"f{i + 1}"] and got["title"] == "Rich"
+
+
+def test_split_cancelled_between_parts_stops(tmp_path):
+    n = 3 * organise.CUT_LEAF
+    src = make_pdf(tmp_path / "in.pdf", pages=n)
+    stop = threading.Event()
+    with fitz.open(src) as doc:
+        assert organise.split_ranges(doc, [(i, i) for i in range(n)], str(tmp_path), "in",
+                                     stop, lambda v: v >= 0.25 and stop.set()) is None
+    assert 0 < len(list(tmp_path.glob("in_part*"))) < n
+
+
+def test_split_part_drops_the_cut_pages_from_the_file(tmp_path):
+    # The part is cut from a copy of the whole file: without garbage
+    # collection the 39 pages left out would still be in it.  Each page
+    # carries 4 KB of random text, which deflate cannot shrink away.
+    import random
+    rnd = random.Random(1)
+    doc = fitz.open()
+    for _ in range(40):
+        p = doc.new_page()
+        p.insert_textbox(p.rect, "".join(rnd.choice("abcdefghij ") for _ in range(4000)), fontsize=4)
+    doc.save(tmp_path / "in.pdf", deflate=True)
+    whole = (tmp_path / "in.pdf").stat().st_size
+    organise.split_ranges(doc, [(0, 0)], str(tmp_path), "in", threading.Event(), lambda v: None)
+    doc.close()
+    assert (tmp_path / "in_part01_p1-1.pdf").stat().st_size * 10 < whole
+
+
+def test_copy_pages_named_destination_bookmark_keeps_its_page(tmp_path):
+    # set_toc loses a named destination's page; a part's kept bookmarks
+    # (here through /Dests names, as LaTeX writes them) must still go to theirs.
+    src = make_pdf(tmp_path / "in.pdf", pages=3)
+    doc = fitz.open(src)
+    names = [f"{p.xref} 0 R" for p in doc]
+    dests = doc.get_new_xref()
+    doc.update_object(dests, "<<" + "".join(f"/d{i} [{n} /XYZ 0 700 0]" for i, n in enumerate(names)) + ">>")
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", f"{dests} 0 R")
+    outl = doc.get_new_xref()
+    items = [doc.get_new_xref() for _ in names]
+    for i, x in enumerate(items):
+        nxt = f"/Next {items[i + 1]} 0 R" if i + 1 < len(items) else ""
+        prv = f"/Prev {items[i - 1]} 0 R" if i else ""
+        doc.update_object(x, f"<</Title (C{i + 1})/Parent {outl} 0 R/Dest /d{i}{nxt}{prv}>>")
+    doc.update_object(outl, f"<</Type/Outlines/First {items[0]} 0 R/Last {items[-1]} 0 R/Count 3>>")
+    doc.xref_set_key(doc.pdf_catalog(), "Outlines", f"{outl} 0 R")
+    data = doc.tobytes()
+    doc.close()
+    with fitz.open("pdf", data) as d:
+        assert [(e[1], e[2]) for e in d.get_toc()] == [("C1", 1), ("C2", 2), ("C3", 3)]
+    with organise.copy_pages(data, [1, 2]) as part:
+        assert [(e[1], e[2]) for e in part.get_toc()] == [("C2", 1), ("C3", 2)]
+
+
+def test_copy_pages_keeps_links_through_the_catalog_dests(tmp_path):
+    # select() drops /Dests and the links that use it.
+    doc = fitz.open()
+    for _ in range(3):
+        doc.new_page()
+    dests = doc.get_new_xref()
+    doc.update_object(dests, f"<</three [{doc[2].xref} 0 R /XYZ 0 700 0]>>")
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", f"{dests} 0 R")
+    annot = doc.get_new_xref()
+    doc.update_object(annot, "<</Type/Annot/Subtype/Link/Rect[72 72 200 100]/Dest/three>>")
+    doc.xref_set_key(doc[0].xref, "Annots", f"[{annot} 0 R]")
+    data = doc.tobytes()
+    with organise.copy_pages(data, [2, 0]) as part:
+        assert [(lk["kind"], lk["page"]) for lk in part[1].get_links()] == [(fitz.LINK_GOTO, 0)]
+
+
+def _with_layer_and_attachment(path, name):
+    """A layer that is off, its text on page 1, and an attachment."""
+    doc = fitz.open(path)
+    x = doc.add_ocg(f"Layer {name}", on=False)
+    doc[0].insert_text((72, 300), f"hidden {name}", oc=x)
+    doc.embfile_add("notes.txt", f"notes {name}".encode())
+    doc.saveIncr()
+    doc.close()
+
+
+def test_merge_bookmark_per_file_first_properties_plain_numbers(tmp_path):
+    # Owner's choices 2026-10-12; insert_pdf alone lost the bookmarks.
+    a = _rich_pdf(tmp_path / "a.pdf", pages=3)
+    b = make_pdf(tmp_path / "b.pdf", pages=2, text="B{n}")
+    with fitz.open(b) as d:
+        d.set_toc([[1, "B intro", 2]])
+        d.set_metadata({"title": "Other"})
+        d.saveIncr()
+    out = tmp_path / "out.pdf"
+    organise.merge([(fitz.open(a), [(0, 0), (2, 2)]), (fitz.open(b), [(0, 1)])], str(out),
+                   threading.Event(), lambda v: None)
+    with fitz.open(out) as d:
+        assert [(e[0], e[1], e[2]) for e in d.get_toc()] == [
+            (1, "a.pdf", 1), (2, "Chapter 1", 1), (2, "Chapter 3", 2), (2, "Web", -1),
+            (1, "b.pdf", 3), (2, "B intro", 4)]
+        assert d.metadata["title"] == "Rich" and d.metadata["author"] == "Tester"
+        assert d.get_xml_metadata()
+        assert d.get_page_labels() == [] and [p.get_label() for p in d] == ["", "", "", ""]
+        assert sorted(w.field_name for p in d for w in p.widgets()) == ["f1", "f3"]
+
+
+def test_merge_keeps_layers_attachments_and_named_links(tmp_path):
+    a = make_pdf(tmp_path / "a.pdf", pages=2, text="A{n}")
+    b = make_pdf(tmp_path / "b.pdf", pages=1, text="B{n}")
+    _with_layer_and_attachment(a, "A")
+    _with_layer_and_attachment(b, "B")
+    # a.pdf page 1 links to its page 2 through a named destination.
+    doc = fitz.open(a)
+    dests = doc.get_new_xref()
+    doc.update_object(dests, f"<</two [{doc[1].xref} 0 R /XYZ 0 700 0]>>")
+    doc.xref_set_key(doc.pdf_catalog(), "Dests", f"{dests} 0 R")
+    annot = doc.get_new_xref()
+    doc.update_object(annot, "<</Type/Annot/Subtype/Link/Rect[72 72 200 100]/Dest/two/Border[0 0 0]>>")
+    doc.xref_set_key(doc[0].xref, "Annots", f"[{annot} 0 R]")
+    data = doc.tobytes()
+    doc.close()
+    src = fitz.open("pdf", data)
+    assert [lk["kind"] for lk in src[0].get_links()] == [fitz.LINK_NAMED]
+    out = tmp_path / "out.pdf"
+    organise.merge([(src, [(0, 1)]), (fitz.open(b), [(0, 0)])], str(out),
+                   threading.Event(), lambda v: None)
+    with fitz.open(out) as d:
+        assert [(lk["kind"], lk["page"]) for lk in d[0].get_links()] == [(fitz.LINK_GOTO, 1)]
+        ocgs = d.get_ocgs()
+        assert sorted(v["name"] for v in ocgs.values()) == ["Layer A", "Layer B"]
+        assert not any(v["on"] for v in ocgs.values())          # still off
+        assert "hidden A" not in d[0].get_text() and "hidden B" not in d[2].get_text()
+        assert sorted(d.embfile_names()) == ["notes.txt", "notes.txt (2)"]
+        assert not any(d.xref_get_key(x, "PKsrc")[0] != "null" for x in range(1, d.xref_length()))
+
+
+def test_merge_same_page_twice(tmp_path):
+    a = _rich_pdf(tmp_path / "a.pdf", pages=2)
+    out = tmp_path / "out.pdf"
+    assert organise.merge([(fitz.open(a), [(0, 1), (0, 0)])], str(out),
+                          threading.Event(), lambda v: None) == 3
+    assert _texts(out) == ["Page 1", "Page 2", "Page 1"]
+
+
 def test_bookmark_chapters_sorts_by_page_and_skips_targetless():
     toc = [[1, "Two", 5], [1, "One", 1], [2, "Sub", 2], [1, "Nowhere", -1]]
     entries, skipped = organise.bookmark_chapters(toc, 10, all_levels=False)
