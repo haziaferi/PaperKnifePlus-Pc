@@ -131,6 +131,17 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         """Boxes pending, or pages redacted in memory and not saved yet."""
         return self._doc is not None and (bool(self._pending) or self._dirty)
 
+    def recovery_extra(self) -> dict:
+        return {"boxes": [[pg, list(r), phrase] for pg, r, phrase in self._pending],
+                "secrets": dict(self._secrets)}
+
+    def restore_extra(self, state: dict) -> None:
+        n = len(self._doc)
+        self._pending = [(pg, fitz.Rect(r), phrase) for pg, r, phrase in state.get("boxes", [])
+                         if isinstance(pg, int) and 0 <= pg < n]
+        self._secrets = {str(k): bool(v) for k, v in state.get("secrets", {}).items()}
+        self.build_panel()
+
     # ── mouse ────────────────────────────────────────────────────────────────
     def _add_box(self, start, end, click: bool):
         if click:

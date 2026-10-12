@@ -96,6 +96,7 @@ class Dialogs:
         self.passwords: list = []       # answers for ask_password (default None)
         self.unsaved: list = []         # answers for ask_unsaved: "save" / "discard" / "cancel"
         self.colors: list = []
+        self.recovers: list = []        # answers for ask_recover: True / False / None
         self.msgs: list[tuple[str, str, str]] = []
 
     def save(self, *paths):
@@ -147,6 +148,13 @@ def _install(mp, d: Dialogs):
         d.msgs.append(("ask_password", str(title), str(prompt)))
         return _pop(d.passwords, None)
 
+    def ask_recover(lines=(), *a, **k):
+        d.msgs.append(("ask_recover", dmod.RECOVER_TITLE, "\n".join(lines)))
+        if not d.recovers:
+            d.unexpected.append((dmod.RECOVER_TITLE, "\n".join(lines)))
+            raise AssertionError(f"unexpected ask_recover: {lines!r}")
+        return d.recovers.pop(0)
+
     def ask_open_many(*a, **k):
         v = _pop(d.opens, [])
         return [str(p) for p in (v if isinstance(v, (list, tuple)) else [v])]
@@ -159,6 +167,7 @@ def _install(mp, d: Dialogs):
     mp.setattr(dmod, "ask_yes_no", ask_yes_no)
     mp.setattr(dmod, "ask_password", ask_password)
     mp.setattr(dmod, "ask_unsaved", ask_unsaved, raising=False)   # (absent before 2026-10-10)
+    mp.setattr(dmod, "ask_recover", ask_recover, raising=False)   # (absent before 2026-10-12)
     for kind in ("info", "warning", "error"):
         mp.setattr(dmod, kind, rec(kind))
 

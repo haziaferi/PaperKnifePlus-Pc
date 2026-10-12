@@ -39,6 +39,7 @@ from qfluentwidgets.components.navigation.navigation_widget import (NavigationIt
 
 from . import bridge, dialogs, pages, theme
 from ..core import password as core_password
+from ..core import recovery
 from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
@@ -52,6 +53,7 @@ EDGE = 8                # px from the window edge that counts as "the edge"
 OUTSIDE_X, OUTSIDE_Y = 200, 100   # pointer this far outside still counts
 POLL_MS = 40            # edge watcher interval (runs only when needed)
 CLOSE_WAIT_S = 15       # how long close waits for a cancelled job
+RECOVERY_MS = 10_000    # how often changed unsaved edits are copied for crash recovery
 BUSY_MSG = "Another job is still running. Wait for it to finish or cancel it first."
 
 GEOMETRY_KEY = "qt_window_geometry"
@@ -428,6 +430,83 @@ class MainWindow(FluentWindow):
                                       timeout=self._hide_revealed_context)
         self._edge = QTimer(self, interval=POLL_MS, timeout=self._poll_edges)
         self._close_timer = QTimer(self, interval=100, timeout=self._close_when_idle)
+        try:
+            self._recovery = recovery.Session()
+        except OSError:
+            self._recovery = None           # no recovery folder: edits are not copied
+        self._recovery_tokens: dict[str, object] = {}
+        self._recovery_timer = QTimer(self, interval=RECOVERY_MS, timeout=self.snapshot_edits)
+        self._recovery_timer.start()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # CRASH RECOVERY (owner's choice 2026-10-12: a dialog at start)
+    # ══════════════════════════════════════════════════════════════════════════
+    def snapshot_edits(self):
+        """Copy each page's unsaved edits that changed since the last copy
+        into this app's recovery folder; drop the copy of a page with none.
+        Not while a job holds a document."""
+        rec = self._recovery
+        if rec is None or self.job_running():
+            return
+        for key, page in list(self._pages.items()):
+            try:
+                token = page.recovery_token()
+            except Exception:
+                token = None
+            if token is None:
+                if self._recovery_tokens.pop(key, None) is not None:
+                    rec.remove(key)
+                continue
+            if self._recovery_tokens.get(key) == token:
+                continue
+            try:
+                state, pdf = page.recovery_snapshot()
+                path = page.document_path()
+                rec.write(key, {"path": path, "name": Path(path).name,
+                                "tool": page.title_label.text(), "state": state}, pdf)
+            except (OSError, RuntimeError, ValueError):
+                continue                    # tried again at the next tick
+            self._recovery_tokens[key] = token
+
+    def offer_recovery(self) -> None:
+        """At start: the edits an app that did not close left behind, with
+        Recover / Discard.  Recover opens each in its tool, as unsaved."""
+        try:
+            left = recovery.orphaned()
+        except OSError:
+            return
+        left = [e for e in left if e.key in self._hosts and e.key != "home"]
+        if not left:
+            return
+        lines = [f"{e.meta.get('name') or 'Untitled'} — {e.meta.get('tool', e.key)}, "
+                 f"{time.strftime('%H:%M', time.localtime(e.meta.get('saved_at', 0)))}"
+                 for e in left]
+        answer = dialogs.ask_recover(lines)
+        if answer is None:              # closed: asked again at the next start
+            return
+        if not answer:
+            recovery.discard(left)
+            return
+        shown, failed = None, []
+        for e in left:
+            page = self._ensure_page(e.key)
+            ok = False
+            try:
+                ok = page.restore_recovery(e.meta.get("path", ""), e.meta.get("state") or {}, e.pdf)
+            except Exception:
+                ok = False
+            if ok:
+                shown = shown or e.key
+            else:
+                failed.append(lines[left.index(e)])
+        recovery.discard(left)          # what came back is copied again from this app
+        if shown:
+            self.show_page(shown, follow=False)
+        self.snapshot_edits()
+        if failed:
+            dialogs.warning("Recover unsaved changes",
+                            "These could not be recovered (the file is missing or "
+                            "could not be opened):\n" + "\n".join(failed))
 
     # ══════════════════════════════════════════════════════════════════════════
     # PAGES AND NAVIGATION
@@ -594,6 +673,7 @@ class MainWindow(FluentWindow):
         choice = dialogs.ask_unsaved(page.document_name())
         if choice == "discard":
             page.discard_changes()
+            self.snapshot_edits()           # the copy of the edits goes too
             return True
         if choice == "save":
             page.save(after=retry)
@@ -787,6 +867,8 @@ class MainWindow(FluentWindow):
                 self._unlock_view()
             if then is not None:
                 then(kind, value)
+            if not self.job_running():
+                self.snapshot_edits()       # a save drops the copy, an edit job makes one
 
         def on_done(result):
             if isinstance(result, str) and result:
@@ -857,21 +939,40 @@ class MainWindow(FluentWindow):
         except Exception as e:
             dialogs.error("Error", f"Could not open PDF:\n{e}")
             return None
-        if doc.is_encrypted:
-            pw = dialogs.ask_password(
-                "Password required", "This PDF is password-protected. Enter the password:")
-            if not pw:
-                doc.close()
-                return None
-            if not doc.authenticate(pw):
-                dialogs.error("Error", "Incorrect password.")
-                doc.close()
-                return None
-            # Kept on the document until it is closed, for a PDF written from
-            # it that keeps the password (pages.ask_keep_password).
-            core_password.keep_open_password(doc, Path(path).name, pw)
+        if not self._unlock(doc, Path(path).name):
+            return None
         RECENT.push(path, len(doc))
         return doc
+
+    def open_pdf_data(self, data: bytes, name: str):
+        """open_pdf_safe for a PDF in memory (a recovered copy named *name*):
+        not pushed to the recent list."""
+        try:
+            doc = fitz.open("pdf", data)
+        except Exception as e:
+            dialogs.error("Error", f"Could not open PDF:\n{e}")
+            return None
+        return doc if self._unlock(doc, name) else None
+
+    @staticmethod
+    def _unlock(doc, name: str) -> bool:
+        """Ask for an encrypted *doc*'s password; False (closed) when it is
+        not given or wrong."""
+        if not doc.is_encrypted:
+            return True
+        pw = dialogs.ask_password(
+            "Password required", "This PDF is password-protected. Enter the password:")
+        if not pw:
+            doc.close()
+            return False
+        if not doc.authenticate(pw):
+            dialogs.error("Error", "Incorrect password.")
+            doc.close()
+            return False
+        # Kept on the document until it is closed, for a PDF written from
+        # it that keeps the password (pages.ask_keep_password).
+        core_password.keep_open_password(doc, name, pw)
+        return True
 
     # ── drag and drop ──
     @staticmethod
@@ -1188,6 +1289,8 @@ class MainWindow(FluentWindow):
             if self.width() >= NAV_MIN_EXPAND_WINDOW and not self.compact:
                 nav.expand(useAni=False)
                 self._apply_nav()       # expand(useAni=False) says nothing of its new mode
+            # Once the window is up, so the question sits over it.
+            QTimer.singleShot(0, lambda: self._alive and self.offer_recovery())
         self._update_edge_watch()
 
     def hideEvent(self, e):
@@ -1245,6 +1348,10 @@ class MainWindow(FluentWindow):
         self._close_ok = True
         self._edge.stop()
         self._hide_top_timer.stop()
+        self._recovery_timer.stop()
+        if self._recovery is not None:      # a normal exit: nothing to recover
+            self._recovery.close()
+            self._recovery = None
         page = self.current_page()
         if hasattr(page, "deactivate"):
             try:

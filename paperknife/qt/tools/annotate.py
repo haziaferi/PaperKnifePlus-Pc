@@ -104,9 +104,16 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
     def open_path(self, path: str):
         if self.open_document(path, "Annotate") is None:
             return
-        self.sel_xref = None
+        self.sel_xref, self._removed = None, False
         self.build_panel()
         self.show_current()
+
+    _removed = False    # an annotation was deleted (Remove, Undo) since the file was opened
+
+    def appends_only(self) -> bool:
+        """Annotations only added: a save over the file appends them; one
+        removed (its text would stay readable in the file) writes it whole."""
+        return not self._removed
 
     def on_page(self):
         self.sel_xref = None
@@ -159,7 +166,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             annot = core_annotate.by_xref(page, xref)
             if annot is not None:
                 page.delete_annot(annot)
-                self._dirty = True
+                self._dirty = self._removed = True
                 break
         self.show_current()
 
@@ -170,7 +177,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         annot = core_annotate.by_xref(page, self.sel_xref)
         if annot is not None:
             page.delete_annot(annot)
-            self._dirty = True
+            self._dirty = self._removed = True
         self.sel_xref = None
         self.build_panel()
         self.show_current()

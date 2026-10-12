@@ -72,6 +72,15 @@ class MetadataPage(HeldDoc, ToolPage):
         return self._doc is not None and self._meta() != {
             key: self._loaded.get(key, "") for key, _ in core.FIELDS}
 
+    def recovery_state(self) -> dict | None:
+        return self._meta()
+
+    def apply_recovery(self, state: dict) -> bool:
+        for key, _ in core.FIELDS:
+            if key in state:
+                self.fields[key].setText(str(state[key]))
+        return True
+
     def clear(self):
         for edit in self.fields.values():
             edit.setText("")
@@ -89,13 +98,18 @@ class MetadataPage(HeldDoc, ToolPage):
             return
         kept = ask_keep_password(self._doc)
         changed = meta != self._loaded
+        # Filling empty fields of a file without XMP only adds: appended to
+        # the file (owner's choice 2026-10-12).  A value changed or cleared,
+        # or an XMP stream dropped, is written whole, so the old text goes.
+        adds_only = not self._doc.get_xml_metadata() and all(
+            not self._loaded.get(k) for k in meta if meta[k] != self._loaded.get(k, ""))
         win = self.window_
 
         def work(stop):
             core.apply_metadata(self._doc, meta, changed)
             # garbage=1 drops the replaced Info and XMP objects from the file
             # (levels 2-3 cost the square of the page count: tests/test_save_settings.py).
-            self._save_doc(out, garbage=1, deflate=True)
+            self._save_doc(out, incremental=adds_only, garbage=1, deflate=True)
 
         def then(kind, _value):
             if kind == "done":

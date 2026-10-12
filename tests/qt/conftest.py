@@ -70,9 +70,13 @@ def isolated_store(tmp_path_factory, monkeypatch):
     """Per-test prefs.json and recent.json (in a folder of their own, not the
     test's tmp_path, which tests list); PREFS and RECENT restored after."""
     from paperknife import prefs, recent
+    from paperknife.core import recovery
     store = tmp_path_factory.mktemp("pk-store")
     monkeypatch.setattr(prefs, "PREFS_PATH", store / "prefs.json")
     monkeypatch.setattr(recent, "RECENT_PATH", store / "recent.json")
+    # Each test's own crash-recovery folder: one test's copies never become
+    # another's "recover unsaved changes?".
+    monkeypatch.setattr(recovery, "RECOVERY_DIR", store / "recovery")
     saved_prefs = dict(prefs.PREFS._data)
     saved_recent = list(recent.RECENT._entries)
     yield
@@ -119,9 +123,22 @@ def window(qapp, dialogs):
     if w._current_job is not None and w._current_job.is_running:
         w._current_job.cancel()
         wait_job(w)
+    close_test_window(w)
+
+
+def close_test_window(w):
+    """Close a test's MainWindow without its close questions; its crash
+    recovery folder goes as at a normal exit.  A second call does nothing."""
+    if w.__dict__.get("_test_closed"):
+        return
+    w._test_closed = True
     w._close_ok = True
     w._alive = False
     w._edge.stop()
+    w._recovery_timer.stop()
+    if w._recovery is not None:
+        w._recovery.close()
+        w._recovery = None
     w.close()
     w.deleteLater()
     pump(0.02)

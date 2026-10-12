@@ -100,9 +100,19 @@ def copy_pages(data: bytes, pages: list[int]) -> fitz.Document:
     the ones left out, but drops some catalog entries: they are put back.
     Save it with garbage collection, or the pages left out stay in the file."""
     out = fitz.open("pdf", data)
+    try:
+        rearrange(out, pages)
+    except Exception:
+        out.close()
+        raise
+    return out
+
+
+def rearrange(out, pages: list[int]) -> None:
+    """Keep only the pages *pages* of *out*, in that order, in place, with
+    what belongs to the document kept (copy_pages)."""
     n = len(out)
     if len(set(pages)) != len(pages) or not all(0 <= p < n for p in pages):
-        out.close()
         raise ValueError(f"pages must be distinct indices below {n}")
     rules = _label_rules(out, pages)
     cat = out.pdf_catalog()
@@ -135,7 +145,6 @@ def copy_pages(data: bytes, pages: list[int]) -> fitz.Document:
         _prune_fields(out)
     if rules:
         out.set_page_labels(rules)
-    return out
 
 
 CUT_LEAF = 4    # parts written straight from the copy that holds them
@@ -319,6 +328,19 @@ def reorder(doc, order, extra, out: str) -> None:
                 p = nd[ni]
                 p.set_rotation((p.rotation + ex) % 360)
         nd.save(tmp, deflate=True)
+
+
+def turn_in_place(doc, order, extra) -> None:
+    """reorder() on *doc* itself: its pages in *order*, each turned by its
+    *extra* degrees, so the edits can be appended to its file."""
+    order = list(order)
+    if order != list(range(len(doc))):
+        rearrange(doc, order)
+    for ni, pi in enumerate(order):
+        ex = extra[pi]
+        if ex:
+            p = doc[ni]
+            p.set_rotation((p.rotation + ex) % 360)
 
 
 def bookmark_chapters(toc, total: int, all_levels: bool):

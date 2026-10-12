@@ -110,6 +110,10 @@ Read / Preview, Edit Text, Find & Replace, Annotate and Redact open as a documen
 
 **Compact Mode** (`Ctrl+Alt+C`) hides the navigation pane, the page header and the context panel; moving the pointer to the left, top or right edge of the window brings each back. The title bar hides and comes back when the pointer reaches the top edge (set the environment variable `PK_TITLEBAR=always` to keep it shown). The window's size, position and maximized state are restored at the next start.
 
+**Crash recovery.** While a tool holds unsaved edits (Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate, Redact), PaperKnife+ PC keeps a copy of them in its data folder (Section 7), refreshed within 10 seconds of a change. Saving, **Discard** and a normal exit remove the copy. If the app closes without that — a crash, a power cut, the process ended — the next start asks **Recover unsaved changes?** and lists each file with its tool and the time of the copy: **Recover** opens each in its tool with the edits shown as unsaved, and **Discard** deletes the copies. Closing the question asks it again at the next start. For Rotate & Reorder, Bookmarks / TOC and Metadata the copy holds only the edits, so the file must still be where it was; the copy of a password-protected PDF keeps its password, which is asked again on Recover.
+
+**Saving over the open file.** When you save an edit over the file it was made on, and the edit only adds to it — comments added in Annotate, bookmarks added in Bookmarks / TOC, empty properties filled in Metadata (in a file without XMP), pages turned or moved in Rotate & Reorder — the change is appended to the file: the bytes already in it stay as they are, so a digital signature over them remains valid, and a large file is not written again. Any edit that removes or replaces text — a deleted comment, a renamed or deleted bookmark, a changed or cleared property, Edit Text, Find & Replace, Redact — writes the file whole, so the old text does not stay readable inside it. A password-protected file, and any save to a different file, is always written whole. While a change is appended, a copy of the file (`.name-….pdf.bak`) is kept beside it; it is put back if the save fails, and removed when it succeeds.
+
 ### 4.2 Appearance Mode
 
 PaperKnife+ PC supports light, dark, and system-matched appearance modes. To change:
@@ -365,6 +369,7 @@ While a job holds the page (Section 4.1), `Ctrl+O`, `Ctrl+S`, `Ctrl+Z`, `Delete`
 | Application binaries | `%LOCALAPPDATA%\PaperKnifePlusPC\` |
 | User preferences, window place, folded navigation groups | `%USERPROFILE%\.paperknifepluspc\prefs.json` |
 | Recent files list | `%USERPROFILE%\.paperknifepluspc\recent.json` |
+| Copies of unsaved edits (crash recovery, Section 4.1) | `%USERPROFILE%\.paperknifepluspc\recovery\` |
 | Add/Remove Programs | `HKCU\Software\Microsoft\Windows\...\Uninstall\PaperKnifePlusPC` |
 | App registry key | `HKCU\Software\potatameister\PaperKnifePlusPC` |
 
@@ -452,6 +457,7 @@ PaperKnife+ PC makes zero network connections. There is no telemetry, no analyti
 
 - `prefs.json` — your preferences (Section 5.26), the last window size and position, the folded navigation groups, and the paths of temporary files a job interrupted by quitting left behind, which are deleted at the next start.
 - `recent.json` — recently opened files: path, file name, size, page count, and access time.
+- `recovery\` — while a tool holds unsaved edits, a copy of them: the edited PDF (under its password when it has one) or the pending changes, with the file's path. It is deleted when the edits are saved or discarded and at a normal exit; after a crash it stays until the next start's Recover or Discard (Section 4.1).
 
 Apart from the operation you invoke, the only file content read is the first page of each recent file, rendered as a thumbnail on the Home screen (kept in memory only). Neither file holds a password: an open password stays with the open document only (Section 5). Deleting `%USERPROFILE%\.paperknifepluspc\` removes all application data completely.
 
@@ -473,6 +479,9 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **Changed:** leaving a tool keeps its document instead of clearing it: the file is closed while you are away and opened again when you come back.
 - **New:** after a job that writes one PDF, "*name* is ready" with **Continue with it** / **Start over**; opening another tool counts as Continue. Jobs with several outputs ask nothing. Merge, Image → PDF and Batch keep their lists while you move around and empty them after a finished job.
 - **New:** Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact ask "Save changes to *name*?" (**Save** / **Discard** / **Cancel**) before unsaved edits are left, replaced, cleared, or closed with the window.
+- **New:** crash recovery: unsaved edits are copied while you work, and after a crash the next start asks **Recover unsaved changes?** (**Discard** / **Recover**; Section 4.1).
+- **New:** an edit that only adds to the file (comments, bookmarks, empty properties, turned or moved pages) saved over that file is appended to it, which keeps digital signatures valid (Section 4.1).
+- **Fixed:** a comment deleted in Annotate, and the text replaced in Edit Text or Find & Replace, stayed inside the saved file (no longer shown, but readable by a tool that reads the file's objects); the file is now written without them.
 - **New:** navigation groups fold under their title (click, `Enter` or `Space`); the folded groups are kept in `prefs.json`, and a search still finds tools in them.
 - **Fixed:** Rotate & Reorder, Split and Split by Bookmarks dropped the form fields (Rotate & Reorder), bookmarks, page labels, layers, document properties, XMP and the links to named destinations; Merge dropped all of them but the form fields. Merge now writes a bookmark per input file (Section 5.2).
 - **Fixed:** Password kept a typed password after a cancelled save dialog or a refused attempt; its fields are now emptied at every end of an attempt.

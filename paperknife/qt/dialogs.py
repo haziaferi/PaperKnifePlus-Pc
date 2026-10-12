@@ -184,6 +184,28 @@ def ask_unsaved(name: str) -> str:
     return {1: "save", 2: "discard"}.get(_exec_once(box), "cancel")
 
 
+RECOVER_TITLE = "Recover unsaved changes?"
+RECOVER_TEXT = "PaperKnife+ closed before these were saved:"
+
+
+def ask_recover(lines: list[str]) -> bool | None:
+    """At start, the edits an app that did not close left (owner's choice
+    2026-10-12): *lines* ("report.pdf — Find & Replace, 14:32") under
+    RECOVER_TEXT, with Discard / Recover.  True: Recover; False: Discard;
+    None: the box was closed, the copies wait for the next start."""
+    msg = RECOVER_TEXT + "\n" + "\n".join(f"    {s}" for s in lines)
+    box = _fluent_box(RECOVER_TITLE, msg, cancel=None, yes="Recover")
+    if box is None:
+        r = QMessageBox.question(None, RECOVER_TITLE, msg, QMessageBox.Discard | QMessageBox.Yes)
+        return {QMessageBox.Yes: True, QMessageBox.Discard: False}.get(r)
+    from PySide6.QtCore import Qt
+    from qfluentwidgets import PushButton
+    discard = PushButton("Discard", box.buttonGroup)
+    discard.clicked.connect(lambda: box.done(2))
+    box.buttonLayout.insertWidget(0, discard, 1, Qt.AlignVCenter)
+    return {1: True, 2: False}.get(_exec_once(box))
+
+
 # ── Password ──────────────────────────────────────────────────────────────────
 def ask_password(title: str = "Password required",
                  prompt: str = "This PDF is password-protected. Enter the password:"):

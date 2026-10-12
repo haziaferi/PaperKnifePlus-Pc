@@ -30,9 +30,11 @@ unsaved-edits question (MainWindow.settle_unsaved).
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
+import pymupdf as fitz
 from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, Qt, QVariantAnimation
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLayout, QSizePolicy, QVBoxLayout,
@@ -625,6 +627,31 @@ class HeldDoc(DocHolder):
     def is_parked(self) -> bool:
         return self._doc is None and bool(self.file.path())
 
+    # ── crash recovery: the edits are the page's own, the file is unchanged ──
+    def recovery_state(self) -> dict | None:
+        """The unsaved edits as JSON-able data (None: nothing to recover)."""
+        return None
+
+    def apply_recovery(self, state: dict) -> bool:
+        """Put the edits *state* back on the file just opened; whether it fits."""
+        return False
+
+    def recovery_token(self):
+        state = self.recovery_state() if self.is_dirty() else None
+        return None if state is None else json.dumps(state, sort_keys=True)
+
+    def recovery_snapshot(self):
+        return self.recovery_state(), None
+
+    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
+        """Open the file again and put the edits back on it."""
+        if not os.path.isfile(path) or not self.load_document(path) or self._doc is None:
+            return False
+        try:
+            return bool(self.apply_recovery(state))
+        except (KeyError, TypeError, ValueError):
+            return False
+
 
 class WorkspaceDoc(DocHolder):
     """The document a WorkspacePage edits, held in self._doc."""
@@ -635,8 +662,9 @@ class WorkspaceDoc(DocHolder):
         """Open *path* in place of the document shown, at page 1 with no undo
         history and no unsaved edits; it becomes the current document.  The
         new document, or None (the old one stays) when it cannot be opened.
-        *title* is not used any more (the subtitle names the file)."""
-        doc = self.window_.open_pdf_safe(path)
+        *title* is not used any more (the subtitle names the file).  A
+        recovered copy (restore_recovery) is opened in place of the file."""
+        doc = self.__dict__.pop("_incoming_doc", None) or self.window_.open_pdf_safe(path)
         if doc is None:
             return None
         self._close_doc()
@@ -669,8 +697,63 @@ class WorkspaceDoc(DocHolder):
                 if callable(after):
                     after()
 
-        win.run_job(lambda stop: self._save_doc(out, deflate=True), f"Saving {Path(out).name}…",
+        appends = self.appends_only()
+        # garbage=1: a whole file drops what the edits left unused (a deleted
+        # note, a replaced content stream), so its old text does not stay in it.
+        win.run_job(lambda stop: self._save_doc(out, incremental=appends, garbage=1, deflate=True),
+                    f"Saving {Path(out).name}…",
                     lock=True, then=done, cancellable=False, keep_password=(kept, [out]))
+
+    def appends_only(self) -> bool:
+        """Whether the edits since the file was opened only add to it, so a
+        save over it may append them (owner's choice 2026-10-12): none of
+        the editors that replace or remove content does."""
+        return False
+
+    # ── crash recovery: the edits are in the document itself ──
+    def recovery_extra(self) -> dict:
+        """Unsaved state beyond the document (a page's own, e.g. Redact's boxes)."""
+        return {}
+
+    def restore_extra(self, state: dict) -> None:
+        """Put back what recovery_extra() returned."""
+
+    def recovery_token(self):
+        if not self.is_dirty():
+            return None
+        return self._edits, json.dumps(self.recovery_extra(), sort_keys=True)
+
+    def recovery_snapshot(self):
+        """The document as it is, under its open password when it has one,
+        so a protected file is not left readable in the recovery folder."""
+        kept = open_password_of(self._doc)
+        if kept is None:
+            data = self._doc.tobytes()
+        else:
+            data = self._doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256,
+                                     user_pw=kept.user_pw, owner_pw=kept.user_pw)
+        return {"page": self._pg, **self.recovery_extra()}, data
+
+    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
+        if pdf is None:
+            return False
+        doc = self.window_.open_pdf_data(pdf, Path(path).name)
+        if doc is None:
+            return False
+        self._incoming_doc = doc
+        self.open_path(path)        # the page's own open, on the recovered copy
+        if self._doc is not doc:
+            self.__dict__.pop("_incoming_doc", None)
+            doc.close()
+            return False
+        pg = state.get("page", 0)
+        if isinstance(pg, int) and 0 < pg < len(doc):
+            self._pg = pg
+            self.on_page()
+        self.restore_extra(state)
+        self._dirty = True
+        self.show_current()
+        return True
 
 
 class Refusal(Exception):
@@ -822,10 +905,34 @@ class ToolPage(QWidget):
             f.clear()
         self.refresh_document()
 
-    _dirty = False
+    _edits = 0      # counts each edit (each time _dirty is set): crash recovery's cue
+
+    @property
+    def _dirty(self) -> bool:
+        return self.__dict__.get("_dirty_flag", False)
+
+    @_dirty.setter
+    def _dirty(self, value: bool):
+        self.__dict__["_dirty_flag"] = value
+        if value:
+            self._edits += 1
 
     def is_dirty(self) -> bool:
         """Edits since the last save or open (the editing screens)."""
+        return False
+
+    # ── crash recovery (MainWindow keeps a copy of the unsaved edits) ──
+    def recovery_token(self):
+        """Something equal as long as the unsaved edits are the same; None:
+        this page has nothing to recover."""
+        return None
+
+    def recovery_snapshot(self) -> tuple[dict, bytes | None]:
+        """The unsaved edits: (state, the edited PDF or None)."""
+        raise NotImplementedError
+
+    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
+        """Show the edits recovered for *path* as unsaved; whether it could."""
         return False
 
     def park_document(self):

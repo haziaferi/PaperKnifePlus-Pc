@@ -2,6 +2,7 @@
 selected entry's Level, Title and Page with an explicit "Update selected"."""
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import pymupdf as fitz
@@ -100,6 +101,14 @@ class TocPage(HeldDoc, MasterDetailPage):
         """Bookmarks added, changed, moved or deleted since the file was opened or saved."""
         return self._doc is not None and self._toc != self._saved_toc
 
+    def recovery_state(self) -> dict | None:
+        return {"toc": [list(e[:3]) for e in self._toc]}
+
+    def apply_recovery(self, state: dict) -> bool:
+        self._toc = [[int(level), str(title), int(page)] for level, title, page in state["toc"]]
+        self._refresh_list()
+        return True
+
     # ── edit operations ──────────────────────────────────────────────────────
     def _move(self, d: int):
         i = self.current()
@@ -175,11 +184,17 @@ class TocPage(HeldDoc, MasterDetailPage):
         kept = ask_keep_password(self._doc)
         win = self.window_
 
+        # Bookmarks only added (every title there was is still there): appended
+        # to the file (owner's choice 2026-10-12); one renamed or deleted is
+        # written whole, so its old title goes.
+        adds_only = not (Counter(e[1] for e in self._saved_toc) - Counter(e[1] for e in toc))
+
         def work(stop):
             self._doc.set_toc(toc)
             keep = ({"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) and not asked
                     else {})
-            self._save_doc(out, deflate=True, **keep)
+            # garbage=1: the old outline's titles do not stay in a whole file.
+            self._save_doc(out, incremental=adds_only, garbage=1, deflate=True, **keep)
 
         def then(kind, _value):
             if kind != "done":

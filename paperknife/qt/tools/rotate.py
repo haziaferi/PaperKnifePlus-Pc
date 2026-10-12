@@ -7,6 +7,7 @@ import pymupdf as fitz
 from PySide6.QtGui import QImage
 
 from ...core import organise
+from ...core.doc_state import can_append
 from .. import dialogs
 from ..pages import HeldDoc, OrganiserPage, ask_keep_password, register_page
 
@@ -59,6 +60,19 @@ class RotatePage(HeldDoc, OrganiserPage):
         """Pages turned or moved since the file was opened or saved."""
         return self._doc is not None and self._saved is not None and self._state() != self._saved
 
+    def recovery_state(self) -> dict | None:
+        order, extra = self._state()
+        return {"order": order, "extra": {str(k): v for k, v in extra.items()}}
+
+    def apply_recovery(self, state: dict) -> bool:
+        n = len(self._doc)
+        order = [int(k) for k in state["order"]]
+        if sorted(order) != list(range(n)):
+            return False
+        self._extra = {i: int(state["extra"].get(str(i), 0)) % 360 for i in range(n)}
+        self.set_pages(order, self.render, lambda k: f"p.{k + 1}")
+        return True
+
     def render(self, key: int) -> QImage:
         """Page *key* as a thumbnail, turned by its extra rotation."""
         mat = fitz.Matrix(THUMB_ZOOM, THUMB_ZOOM).prerotate(self._extra.get(key, 0))
@@ -87,18 +101,32 @@ class RotatePage(HeldDoc, OrganiserPage):
         kept = ask_keep_password(self._doc)
         order, extra = self.order(), dict(self._extra)
         win = self.window_
+        # Turning and moving pages removes nothing: over its own file the
+        # edits are appended to it (owner's choice 2026-10-12), made on the
+        # open document itself.
+        appending = self._holds(out) and can_append(self._doc)
         # The thumbnails read the document; none may render while the job uses it.
         self._timer.stop()
 
         def work(stop):
+            if appending:
+                organise.turn_in_place(self._doc, order, extra)
+                self._save_doc(out, incremental=True)
+                return
             self._release(out)
             organise.reorder(self._doc, order, extra, out)
 
         def then(kind, _value):
+            if appending and kind != "done":
+                self.load(self._src)                # the open copy may be half turned
+            elif appending:
+                # The document is in the new order now: its pages from the top.
+                self._extra = {i: 0 for i in range(len(self._doc))}
+                self.set_pages(list(range(len(self._doc))), self.render, lambda k: f"p.{k + 1}")
             if self._queue:
                 self._timer.start()
             if kind == "done":
-                self._saved = (order, extra)        # the edits are saved
+                self._saved = self._state() if appending else (order, extra)   # the edits are saved
                 win.set_status(f"✓  Saved → {Path(out).name}", "success")
                 dialogs.info("Saved", f"PDF saved:\n{out}")
                 if self.saved_elsewhere(out):
