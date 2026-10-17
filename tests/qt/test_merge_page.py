@@ -215,9 +215,30 @@ def test_removing_a_file_takes_its_pages_off_the_strip(window, tmp_path):
     assert page.strip.keys() == [(1, 0), (1, 1)] and doc.is_closed
 
 
-def test_every_page_left_out_is_refused(window, dialogs, tmp_path):
+def test_every_page_left_out_turns_merge_off_and_says_why(window, dialogs, tmp_path):
+    # The scored winner (owner, 2026-10-17): Merge off, the reason in the bar.
     page = _two(window, tmp_path)
+    assert page.merge_btn.isEnabled()
     page.strip.select_keys(page.strip.keys())
     page.leave_out()
-    page.run()
-    assert dialogs.msgs[-1] == ("warning", "Merge", "Every page is left out: put back at least one.")
+    page.strip.select_keys([])
+    assert not page.merge_btn.isEnabled()
+    assert page.strip_label.text() == "Every page is left out: put back at least one."
+    page.strip.select_keys([(1, 0)])
+    page.put_back()
+    assert page.merge_btn.isEnabled()
+
+
+def test_up_down_and_remove_match_the_same_buttons_on_other_screens(window):
+    # Owner, 2026-10-17: the same size as the buttons in the same place on
+    # the other screens; in Merge's narrow column they take a second row.
+    window.resize(1280, 820)
+    assert window.open_tool("Img2PdfTool")
+    pump(0.3)
+    other = window.current_page()
+    want = [(b.text(), b.width(), b.height()) for b in (other.up_btn, other.down_btn, other.remove_btn)]
+    page = _page(window)
+    pump(0.3)
+    got = [(b.text(), b.width(), b.height()) for b in (page.up_btn, page.down_btn, page.remove_btn)]
+    assert got == want and [t for t, _, _ in got] == ["Up", "Down", "Remove"]
+    assert page.up_btn.parentWidget() is not page.add_btn.parentWidget()     # its own row

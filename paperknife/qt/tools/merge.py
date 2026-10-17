@@ -21,15 +21,16 @@ from qfluentwidgets import LineEdit
 from ...core import organise
 from ...core.password import carry_open_password
 from ...pages import PageRangeError, ordered_pages, ordered_ranges_text, parse_ranges, ranges_text
-from .. import dialogs
+from .. import dialogs, theme
 from ..pages import (SETTINGS_W, THUMB_BOX, THUMBS_PER_TICK, CollectionPage, Divider, ElidedLabel,
-                     PageStrip, _tool_button, ask_keep_password, icon_button, muted_caption,
-                     plain_card, register_page)
+                     PageStrip, _tool_button, ask_keep_password, muted_caption, plain_card,
+                     register_page)
 
 RANGE_PLACEHOLDER = "all  or  1-3, 5, 8-end"
 HINT = ("Add PDFs in order · optionally set page ranges per file"
         " (e.g.  1-3, 5, 8-end)  ·  leave blank to include all pages")
 STRIP_HINT = "Select pages to leave out or put back · drag them to a new place"
+NOTHING_LEFT = "Every page is left out: put back at least one."
 THUMB_ZOOM = 0.28
 
 
@@ -47,7 +48,8 @@ class MergePage(CollectionPage):
         self._queue: list = []
         self._timer = QTimer(self, interval=0, timeout=self._render_some)
         self._build_strip()
-        self.primary("Merge", self.run)
+        self.merge_btn = self.primary("Merge", self.run)
+        self._strip_selection()
 
     # ── layout: the strip in the centre, the file list at the right ────────
     def _build_strip(self):
@@ -86,21 +88,23 @@ class MergePage(CollectionPage):
         cols.insertWidget(0, card, 1)
         self.list_card.setFixedWidth(SETTINGS_W)
         cols.addWidget(self.list_card)
-        # The column is narrow: Up, Down and Remove keep their icon, their
-        # name moves to the tooltip, so Add PDFs keeps its text.
-        from qfluentwidgets import FluentIcon as FIF
-        for name, icon, slot in (("up_btn", FIF.UP, lambda: self.move(-1)),
-                                 ("down_btn", FIF.DOWN, lambda: self.move(1)),
-                                 ("remove_btn", FIF.DELETE, self.remove_selected)):
-            old = getattr(self, name)
-            b = icon_button(icon)
-            b.setToolTip(old.text())
-            b.clicked.connect(slot)
-            self.toolbar.replaceWidget(old, b)
-            old.hide()
-            old.deleteLater()
-            setattr(self, name, b)
-        self._refresh()
+        # Up / Down / Remove are the size the same buttons have on the other
+        # screens (Image -> PDF, Bookmarks / TOC: owner, 2026-10-17, for
+        # consistency), so in the narrow column they take a second row,
+        # under Add PDFs and the count, instead of being squeezed.
+        row2 = QWidget(self.list_card)
+        row2.setObjectName("collectionToolbar2")
+        h2 = QHBoxLayout(row2)
+        m = self.toolbar.contentsMargins()
+        h2.setContentsMargins(m.left(), 0, m.right(), m.bottom())
+        h2.setSpacing(self.toolbar.spacing())
+        for b in (self.up_btn, self.down_btn, self.remove_btn):
+            self.toolbar.removeWidget(b)
+            b.setMinimumWidth(b.sizeHint().width())
+            h2.addWidget(b)
+        h2.addStretch(1)
+        self.add_btn.setMinimumWidth(self.add_btn.sizeHint().width())
+        self.list_card.layout().insertWidget(1, row2)
         self._show()
 
     # ── files ────────────────────────────────────────────────────────────────
@@ -270,8 +274,15 @@ class MergePage(CollectionPage):
         self.leave_btn.setEnabled(bool(n))
         self.back_btn.setEnabled(bool(n))
         going = sum(1 for k in self._order if k not in self._out)
+        # Every page left out: Merge is off and the bar says why (the scored
+        # winner, owner 2026-10-17); with no files Merge stays on and asks for one.
+        none = bool(self._order) and not going
+        if hasattr(self, "merge_btn"):
+            self.merge_btn.setEnabled(not none)
+        theme.label_role(self.strip_label, "warning" if none and not n else "muted")
         self.strip_label.setText(
             f"{n} page{'s' if n != 1 else ''} selected" if n else
+            NOTHING_LEFT if none else
             (f"{going} page{'s' if going != 1 else ''} to merge" if self._order else STRIP_HINT))
 
     def _moved(self, keys, target, after):
@@ -328,7 +339,7 @@ class MergePage(CollectionPage):
                 else:
                     runs.append((self._docs[fid], pages, self._names[fid]))
         if not runs:
-            return dialogs.warning("Merge", "Every page is left out: put back at least one.")
+            return dialogs.warning("Merge", NOTHING_LEFT)
         out = dialogs.ask_save("merged.pdf", ".pdf", [("PDF", "*.pdf")])
         if not out:
             return
