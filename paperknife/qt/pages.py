@@ -2334,6 +2334,208 @@ class OrganiserPage(ToolPage):
                                 f"{n} page{'s' if n != 1 else ''} selected")
 
 
+# ── Merge's page strip (owner, 2026-10-17) ────────────────────────────────────
+PAGES_MIME = "application/x-paperknife-pages"
+KEY_ROLE = Qt.UserRole
+
+
+def _key(item):
+    k = item.data(KEY_ROLE)
+    return tuple(k) if isinstance(k, list) else k
+
+
+class PageStrip(QWidget):
+    """Several runs of pages, each under a heading row, in one scrolling
+    column: Merge's strip of every input's pages in merged order.  Pages are
+    selected as in a grid (click, Ctrl / Shift, drag over; a plain click in
+    one run clears the others) and dragged to a new place in any run:
+    on_moved(keys, target, after) then gets the dragged keys and the key they
+    were dropped before (after=False) or after.  A key is any hashable the
+    page chooses; keys are passed as JSON, so tuples come back as lists and are
+    turned back into tuples.
+
+        set_runs([(heading, [key, ...]), ...], label)   label(key) -> str
+        set_icon(key, icon) / keys() / selected_keys() / set_veiled(keys)"""
+
+    def __init__(self, on_moved, on_selection=None, parent=None):
+        from PySide6.QtCore import QSize
+        from PySide6.QtWidgets import QAbstractItemView, QListView, QListWidget
+        super().__init__(parent)
+        self._on_moved, self._on_selection = on_moved, on_selection
+        self._items: dict = {}
+        self._lists: list = []
+        self._delegate = _thumb_delegate()
+        strip = self
+
+        class RunList(QListWidget):
+            def __init__(self):
+                super().__init__()
+                self.setObjectName("thumbGrid")
+                self.setStyleSheet("QListWidget#thumbGrid { background: transparent; border: none; }")
+                self.setItemDelegate(strip._delegate)
+                self.setViewMode(QListView.IconMode)
+                self.setResizeMode(QListView.Adjust)
+                self.setWrapping(True)
+                self.setUniformItemSizes(True)
+                self.setMovement(QListView.Static)
+                self.setIconSize(QSize(*THUMB_BOX))
+                self.setGridSize(QSize(THUMB_BOX[0] + 24, THUMB_BOX[1] + 40))
+                self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+                self.setDragEnabled(True)
+                self.setAcceptDrops(True)
+                self.setDropIndicatorShown(True)
+                self.setDragDropMode(QAbstractItemView.DragDrop)
+                self.setFrameShape(QFrame.NoFrame)
+                self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                self.setMouseTracking(True)
+                self.viewport().setAttribute(Qt.WA_Hover, True)
+                self.itemSelectionChanged.connect(strip._selection_changed)
+
+            def fit(self):
+                """As tall as its rows: the strip scrolls, not the run."""
+                per_row = max(1, self.viewport().width() // self.gridSize().width())
+                rows = max(1, -(-self.count() // per_row))
+                self.setFixedHeight(rows * self.gridSize().height() + 8)
+
+            def resizeEvent(self, e):
+                super().resizeEvent(e)
+                self.fit()
+
+            def mousePressEvent(self, e):
+                if not (e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier)):
+                    for other in strip._lists:
+                        if other is not self:
+                            other.clearSelection()
+                super().mousePressEvent(e)
+
+            def startDrag(self, actions):
+                from PySide6.QtCore import QMimeData
+                from PySide6.QtGui import QDrag
+                keys = strip.selected_keys()
+                if not keys:
+                    return
+                mime = QMimeData()
+                mime.setData(PAGES_MIME, json.dumps(keys).encode("utf-8"))
+                drag = QDrag(self)
+                drag.setMimeData(mime)
+                first = strip._items.get(keys[0])
+                if first is not None and not first.icon().isNull():
+                    drag.setPixmap(first.icon().pixmap(48, 60))
+                drag.exec(Qt.MoveAction)
+
+            def dragEnterEvent(self, e):
+                if e.mimeData().hasFormat(PAGES_MIME):
+                    e.acceptProposedAction()
+                else:
+                    e.ignore()
+
+            def dragMoveEvent(self, e):
+                if e.mimeData().hasFormat(PAGES_MIME):
+                    e.acceptProposedAction()
+                else:
+                    e.ignore()
+
+            def dropEvent(self, e):
+                if not e.mimeData().hasFormat(PAGES_MIME):
+                    return e.ignore()
+                keys = [tuple(k) if isinstance(k, list) else k
+                        for k in json.loads(bytes(e.mimeData().data(PAGES_MIME)).decode("utf-8"))]
+                pos = e.position().toPoint()
+                idx = self.indexAt(pos)
+                if idx.isValid():
+                    target = _key(self.item(idx.row()))
+                    after = pos.x() > self.visualRect(idx).center().x()
+                else:
+                    target, after = _key(self.item(self.count() - 1)), True
+                e.setDropAction(Qt.CopyAction)      # the strip is rebuilt; Qt deletes nothing
+                e.accept()
+                # After the drag returns: the page rebuilds the lists.
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: strip._on_moved(keys, target, after))
+
+        self._RunList = RunList
+        area = SingleDirectionScrollArea(self, Qt.Vertical)
+        area.setWidgetResizable(True)
+        area.enableTransparentBackground()
+        area.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner.setObjectName("pageStrip")
+        inner.setStyleSheet("QWidget#pageStrip { background: transparent; }")
+        self._v = QVBoxLayout(inner)
+        self._v.setContentsMargins(8, 8, 8, 8)
+        self._v.setSpacing(4)
+        self._v.addStretch(1)
+        area.setWidget(inner)
+        self.area = area
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(area)
+        self.headings: list = []
+
+    def set_runs(self, runs, label):
+        """Show *runs*, keeping the icons already made and the selection."""
+        from PySide6.QtWidgets import QListWidgetItem
+        icons = {k: it.icon() for k, it in self._items.items() if not it.icon().isNull()}
+        selected = set(self.selected_keys())
+        _clear_layout(self._v)
+        self._items, self._lists, self.headings = {}, [], []
+        for heading, keys in runs:
+            h = StrongBodyLabel(heading)
+            h.setContentsMargins(4, 8, 0, 0)
+            self._v.addWidget(h)
+            self.headings.append(h)
+            run = self._RunList()
+            for k in keys:
+                it = QListWidgetItem(label(k))
+                it.setData(KEY_ROLE, list(k) if isinstance(k, tuple) else k)
+                it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
+                if k in icons:
+                    it.setIcon(icons[k])
+                run.addItem(it)
+                it.setSelected(k in selected)
+                self._items[k] = it
+            self._v.addWidget(run)
+            self._lists.append(run)
+            run.fit()
+        self._v.addStretch(1)
+        self._selection_changed()
+
+    def set_icon(self, key, icon):
+        it = self._items.get(key)
+        if it is not None:
+            it.setIcon(icon)
+
+    def has_icon(self, key) -> bool:
+        it = self._items.get(key)
+        return it is not None and not it.icon().isNull()
+
+    def keys(self) -> list:
+        return [_key(run.item(i)) for run in self._lists for i in range(run.count())]
+
+    def selected_keys(self) -> list:
+        """The selected pages' keys, in strip order."""
+        return [_key(run.item(i)) for run in self._lists for i in range(run.count())
+                if run.item(i).isSelected()]
+
+    def select_keys(self, keys):
+        keys = set(keys)
+        for k, it in self._items.items():
+            it.setSelected(k in keys)
+
+    def set_veiled(self, keys):
+        """Veil the pages *keys* (left out), as Split veils pages in no part."""
+        keys = set(keys)
+        for k, it in self._items.items():
+            it.setData(PART_ROLE, 0 if k in keys else None)
+        for run in self._lists:
+            run.viewport().update()
+
+    def _selection_changed(self):
+        if self._on_selection is not None:
+            self._on_selection()
+
+
 class MasterDetailPage(ToolPage):
     """Group E, structured editor (Bookmarks / TOC): the empty-state target
     while there is no document, then the list of entries in a card with its toolbar (add_tool; buttons made

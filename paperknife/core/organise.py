@@ -292,40 +292,69 @@ def merge(jobs, out: str, stop, progress) -> int | None:
     first input's properties and XMP; plain page numbers.  Each input's form
     fields, links (named ones as page links), layers and attachments come
     along; a page range drops the bookmarks to the pages it leaves out."""
-    n = len(jobs)
-    pages = 0
-    toc, layers, first = [], [], None
-    with atomic_output(out) as tmp, fitz.open() as merged:
+    runs, copies = [], []
+    try:
         for i, (src, groups) in enumerate(jobs):
             if stop.is_set():
                 return None
-            if first is None:
-                first = (dict(src.metadata or {}), src.get_xml_metadata())
-            title, data = _title(src, i), src.tobytes()
-            embedded = [(src.embfile_info(k), src.embfile_get(k)) for k in range(src.embfile_count())]
+            title = _title(src, i)
+            # A copy in memory, so the input is closed before the output
+            # (which may be that input) is written.
+            mem = fitz.open("pdf", src.tobytes())
+            copies.append(mem)
             src.close()
             flat = [p for fr, to in groups for p in range(fr, to + 1)]
             # One copy of the pages in order when no page is taken twice:
             # insert_pdf keeps form fields only when it copies a whole document.
             chunks = [flat] if len(set(flat)) == len(flat) else [
                 list(range(fr, to + 1)) for fr, to in groups]
-            toc.append([1, title, pages + 1])
-            for chunk in chunks:
-                with copy_pages(data, chunk) as part:
-                    _named_links_to_goto(part)
-                    layers.append(_layers_of(part, len(layers)))
-                    own = _moved_toc(part.get_toc(simple=False),
-                                     {k: k + pages for k in range(len(part))})
-                    toc += [[e[0] + 1, *e[1:]] for e in own]
-                    merged.insert_pdf(part)
-                    pages += len(part)
-            for info, content in embedded:
-                name, k = info["name"], 1
-                while name in merged.embfile_names():
-                    k += 1
-                    name = f"{info['name']} ({k})"
-                merged.embfile_add(name, content, filename=info.get("filename") or name,
-                                   desc=info.get("description", ""))
+            runs += [(mem, chunk, title) for chunk in chunks]
+        return merge_runs(runs, out, stop, progress)
+    finally:
+        for mem in copies:
+            mem.close()
+
+
+def merge_runs(runs, out: str, stop, progress) -> int | None:
+    """merge() for runs of pages in any order (owner, 2026-10-17: Merge's
+    strip, where pages of several files may be mixed): each (doc, pages,
+    title) of *runs* in turn.  A run whose document is not the one before it
+    starts a top-level bookmark named *title*; the documents stay open (the
+    caller owns them).  Returns the page count, None if cancelled."""
+    n = len(runs)
+    pages = 0
+    toc, layers, first = [], [], None
+    data_of, attached = {}, set()
+    with atomic_output(out) as tmp, fitz.open() as merged:
+        prev = None
+        for i, (src, chunk, title) in enumerate(runs):
+            if stop.is_set():
+                return None
+            if first is None:
+                first = (dict(src.metadata or {}), src.get_xml_metadata())
+            if id(src) not in data_of:
+                data_of[id(src)] = src.tobytes()
+            if src is not prev:
+                toc.append([1, title, pages + 1])
+            prev = src
+            with copy_pages(data_of[id(src)], list(chunk)) as part:
+                _named_links_to_goto(part)
+                layers.append(_layers_of(part, len(layers)))
+                own = _moved_toc(part.get_toc(simple=False),
+                                 {k: k + pages for k in range(len(part))})
+                toc += [[e[0] + 1, *e[1:]] for e in own]
+                merged.insert_pdf(part)
+                pages += len(part)
+            if id(src) not in attached:         # a file's attachments come along once
+                attached.add(id(src))
+                for k in range(src.embfile_count()):
+                    info, content = src.embfile_info(k), src.embfile_get(k)
+                    name, m = info["name"], 1
+                    while name in merged.embfile_names():
+                        m += 1
+                        name = f"{info['name']} ({m})"
+                    merged.embfile_add(name, content, filename=info.get("filename") or name,
+                                       desc=info.get("description", ""))
             progress((i + 1) / n)
         _write_layers(merged, layers)
         merged.set_toc(toc)

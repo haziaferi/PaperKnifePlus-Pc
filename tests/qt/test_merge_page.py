@@ -1,4 +1,5 @@
-"""The Qt Merge page: a collection of PDFs, each with its own page range."""
+"""The Qt Merge page: PDFs in order, each with its own page range, and every
+input's pages in one strip in merged order (owner, 2026-10-17)."""
 import pymupdf as fitz
 
 from qt_harness import make_pdf, pump, spy_open, wait_job
@@ -71,12 +72,14 @@ def test_merge_uses_each_files_range(window, dialogs, tmp_path):
     page = _page(window)
     page.add_paths([a, b])
     page.rows[0].extra.setText("4-end, 1")
+    # The range says which pages go in; the strip says in which order.
+    assert page.left_out() == [(0, 1), (0, 2)]
     out = tmp_path / "merged.pdf"
     dialogs.save(out)
     page.run()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
-    assert _texts(out) == ["A4", "A5", "A1", "B1", "B2"]
+    assert _texts(out) == ["A1", "A4", "A5", "B1", "B2"]
 
 
 def test_reordering_changes_the_output_order(window, dialogs, tmp_path):
@@ -101,12 +104,11 @@ def test_a_reversed_range_is_reported_instead_of_dropped(window, dialogs, tmp_pa
     page.rows[0].extra.setText("5-3")
     out = tmp_path / "merged.pdf"
     dialogs.save(out)
-    opened = spy_open(window, monkeypatch)
     page.run()
     wait_job(window)
     assert not out.exists(), f"merged without file a: {_texts(out)}"
     assert any(m[1] == "Merge" and "a.pdf" in m[2] for m in dialogs.errors()), dialogs.msgs
-    assert opened and all(d.is_closed for d in opened)
+    assert dialogs.saves == [str(out)]             # refused before the save dialog
 
 
 def test_a_dropped_pdf_is_added_and_others_are_refused(window, tmp_path):
@@ -120,19 +122,20 @@ def test_a_dropped_pdf_is_added_and_others_are_refused(window, tmp_path):
     assert page.paths() == [src]
 
 
-def test_cancelling_the_save_dialog_closes_every_input(window, dialogs, tmp_path, monkeypatch):
+def test_an_added_file_is_read_and_its_file_let_go(window, dialogs, tmp_path, monkeypatch):
+    # Read once when added (thumbnails, password once); the file is not held.
     page = _page(window)
-    page.add_paths([make_pdf(tmp_path / "a.pdf"), make_pdf(tmp_path / "b.pdf")])
     opened = spy_open(window, monkeypatch)
-    page.run()                     # no save path queued: the dialog returns ""
+    page.add_paths([make_pdf(tmp_path / "a.pdf"), make_pdf(tmp_path / "b.pdf")])
     assert len(opened) == 2 and all(d.is_closed for d in opened)
-    assert not dialogs.errors()
+    page.run()                     # no save path queued: the dialog returns ""
+    assert window._current_job is None and not dialogs.errors()
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
-    page.add_paths([make_pdf(tmp_path / "a.pdf")])
     opened = spy_open(window, monkeypatch)
+    page.add_paths([make_pdf(tmp_path / "a.pdf")])
     out = tmp_path / "merged.pdf"
     dialogs.save(out)
     page.run()
@@ -141,3 +144,78 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     pump(0.02)
     assert opened and all(d.is_closed for d in opened)
     assert out.exists()
+
+
+# ── the strip ────────────────────────────────────────────────────────────────
+def _two(window, tmp_path):
+    a = make_pdf(tmp_path / "a.pdf", pages=3, text="A{n}")
+    b = make_pdf(tmp_path / "b.pdf", pages=2, text="B{n}")
+    page = _page(window)
+    page.add_paths([a, b])
+    return page
+
+
+def test_the_strip_shows_every_page_under_its_file(window, tmp_path):
+    page = _two(window, tmp_path)
+    assert page.strip.keys() == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)]
+    assert page.headings() == ["a.pdf · 3 pages", "b.pdf · 2 pages"]
+    assert page.list_card.width() <= 360 and page.strip.isVisibleTo(page)
+    while page.rendering():
+        pump(0.02)
+    assert all(page.strip.has_icon(k) for k in page.strip.keys())
+
+
+def test_leave_out_and_put_back_keep_the_range_field_in_step(window, dialogs, tmp_path):
+    page = _two(window, tmp_path)
+    page.strip.select_keys([(0, 1), (1, 0)])
+    page.leave_out()
+    assert page.left_out() == [(0, 1), (1, 0)]
+    assert page.ranges() == ["1, 3", "2"]
+    assert page.strip.keys() == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1)]   # it stays in place
+    page.strip.select_keys([(1, 0)])
+    page.put_back()
+    assert page.ranges() == ["1, 3", ""]
+    out = tmp_path / "merged.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert _texts(out) == ["A1", "A3", "B1", "B2"]
+
+
+def test_dragging_pages_between_files_mixes_them_in_strip_order(window, dialogs, tmp_path):
+    page = _two(window, tmp_path)
+    page._moved([(1, 1)], (0, 0), True)         # B2 after A1
+    assert page.strip.keys() == [(0, 0), (1, 1), (0, 1), (0, 2), (1, 0)]
+    assert page.headings() == ["a.pdf · page 1", "b.pdf · page 2",
+                               "a.pdf · pages 2-3", "b.pdf · page 1"]
+    out = tmp_path / "merged.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert _texts(out) == ["A1", "B2", "A2", "A3", "B1"]
+    with fitz.open(out) as d:
+        assert [e[1] for e in d.get_toc() if e[0] == 1] == ["a.pdf", "b.pdf", "a.pdf", "b.pdf"]
+
+
+def test_up_and_down_gather_a_file_again(window, tmp_path):
+    page = _two(window, tmp_path)
+    page._moved([(1, 1)], (0, 0), True)
+    page.select(1)
+    page.move(-1)                                # b.pdf first: its pages together
+    assert page.strip.keys() == [(1, 1), (1, 0), (0, 0), (0, 1), (0, 2)]
+
+
+def test_removing_a_file_takes_its_pages_off_the_strip(window, tmp_path):
+    page = _two(window, tmp_path)
+    doc = page._docs[0]
+    page.select(0)
+    page.remove_selected()
+    assert page.strip.keys() == [(1, 0), (1, 1)] and doc.is_closed
+
+
+def test_every_page_left_out_is_refused(window, dialogs, tmp_path):
+    page = _two(window, tmp_path)
+    page.strip.select_keys(page.strip.keys())
+    page.leave_out()
+    page.run()
+    assert dialogs.msgs[-1] == ("warning", "Merge", "Every page is left out: put back at least one.")

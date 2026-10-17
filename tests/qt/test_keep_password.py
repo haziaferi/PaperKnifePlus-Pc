@@ -416,8 +416,8 @@ PERM_B = fitz.PDF_PERM_PRINT | fitz.PDF_PERM_COPY | fitz.PDF_PERM_ACCESSIBILITY
 
 def _merge(window, dialogs, paths, passwords, out, answer=None):
     page = _tool(window, "MergeTool")
+    dialogs.passwords.extend(passwords)           # asked when each file is added
     page.add_paths(paths)
-    dialogs.passwords.extend(passwords)
     dialogs.save(out)
     if answer is not None:
         dialogs.asks.append(answer)
@@ -473,8 +473,8 @@ def test_merge_of_unprotected_inputs_asks_nothing(window, dialogs, tmp_path):
 
 def test_merge_cancel_at_the_save_dialog_asks_nothing(window, dialogs, tmp_path):
     page = _tool(window, "MergeTool")
-    page.add_paths([_locked(tmp_path / "a.pdf", pages=1)])
     dialogs.passwords.append(OPEN_PW)
+    page.add_paths([_locked(tmp_path / "a.pdf", pages=1)])
     page.run()                                    # no path queued: Cancel
     assert window._current_job is None
     assert not [m for m in dialogs.msgs if m[0] == "ask_yes_no"]
