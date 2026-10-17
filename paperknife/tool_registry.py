@@ -25,7 +25,6 @@ TOOL_REGISTRY: tuple[ToolEntry, ...] = (
     ToolEntry('MergeTool', 'ORGANISE', '📎  Merge'),
     ToolEntry('SplitTool', 'ORGANISE', '✂   Split'),
     ToolEntry('RotateTool', 'ORGANISE', '🔄  Rotate & Reorder'),
-    ToolEntry('BookmarksTool', 'ORGANISE', '🔖  Split by Bookmarks'),
     ToolEntry('TocTool', 'ORGANISE', '📑  Bookmarks / TOC'),
     ToolEntry('BatchTool', 'ORGANISE', '⚙   Batch'),
     ToolEntry('PasswordTool', 'ENHANCE', '🔒  Password'),

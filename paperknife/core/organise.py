@@ -195,6 +195,25 @@ def split_ranges(doc, groups, out_dir: str, base: str, stop, progress) -> int | 
     return total if _cut_parts(doc.tobytes(), 0, parts, stop, written) else None
 
 
+def split_parts(doc, parts, out_dir: str, base: str, stop, progress) -> int | None:
+    """split_ranges for Split's parts (lists of 0-based pages, owner 2026-10-17):
+    a part in a row is <base>_partNN_pA-B.pdf as before, one of scattered pages
+    <base>_partNN_p2+5+7.pdf.  Returns the number written, None if cancelled."""
+    runs = [(p[0], p[-1]) for p in parts if p == list(range(p[0], p[-1] + 1))]
+    if len(runs) == len(parts):
+        return split_ranges(doc, runs, out_dir, base, stop, progress)
+    from ..pages import parts_text
+    data, total = doc.tobytes(), len(parts)
+    for i, pages in enumerate(parts):
+        if stop.is_set():
+            return None
+        target = os.path.join(out_dir, f"{base}_part{i + 1:02d}_p{parts_text([pages])}.pdf")
+        with atomic_output(target) as tmp, copy_pages(data, list(pages)) as nd:
+            nd.save(tmp, garbage=1, deflate=True)
+        progress((i + 1) / total)
+    return total
+
+
 _MARK = "PKsrc"     # a key put on each input's layers to find their copies
 
 

@@ -66,7 +66,7 @@ BOTTOM_SECTIONS = ("SETTINGS",)
 # Segoe Fluent Icons code points by tool class name (from the frame prototype)
 NAV_GLYPH: dict[str, int] = {
     "home": 0xE80F, "ReaderTool": 0xE736, "MergeTool": 0xE8F1, "SplitTool": 0xE8C6,
-    "RotateTool": 0xE7AD, "BookmarksTool": 0xE7C1, "TocTool": 0xE8FD,
+    "RotateTool": 0xE7AD, "TocTool": 0xE8FD,
     "BatchTool": 0xE81E, "CompressTool": 0xE7B8, "WatermarkTool": 0xE790,
     "NormaliseTool": 0xE740, "OCRTool": 0xE8D2, "PasswordTool": 0xE72E,
     "HeaderFooterTool": 0xE7C3, "CropTool": 0xE7A8, "PdfToolsTool": 0xE90F,

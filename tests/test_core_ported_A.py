@@ -10,7 +10,6 @@ CTK_REGISTRY_AT_PHASE_8 = [
     ("MergeTool", "ORGANISE", "📎  Merge"),
     ("SplitTool", "ORGANISE", "✂   Split"),
     ("RotateTool", "ORGANISE", "🔄  Rotate & Reorder"),
-    ("BookmarksTool", "ORGANISE", "🔖  Split by Bookmarks"),
     ("TocTool", "ORGANISE", "📑  Bookmarks / TOC"),
     ("BatchTool", "ORGANISE", "⚙   Batch"),
     ("PasswordTool", "ENHANCE", "🔒  Password"),
@@ -37,4 +36,5 @@ CTK_REGISTRY_AT_PHASE_8 = [
 
 def test_tool_registry_keeps_every_tool_the_ctk_app_had():
     assert [tuple(e) for e in TOOL_REGISTRY] == CTK_REGISTRY_AT_PHASE_8
-    assert len(TOOL_REGISTRY) == 26
+    # Split by Bookmarks became Split's "Cut at" choice (owner, 2026-10-17).
+    assert len(TOOL_REGISTRY) == 25

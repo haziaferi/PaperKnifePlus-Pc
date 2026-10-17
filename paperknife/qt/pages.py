@@ -1670,6 +1670,9 @@ def _clear_layout(layout):
     while layout.count():
         item = layout.takeAt(0)
         if item.widget() is not None:
+            # Hidden at once: deleteLater waits for the event loop, and until
+            # then the widget would still be drawn under its replacement.
+            item.widget().hide()
             item.widget().deleteLater()
         elif item.layout() is not None:
             _clear_layout(item.layout())
@@ -1989,6 +1992,9 @@ class CollectionPage(ToolPage):
 
 THUMB_BOX = (120, 150)      # organiser: the largest thumbnail, in px
 THUMBS_PER_TICK = 4         # thumbnails rendered per event-loop turn
+PART_ROLE = Qt.UserRole + 1     # an item's part number (1-based), 0 for none, None: no parts shown
+CUT_ROLE = Qt.UserRole + 2      # True: the grid is cut after this item
+GAP_PX = 10                 # how near a cell's edge a click counts as the gap
 
 
 def _thumb_delegate():
@@ -2039,8 +2045,25 @@ def _thumb_delegate():
             f = p.font()
             f.setPixelSize(12)
             p.setFont(f)
+            label = str(index.data(Qt.DisplayRole) or "")
+            part = index.data(PART_ROLE)
+            if part is not None:
+                # Split's parts: the page's part under its label, alternate
+                # parts in two tones; a page in no part is veiled.
+                if part:
+                    label = f"{label} · part {part}"
+                    tone = theme.color("accent" if part % 2 else "muted")
+                    p.fillRect(QRect(img.x(), img.bottom() + 3, img.width(), 3), tone)
+                else:
+                    veil = theme.color("page_bg")
+                    veil.setAlpha(170)
+                    p.fillRect(img, veil)
             p.drawText(QRect(r.x(), box.bottom() + 6, r.width(), 20),
-                       Qt.AlignHCenter | Qt.AlignTop, str(index.data(Qt.DisplayRole) or ""))
+                       Qt.AlignHCenter | Qt.AlignTop, label)
+            if index.data(CUT_ROLE):
+                # The cut: a bar in the gap after the page, the height of the box.
+                o = option.rect
+                p.fillRect(QRect(o.right() - 1, box.y(), 3, box.height()), accent)
             p.restore()
 
     return ThumbDelegate()
@@ -2211,6 +2234,60 @@ class OrganiserPage(ToolPage):
 
     def rendering(self) -> bool:
         return bool(self._queue)
+
+    # ── parts and cuts (Split) ──
+    def enable_gaps(self, on_gap):
+        """A click within GAP_PX of the edge between two thumbnails calls
+        on_gap(i), i the row the gap follows, instead of selecting; the
+        pointer over a gap is the split cursor."""
+        self._on_gap = on_gap
+        # Kept: the filter compares with it and never asks the grid, which
+        # may already be deleted while the window closes.
+        self._gap_viewport = self.grid.viewport()
+        self._gap_viewport.installEventFilter(self)
+        self._gap_viewport.setMouseTracking(True)
+
+    def gap_at(self, pos) -> int | None:
+        """The row whose following gap *pos* (viewport) is on, or None."""
+        idx = self.grid.indexAt(pos)
+        if not idx.isValid():
+            return None
+        rect = self.grid.visualRect(idx)
+        row = idx.row()
+        if pos.x() >= rect.right() - GAP_PX and row < self.grid.count() - 1:
+            return row
+        if pos.x() <= rect.left() + GAP_PX and row > 0:
+            return row - 1
+        return None
+
+    def eventFilter(self, obj, e):
+        if obj is self.__dict__.get("_gap_viewport"):
+            t = e.type()
+            if t == QEvent.MouseMove:
+                gap = self.gap_at(e.position().toPoint())
+                obj.setCursor(Qt.SplitHCursor if gap is not None else Qt.ArrowCursor)
+            elif t == QEvent.MouseButtonPress and e.button() == Qt.LeftButton \
+                    and not e.modifiers():
+                gap = self.gap_at(e.position().toPoint())
+                if gap is not None:
+                    self._on_gap(gap)
+                    return True
+        return super().eventFilter(obj, e)
+
+    def set_marks(self, parts: dict | None, cuts=()):
+        """Show each row's part (parts: row -> 1-based part, 0 for a page in no
+        part; None shows no parts) and a cut after each row in *cuts*."""
+        cuts = set(cuts)
+        for i in range(self.grid.count()):
+            it = self.grid.item(i)
+            it.setData(PART_ROLE, None if parts is None else parts.get(i, 0))
+            it.setData(CUT_ROLE, i in cuts)
+        self.grid.viewport().update()
+
+    def marks(self) -> list[tuple]:
+        """Each row's (part, cut after) as shown."""
+        return [(self.grid.item(i).data(PART_ROLE), bool(self.grid.item(i).data(CUT_ROLE)))
+                for i in range(self.grid.count())]
 
     def refresh(self, i: int):
         it = self.grid.item(i)

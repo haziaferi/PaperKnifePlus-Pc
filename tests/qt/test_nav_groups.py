@@ -11,7 +11,7 @@ import pytest
 
 from qt_harness import make_pdf, pump
 
-ORGANISE = ["MergeTool", "SplitTool", "RotateTool", "BookmarksTool", "TocTool", "BatchTool"]
+ORGANISE = ["MergeTool", "SplitTool", "RotateTool", "TocTool", "BatchTool"]
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +90,7 @@ def test_a_search_shows_matches_in_a_folded_group_and_clearing_folds_it_again(wi
     h = _header(window, "ORGANISE")
     _click(h)
     window.search.edit.setText("split")
-    assert "SplitTool" in window.visible_tools() and "BookmarksTool" in window.visible_tools()
+    assert "SplitTool" in window.visible_tools()
     assert not window._items["MergeTool"].isVisible() and h.isVisibleTo(window)
     assert window.is_folded("ORGANISE")                     # searching does not unfold it
     window.clear_search()

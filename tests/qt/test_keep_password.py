@@ -353,8 +353,8 @@ def test_split_yes_asks_once_and_protects_every_part(window, dialogs, tmp_path):
     out_dir = tmp_path / "parts"
     out_dir.mkdir()
     page = _tool(window, "SplitTool")
+    dialogs.passwords.append(OPEN_PW)             # Split asks when the file opens
     page.file.set_path(src)
-    dialogs.passwords.append(OPEN_PW)
     dialogs.dirs.append(str(out_dir))
     dialogs.asks.append(True)
     page.run()
@@ -372,8 +372,8 @@ def test_split_no_writes_open_parts(window, dialogs, tmp_path):
     out_dir = tmp_path / "parts"
     out_dir.mkdir()
     page = _tool(window, "SplitTool")
+    dialogs.passwords.append(OPEN_PW)             # Split asks when the file opens
     page.file.set_path(src)
-    dialogs.passwords.append(OPEN_PW)
     dialogs.dirs.append(str(out_dir))
     dialogs.asks.append(False)
     page.run()
@@ -384,8 +384,8 @@ def test_split_no_writes_open_parts(window, dialogs, tmp_path):
 
 def test_split_cancel_at_the_folder_dialog_asks_nothing(window, dialogs, tmp_path):
     page = _tool(window, "SplitTool")
-    page.file.set_path(_locked(tmp_path / "in.pdf"))
     dialogs.passwords.append(OPEN_PW)
+    page.file.set_path(_locked(tmp_path / "in.pdf"))
     page.run()                                    # no folder queued: Cancel
     assert window._current_job is None
     assert not [m for m in dialogs.msgs if m[0] == "ask_yes_no"]
@@ -395,9 +395,10 @@ def test_split_by_bookmarks_yes_protects_every_chapter(window, dialogs, tmp_path
     src = _locked(tmp_path / "book.pdf", pages=4, toc=[[1, "One", 1], [1, "Two", 3]])
     out_dir = tmp_path / "chapters"
     out_dir.mkdir()
-    page = _tool(window, "BookmarksTool")
+    page = _tool(window, "SplitTool")
     dialogs.passwords.append(OPEN_PW)
     page.file.set_path(src)
+    page.radios["top"].setChecked(True)          # Split by Bookmarks is Split's "Cut at"
     dialogs.dirs.append(str(out_dir))
     dialogs.asks.append(True)
     page.run()
@@ -505,8 +506,8 @@ def test_every_yes_output_reaches_its_name_already_encrypted(window, dialogs, tm
     out_dir = tmp_path / "parts"
     out_dir.mkdir()
     page = _tool(window, "SplitTool")                                        # a split
-    page.file.set_path(src)
     dialogs.passwords.append(OPEN_PW)
+    page.file.set_path(src)
     dialogs.dirs.append(str(out_dir))
     dialogs.asks.append(True)
     page.run()

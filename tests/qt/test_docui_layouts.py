@@ -194,7 +194,7 @@ def test_the_target_takes_the_hover_tint(window):
 
 
 @pytest.mark.parametrize("tool", ["CompressTool", "SplitTool", "WatermarkTool", "MetadataTool",
-                                  "PasswordTool", "RotateTool", "TocTool", "BookmarksTool"])
+                                  "PasswordTool", "RotateTool", "TocTool"])
 def test_the_first_options_card_shows_with_no_document(window, tool):
     from qfluentwidgets import SimpleCardWidget
     assert window.open_tool(tool)
