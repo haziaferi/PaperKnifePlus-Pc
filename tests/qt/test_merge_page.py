@@ -72,14 +72,15 @@ def test_merge_uses_each_files_range(window, dialogs, tmp_path):
     page = _page(window)
     page.add_paths([a, b])
     page.rows[0].extra.setText("4-end, 1")
-    # The range says which pages go in; the strip says in which order.
+    # Typing reorders too (owner, 2026-10-17): the strip follows the field.
     assert page.left_out() == [(0, 1), (0, 2)]
+    assert page.strip.keys()[:5] == [(0, 3), (0, 1), (0, 2), (0, 4), (0, 0)]
     out = tmp_path / "merged.pdf"
     dialogs.save(out)
     page.run()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
-    assert _texts(out) == ["A1", "A4", "A5", "B1", "B2"]
+    assert _texts(out) == ["A4", "A5", "A1", "B1", "B2"]
 
 
 def test_reordering_changes_the_output_order(window, dialogs, tmp_path):
@@ -186,6 +187,7 @@ def test_dragging_pages_between_files_mixes_them_in_strip_order(window, dialogs,
     page = _two(window, tmp_path)
     page._moved([(1, 1)], (0, 0), True)         # B2 after A1
     assert page.strip.keys() == [(0, 0), (1, 1), (0, 1), (0, 2), (1, 0)]
+    assert page.ranges() == ["", "2, 1"]          # the field follows the strip
     assert page.headings() == ["a.pdf · page 1", "b.pdf · page 2",
                                "a.pdf · pages 2-3", "b.pdf · page 1"]
     out = tmp_path / "merged.pdf"

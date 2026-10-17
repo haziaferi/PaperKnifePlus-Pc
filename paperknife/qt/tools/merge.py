@@ -20,7 +20,7 @@ from qfluentwidgets import LineEdit
 
 from ...core import organise
 from ...core.password import carry_open_password
-from ...pages import PageRangeError, parse_ranges, ranges_text, selected_pages
+from ...pages import PageRangeError, ordered_pages, ordered_ranges_text, parse_ranges, ranges_text
 from .. import dialogs
 from ..pages import (SETTINGS_W, THUMB_BOX, THUMBS_PER_TICK, CollectionPage, Divider, ElidedLabel,
                      PageStrip, _tool_button, ask_keep_password, icon_button, muted_caption,
@@ -183,20 +183,27 @@ class MergePage(CollectionPage):
         if row is None or doc is None:
             return
         try:
-            keep = set(selected_pages(row.extra.text(), len(doc)))
+            typed = ordered_pages(row.extra.text(), len(doc))
         except PageRangeError:
             return                          # said when Merge runs
+        keep = set(typed)
         self._out = {k for k in self._out if k[0] != fid} | {
             (fid, p) for p in range(len(doc)) if p not in keep}
-        self._show_veils()
+        # Typing reorders too (owner, 2026-10-17): the places the file's
+        # included pages hold in the strip take them in the order typed; the
+        # pages left out stay where they are.
+        slots = [i for i, k in enumerate(self._order) if k[0] == fid and k[1] in keep]
+        for i, page in zip(slots, typed, strict=True):
+            self._order[i] = (fid, page)
+        self._rebuild()
 
     def _sync_field(self, fid):
         row, doc = self._row(fid), self._docs.get(fid)
         if row is None or doc is None:
             return
-        kept = [p for p in range(len(doc)) if (fid, p) not in self._out]
+        kept = [p for f, p in self._order if f == fid and (fid, p) not in self._out]
         row.extra.blockSignals(True)
-        row.extra.setText("" if len(kept) == len(doc) else ranges_text(kept))
+        row.extra.setText("" if kept == list(range(len(doc))) else ordered_ranges_text(kept))
         row.extra.blockSignals(False)
 
     def leave_out(self):
@@ -275,6 +282,8 @@ class MergePage(CollectionPage):
         rest = [k for k in self._order if k not in moving]
         at = rest.index(target) + (1 if after else 0)
         self._order = rest[:at] + keys + rest[at:]
+        for fid in {k[0] for k in keys}:
+            self._sync_field(fid)           # the field follows the strip's order
         self._rebuild()
         self.strip.select_keys(keys)
 

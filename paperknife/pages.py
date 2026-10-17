@@ -74,6 +74,34 @@ def ranges_text(pages) -> str:
     return ", ".join(f"{a + 1}" if a == b else f"{a + 1}-{b + 1}" for a, b in out)
 
 
+def ordered_pages(text: str, total: int) -> list[int]:
+    """The pages a page-range field names, in the order typed, each once
+    ('4-end, 1' is 4, 5, ..., 1); blank or 'all' is every page in order.
+    Raises PageRangeError as parse_ranges."""
+    if not text.strip():
+        return list(range(total))
+    out: list[int] = []
+    for a, b in parse_ranges(text, total):
+        out.extend(p for p in range(a, b + 1) if p not in out)
+    return out
+
+
+def ordered_ranges_text(pages) -> str:
+    """The page-range text for *pages* in their order ('4-5, 1'): rising runs
+    of consecutive pages become ranges.  ordered_pages reads it back."""
+    out, run = [], None
+    for p in pages:
+        if run is not None and p == run[1] + 1:
+            run[1] = p
+            continue
+        if run is not None:
+            out.append(run)
+        run = [p, p]
+    if run is not None:
+        out.append(run)
+    return ", ".join(f"{a + 1}" if a == b else f"{a + 1}-{b + 1}" for a, b in out)
+
+
 # ── Split's parts (owner, 2026-10-17: cut marks on the grid, "Selected pages
 # to one part", typed ranges and bookmarks all set the same parts) ──
 def parse_parts(text: str, total: int) -> list[list[int]]:
