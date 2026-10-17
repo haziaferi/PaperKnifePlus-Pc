@@ -88,7 +88,7 @@ def test_blank_ranges_write_every_page_to_its_own_file(window, dialogs, tmp_path
 
 def test_typed_ranges_set_the_parts_and_the_grid(window, dialogs, tmp_path):
     page = _open(window, make_pdf(tmp_path / "in.pdf", pages=5))
-    page.ranges.setText("2-3, end")
+    page.ranges.setText("2-3; end")
     assert page.parts() == [[1, 2], [4]]
     assert page.part_lines() == ["Part 01 · pages 2-3", "Part 02 · page 5"]
     # Page 1 and 4 are in no part: veiled; no cut between parts not in a row.
@@ -119,7 +119,7 @@ def test_clicking_a_gap_cuts_and_clicking_it_again_joins(window, tmp_path):
     page.ranges.setText("1-4")
     assert page.parts() == [[0, 1, 2, 3]]
     page._toggle_cut(1)                                     # the gap after page 2
-    assert page.parts() == [[0, 1], [2, 3]] and page.ranges.text() == "1-2, 3-4"
+    assert page.parts() == [[0, 1], [2, 3]] and page.ranges.text() == "1-2; 3-4"
     assert page.marks()[1] == (1, True)
     page._toggle_cut(1)
     assert page.parts() == [[0, 1, 2, 3]] and page.ranges.text() == "1-4"
@@ -148,7 +148,7 @@ def test_selected_pages_become_one_part_and_the_field_says_so(window, dialogs, t
     page._selection_to_part()
     # The pages taken form a part; the rest of their part stays one part.
     assert page.parts() == [[1, 4], [0, 2, 3, 5]]
-    assert page.ranges.text() == "2+5, 1+3-4+6"
+    assert page.ranges.text() == "2, 5; 1, 3-4, 6"
     files = _run(window, dialogs, page, tmp_path / "out")
     assert files == {"in_part01_p2+5.pdf": ["Page 2", "Page 5"],
                      "in_part02_p1+3-4+6.pdf": ["Page 1", "Page 3", "Page 4", "Page 6"]}

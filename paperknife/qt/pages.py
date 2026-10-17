@@ -2017,6 +2017,14 @@ def _thumb_delegate():
             sel = bool(option.state & QStyle.State_Selected)
             hover = bool(option.state & QStyle.State_MouseOver)
             accent = theme.color("accent")
+            part = index.data(PART_ROLE)
+            if part:
+                # Split's parts (owner, 2026-10-17): each part's pages sit on a
+                # faint tile, alternate parts in two tones, so a part reads as
+                # one block.  The tile fills the cell so a part's tiles touch.
+                tint = theme.color("accent" if part % 2 else "text")
+                tint.setAlpha(40 if part % 2 else 18)
+                p.fillRect(option.rect, tint)
             if sel or hover:
                 bg = theme.color("selection")
                 bg.setAlpha(46 if sel else 18)
@@ -2045,21 +2053,12 @@ def _thumb_delegate():
             f = p.font()
             f.setPixelSize(12)
             p.setFont(f)
-            label = str(index.data(Qt.DisplayRole) or "")
-            part = index.data(PART_ROLE)
-            if part is not None:
-                # Split's parts: the page's part under its label, alternate
-                # parts in two tones; a page in no part is veiled.
-                if part:
-                    label = f"{label} · part {part}"
-                    tone = theme.color("accent" if part % 2 else "muted")
-                    p.fillRect(QRect(img.x(), img.bottom() + 3, img.width(), 3), tone)
-                else:
-                    veil = theme.color("page_bg")
-                    veil.setAlpha(170)
-                    p.fillRect(img, veil)
+            if part == 0:                   # a page in no part is veiled
+                veil = theme.color("page_bg")
+                veil.setAlpha(170)
+                p.fillRect(img, veil)
             p.drawText(QRect(r.x(), box.bottom() + 6, r.width(), 20),
-                       Qt.AlignHCenter | Qt.AlignTop, label)
+                       Qt.AlignHCenter | Qt.AlignTop, str(index.data(Qt.DisplayRole) or ""))
             if index.data(CUT_ROLE):
                 # The cut: a bar in the gap after the page, the height of the box.
                 o = option.rect

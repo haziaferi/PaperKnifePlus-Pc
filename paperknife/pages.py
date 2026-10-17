@@ -77,19 +77,19 @@ def ranges_text(pages) -> str:
 # ── Split's parts (owner, 2026-10-17: cut marks on the grid, "Selected pages
 # to one part", typed ranges and bookmarks all set the same parts) ──
 def parse_parts(text: str, total: int) -> list[list[int]]:
-    """Each comma-separated item of *text* is one part: a page, a range, or
-    pages joined by '+' ('1-3, 2+5+7' is two parts).  Blank: one part per
+    """Each ';'-separated item of *text* is one part (one file), its pages
+    written as a page-range field ('1-3; 2, 5, 7' is two parts: owner,
+    2026-10-17).  Pages keep the order typed, each once.  Blank: one part per
     page.  Raises PageRangeError as parse_ranges."""
     if not text.strip():
         return [[i] for i in range(total)]
     parts = []
-    for item in text.split(","):
+    for item in text.split(";"):
         if not item.strip():
             continue
         pages: list[int] = []
-        for piece in item.split("+"):
-            for a, b in parse_ranges(piece, total):
-                pages.extend(p for p in range(a, b + 1) if p not in pages)
+        for a, b in parse_ranges(item, total):
+            pages.extend(p for p in range(a, b + 1) if p not in pages)
         parts.append(pages)
     if not parts:
         raise PageRangeError("No pages given.")
@@ -97,12 +97,17 @@ def parse_parts(text: str, total: int) -> list[list[int]]:
 
 
 def parts_text(parts) -> str:
-    """The text parse_parts reads back as *parts*: a part in a row is a range,
-    one of scattered pages its pieces joined by '+'."""
+    """The text parse_parts reads back as *parts*."""
     def one(pages):
-        return ranges_text(pages).replace(", ", "+") if pages == sorted(pages) else \
-            "+".join(str(p + 1) for p in pages)
-    return ", ".join(one(list(p)) for p in parts)
+        return ranges_text(pages) if pages == sorted(pages) else \
+            ", ".join(str(p + 1) for p in pages)
+    return "; ".join(one(list(p)) for p in parts)
+
+
+def part_name(pages) -> str:
+    """A part's pages for a file name: '1-3', '2+5+7', '1+3-4+6'."""
+    return ranges_text(pages).replace(", ", "+") if list(pages) == sorted(pages) else \
+        "+".join(str(p + 1) for p in pages)
 
 
 def parts_from_cuts(total: int, cuts) -> list[list[int]]:

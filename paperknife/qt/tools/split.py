@@ -27,7 +27,7 @@ from ..pages import (HeldDoc, OrganiserPage, Refusal, _clear_layout, card, group
 RANGES, TOP, ALL = "ranges", "top", "all"
 CUT_AT = [(RANGES, "Page ranges", ""), (TOP, "Bookmarks, top level", ""),
           (ALL, "Bookmarks, all levels", "")]
-RANGES_HINT = ("e.g.  1-3, 5, 7-9 · join pages with + for one part (2+5+7) · "
+RANGES_HINT = ("Separate files with ; and pages with , — e.g.  1-3; 4, 6; 7-end · "
                "blank: every page on its own")
 HINT = "Click the gap between two pages to cut there"
 NO_BOOKMARKS = "⚠  This PDF has no bookmarks."
@@ -36,14 +36,14 @@ THUMB_ZOOM = 0.28
 
 
 def _pages_text(pages) -> str:
-    text = parts_text([list(pages)]).replace("+", ", ")
+    text = parts_text([list(pages)])
     return f"page {text}" if len(pages) == 1 else f"pages {text}"
 
 
 @register_page("SplitTool")
 class SplitPage(HeldDoc, OrganiserPage):
     def __init__(self, tool=None, window=None):
-        super().__init__("Split", "Extract pages or page ranges", tool=tool, window=window,
+        super().__init__("Split", "Cut a PDF into files", tool=tool, window=window,
                          settings=True, drag_reorder=False, hint=HINT)
         self._toc: list = []
         self._parts: list[list[int]] = []
@@ -63,7 +63,7 @@ class SplitPage(HeldDoc, OrganiserPage):
                 # The range field sits right under its choice, shown only with it.
                 self._range_row = self.setting_row(g, "", RANGES_HINT)
                 self.ranges = LineEdit()
-                self.ranges.setPlaceholderText("e.g.  1-3, 5, 7-9")
+                self.ranges.setPlaceholderText("e.g.  1-3; 4, 6; 7-end")
                 self.ranges.setClearButtonEnabled(True)
                 self.ranges.setMinimumWidth(160)
                 self._range_row.layout().addWidget(self.ranges)
