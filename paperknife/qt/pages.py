@@ -2111,6 +2111,9 @@ class OrganiserPage(ToolPage):
 
         bar = QWidget()
         bar.setObjectName("contextBar")
+        # As tall with or without its buttons: the grid starts at the same
+        # place on every organiser screen (Compress shows no actions).
+        bar.setMinimumHeight(CONTROL_H)
         self.context_bar = QHBoxLayout(bar)
         self.context_bar.setContentsMargins(0, 0, 0, 0)
         self.context_bar.setSpacing(4)
