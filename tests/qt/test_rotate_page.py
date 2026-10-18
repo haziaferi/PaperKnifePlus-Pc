@@ -191,7 +191,7 @@ def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, dialogs
     # test_file_opened_in_another_tool_can_be_overwritten
     page, src = _open(window, tmp_path)
     held = page._doc
-    assert window.open_tool("CropTool")
+    assert window.open_tool("MergeTool")     # (a tool showing the current document would hold it)
     # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
     # freed, the path kept; the page opens it again when shown.
     assert held.is_closed and page._doc is None and page.file.path() == src

@@ -257,7 +257,7 @@ def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, tmp_pat
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     page = _open(window, src)
     held = page._doc
-    assert window.open_tool("CropTool")
+    assert window.open_tool("MergeTool")     # (a tool showing the current document would hold it)
     assert held.is_closed and page._doc is None and same_path(page.file.path(), src)
     os.replace(make_pdf(tmp_path / "other.pdf", pages=1), src)   # fails while a handle holds it
     assert _page(window) is page and page._doc is not None and page.order() == [0]

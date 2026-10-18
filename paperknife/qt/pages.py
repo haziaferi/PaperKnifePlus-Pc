@@ -226,6 +226,10 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     tv.setSpacing(2)
     tv.addStretch(1)
     name = BodyLabel(title, texts)
+    if not lw:
+        # A settings column's row: a long name wraps rather than push the
+        # control past the column's edge.
+        name.setWordWrap(True)
     tv.addWidget(name)
     d = None
     if desc:
@@ -2015,6 +2019,13 @@ def _thumb_delegate():
             p.setRenderHint(QPainter.Antialiasing)
             r = option.rect.adjusted(2, 2, -2, -2)
             sel = bool(option.state & QStyle.State_Selected)
+            # A page-range tool (owner, 2026-10-17): the chosen pages look
+            # plain and a page left out is veiled, so the eye goes to what is
+            # not included; nothing is tinted for being selected.
+            left_out = False
+            view = option.widget
+            if view is not None and view.property("pkMarkLeftOut"):
+                left_out, sel = not sel, False
             hover = bool(option.state & QStyle.State_MouseOver)
             accent = theme.color("accent")
             part = index.data(PART_ROLE)
@@ -2053,7 +2064,7 @@ def _thumb_delegate():
             f = p.font()
             f.setPixelSize(12)
             p.setFont(f)
-            if part == 0:                   # a page in no part is veiled
+            if part == 0 or left_out:       # a page in no part, or left out, is veiled
                 veil = theme.color("page_bg")
                 veil.setAlpha(170)
                 p.fillRect(img, veil)
@@ -2360,6 +2371,7 @@ class PagePickPage(HeldDoc, OrganiserPage):
                          drag_reorder=False, hint=PICK_HINT, parent=parent)
         self.page_range = None
         self._syncing = False
+        self.grid.setProperty("pkMarkLeftOut", True)    # see _thumb_delegate
         self.all_btn = self.add_action("All pages", None, self.select_all_pages,
                                        needs_selection=False)
 

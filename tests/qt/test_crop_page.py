@@ -225,6 +225,9 @@ def test_the_selection_and_the_range_field_stay_in_step(window, dialogs, tmp_pat
     assert page.page_range.text() == "1, 3-4"
     page.page_range.setText("2, 5")
     assert page.pages() == [1, 4]
+    page.page_range.setText("2-end")
+    assert page.pages() == [1, 2, 3, 4] and page.page_range.text() == "2-end"   # kept as typed
+    page.page_range.setText("2, 5")
     page.page_range.setText("9")                      # not a page: the selection stays
     assert page.pages() == [1, 4]
     page.select_all_pages()

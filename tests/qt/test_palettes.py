@@ -295,6 +295,9 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     # ── Crop: a switch, off and on ──
     page = _open(win, "CropTool")
     sw_ = page.reset
+    # Crop's settings are a scrolling column since the pages grid (2026-10-17).
+    page.settings_area.ensureWidgetVisible(sw_)
+    pump(0.2)
     img = _grab(win)
     _has(img, _rect(win, sw_.indicator), P.routed(ink + (201 if dark else 156,), "track"),
          "switch knob off", tol=3)
