@@ -44,7 +44,8 @@ def test_page_builds_with_its_actions_and_one_thumbnail_per_page(window, tmp_pat
     assert page.title_label.text() == "Rotate & Reorder"
     assert [b.text() for b in page._actions] == [
         "↺ 90° CCW", "↻ 90° CW", "⤢ 180°", "← Move Left", "Move Right →",
-        "Delete", "Extract to a new PDF", "Undo"]
+        "Extract to a new PDF", "Undo", "Delete"]
+    assert page.subtitle_label.text() == "Select pages · then rotate, move, delete or extract them"
     assert page.order() == [0, 1, 2, 3]
     assert [page.grid.item(i).text() for i in range(4)] == ["p.1", "p.2", "p.3", "p.4"]
     assert not page.rendering() and not page.grid.item(0).icon().isNull()
@@ -213,7 +214,7 @@ def test_delete_asks_first_and_undo_brings_the_pages_back(window, dialogs, tmp_p
     page.delete_pages()
     assert page.order() == [0, 1, 2, 3] and not page.is_dirty()
     assert dialogs.msgs[-1] == ("ask_yes_no", "Delete pages",
-                                "Delete 2 pages? Undo brings them back until you save.")
+                                "Delete pages 2 and 3? Undo brings them back until you save.")
     dialogs.asks.append(True)
     page.delete_pages()
     assert page.order() == [0, 3] and page.is_dirty() and page.undo_btn.isEnabled()
@@ -234,12 +235,18 @@ def test_undo_steps_back_through_turns_moves_and_drags(window, dialogs, tmp_path
     assert page._extra[0] == 0 and not page.is_dirty()
 
 
-def test_deleting_every_page_is_refused(window, dialogs, tmp_path):
-    page, _ = _open(window, tmp_path, pages=2)
-    _select(page, 0, 1)
+def test_every_page_selected_turns_delete_off_and_says_why(window, dialogs, tmp_path):
+    page, _ = _open(window, tmp_path, pages=5)
+    _select(page, 0, 1, 2, 3, 4)
+    assert not page.delete_btn.isEnabled()
+    assert page.hint_label.text() == "A PDF needs at least one page: keep one or more."
+    page.delete_pages()                              # Ctrl/keyboard: still nothing goes
+    assert page.order() == [0, 1, 2, 3, 4] and not dialogs.msgs
+    _select(page, 0, 2, 3, 4)
+    assert page.delete_btn.isEnabled()
+    dialogs.asks.append(False)
     page.delete_pages()
-    assert dialogs.msgs[-1] == ("warning", "Delete", "A PDF needs at least one page: keep one or more.")
-    assert page.order() == [0, 1]
+    assert dialogs.msgs[-1][2] == "Delete pages 1, 3-5? Undo brings them back until you save."
 
 
 def test_save_after_delete_writes_the_pages_left_whole(window, dialogs, tmp_path):

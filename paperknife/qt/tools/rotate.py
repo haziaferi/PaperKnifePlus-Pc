@@ -11,10 +11,13 @@ from PySide6.QtGui import QImage
 
 from ...core import organise
 from ...core.doc_state import can_append
-from .. import dialogs
+from ...pages import ranges_text
+from .. import dialogs, theme
 from ..pages import HeldDoc, OrganiserPage, ask_keep_password, register_page
 
-SUBTITLE = "Click a thumbnail · then rotate or move it"
+# Scored winners (phase10/rotate_score.py, owner 2026-10-17).
+SUBTITLE = "Select pages · then rotate, move, delete or extract them"
+KEEP_ONE = "A PDF needs at least one page: keep one or more."
 THUMB_ZOOM = 0.28           # thumbnail render scale
 
 
@@ -29,10 +32,11 @@ class RotatePage(HeldDoc, OrganiserPage):
             self.add_action(text, None, lambda _=False, d=deg: self.rotate(d))
         self.add_action("← Move Left", None, lambda _=False: self.move_pages(-1))
         self.add_action("Move Right →", None, lambda _=False: self.move_pages(1))
-        self.add_action("Delete", None, lambda _=False: self.delete_pages())
+        # Delete last, apart from the turn and move buttons (the scored order).
         self.add_action("Extract to a new PDF", None, lambda _=False: self.extract())
         self.undo_btn = self.add_action("Undo", None, lambda _=False: self.undo(),
                                         needs_selection=False)
+        self.delete_btn = self.add_action("Delete", None, lambda _=False: self.delete_pages())
         self.grid.model().rowsMoved.connect(lambda *_: self._edited())     # a drag
         self.primary("Save PDF", self.save)
         self._show_undo()
@@ -115,11 +119,14 @@ class RotatePage(HeldDoc, OrganiserPage):
         if not rows or self._doc is None:
             return
         if len(rows) == self.grid.count():
-            return dialogs.warning("Delete", "A PDF needs at least one page: keep one or more.")
-        n = len(rows)
+            return                          # Delete is off then; the bar says why
+        order = self.order()
+        nums = sorted(order[r] + 1 for r in rows)
+        what = (f"page {nums[0]}" if len(nums) == 1 else
+                f"pages {nums[0]} and {nums[1]}" if len(nums) == 2 else
+                "pages " + ranges_text([n - 1 for n in nums]))
         if not dialogs.ask_yes_no("Delete pages",
-                                  f"Delete {n} page{'s' if n != 1 else ''}? "
-                                  "Undo brings them back until you save."):
+                                  f"Delete {what}? Undo brings them back until you save."):
             return
         for r in sorted(rows, reverse=True):
             self.grid.takeItem(r)
@@ -143,6 +150,19 @@ class RotatePage(HeldDoc, OrganiserPage):
         self.set_pages(order, self.render, lambda k: f"p.{k + 1}")
         self._shown = self._state()
         self._show_undo()
+
+    def _selection_changed(self):
+        super()._selection_changed()
+        # Every page selected: Delete is off and the bar says why (the scored
+        # winner, as Merge does when every page is left out).
+        if not hasattr(self, "delete_btn"):
+            return
+        n, total = len(self.grid.selectedItems()), self.grid.count()
+        every = bool(total) and n == total
+        self.delete_btn.setEnabled(bool(n) and not every)
+        if every:
+            self.hint_label.setText(KEEP_ONE)
+        theme.label_role(self.hint_label, "warning" if every else "muted")
 
     def _show_undo(self):
         if hasattr(self, "undo_btn"):
