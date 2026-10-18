@@ -39,7 +39,7 @@ from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, Qt, QVariantAn
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLayout, QSizePolicy, QVBoxLayout,
                                QWidget)
-from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, PrimaryPushButton, PushButton,
+from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, LineEdit, PrimaryPushButton, PushButton,
                             RadioButton, Slider, SwitchButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
                             SubtitleLabel, TitleLabel, TransparentPushButton,
@@ -2332,6 +2332,136 @@ class OrganiserPage(ToolPage):
         n = len(self.grid.selectedItems())
         self.hint_label.setText(self._hint if not n else
                                 f"{n} page{'s' if n != 1 else ''} selected")
+
+
+# ── Tools that act on chosen pages (owner, 2026-10-17) ───────────────────────
+ALL_PAGES = "all"
+NO_PAGES = "Select at least one page."
+PICK_HINT = "Click pages to choose them · Ctrl / Shift for several"
+PICK_ZOOM = 0.28
+
+
+class PagePickPage(HeldDoc, OrganiserPage):
+    """A single-file tool whose pages are on screen (owner, 2026-10-17): the
+    organiser layout, the grid in the centre with every page selected when a
+    document opens, the tool's settings in the column at the right.  The
+    selection and the page-range field (make_range_field) stay in step: the
+    field reads "all" with every page selected, the selection's ranges
+    otherwise, and a range typed selects its pages.  With no page selected
+    the main action is off and the bar says why (as Merge's).
+
+    The page holds the document open (HeldDoc) for its thumbnails, so an
+    encrypted file asks for its password once; job_copy is the job's own copy.
+
+        pages()  the selected pages, 0-based, in page order"""
+
+    def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None, parent=None):
+        super().__init__(title, subtitle, tool=tool, window=window, settings=True,
+                         drag_reorder=False, hint=PICK_HINT, parent=parent)
+        self.page_range = None
+        self._syncing = False
+        self.all_btn = self.add_action("All pages", None, self.select_all_pages,
+                                       needs_selection=False)
+
+    # ── the range field ──
+    def make_range_field(self, placeholder: str = "all  or  1-5, 8, 10-end", width: int = 180):
+        ed = LineEdit()
+        ed.setPlaceholderText(placeholder)
+        ed.setMinimumWidth(width)
+        ed.textChanged.connect(self._range_typed)
+        self.page_range = ed
+        return ed
+
+    def _range_typed(self, text: str):
+        if self._syncing or self._doc is None:
+            return
+        from ..pages import PageRangeError, selected_pages as _sel
+        try:
+            want = set(_sel(text, len(self._doc)))
+        except PageRangeError:
+            return                          # said when the tool runs
+        self._syncing = True
+        try:
+            order = self.order()
+            for i in range(self.grid.count()):
+                self.grid.item(i).setSelected(order[i] in want)
+        finally:
+            self._syncing = False
+        self._selection_changed()
+
+    def _selection_changed(self):
+        super()._selection_changed()
+        if not hasattr(self, "all_btn"):
+            return
+        n, total = len(self.grid.selectedItems()), self.grid.count()
+        if self.page_range is not None and not self._syncing and total:
+            from ..pages import ranges_text as _rt
+            self._syncing = True
+            try:
+                self.page_range.setText(ALL_PAGES if n == total else _rt(self.pages()))
+            finally:
+                self._syncing = False
+        none = bool(total) and not n
+        for b in self._buttons:
+            if getattr(b, "pk_primary", False):
+                b.setEnabled(not none)
+        if none:
+            self.hint_label.setText(NO_PAGES)
+        theme.label_role(self.hint_label, "warning" if none else "muted")
+        self.all_btn.setEnabled(bool(total) and n < total)
+
+    def select_all_pages(self):
+        self.grid.selectAll()
+
+    def pages(self) -> list[int]:
+        order = self.order()
+        return sorted(order[i] for i in self.selected())
+
+    # ── the document ──
+    def load(self, path: str):
+        if not path:
+            return
+        doc = self.open_held(path, self.title_label.text())
+        if doc is None:
+            return
+        self.set_pages(list(range(len(doc))), self.render, lambda k: f"p.{k + 1}")
+        self.select_all_pages()
+        self.on_loaded(doc)
+
+    def on_loaded(self, doc):
+        """A document was opened (a tool's own state)."""
+
+    def render(self, key: int):
+        import pymupdf as _fitz
+        from PySide6.QtGui import QImage
+        pix = self._doc[key].get_pixmap(matrix=_fitz.Matrix(PICK_ZOOM, PICK_ZOOM), alpha=False)
+        return QImage(pix.samples, pix.width, pix.height, pix.stride,
+                      QImage.Format_RGB888).copy()
+
+    def clear_document(self):
+        self._timer.stop()
+        self.clear_pages()
+        self.release_held()
+        self.refresh_document()
+
+    def park_document(self):
+        if self._doc is not None:
+            self._timer.stop()              # no thumbnail may render from a closed file
+            self._queue = []
+        super().park_document()
+
+    def job_copy(self, _src=None):
+        """The job's own copy of the held document (its password goes with it)."""
+        import pymupdf as _fitz
+        from ..core.password import carry_open_password as _carry
+        copy = _fitz.open("pdf", self._doc.tobytes())
+        _carry(self._doc, copy)
+        return copy
+
+    def range_text(self) -> str:
+        """The field's text for a run: "all" is every page."""
+        t = self.page_range.text().strip() if self.page_range is not None else ""
+        return "" if t.lower() == ALL_PAGES else t
 
 
 # ── Merge's page strip (owner, 2026-10-17) ────────────────────────────────────

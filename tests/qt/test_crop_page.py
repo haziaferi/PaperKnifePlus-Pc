@@ -2,7 +2,7 @@
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, wait_job
 
 
 def _page(window):
@@ -53,11 +53,10 @@ def test_unusable_margins_are_refused_up_front(window, dialogs, tmp_path, margin
                                                monkeypatch):
     src = make_pdf(tmp_path / "in.pdf")
     out = tmp_path / "out.pdf"
-    opened = spy_open(window, monkeypatch)
     _crop(window, dialogs, src, out, **margins)
     assert not dialogs.errors(), dialogs.errors()
     assert dialogs.msgs[-1] == ("warning", "Crop", words)
-    assert opened == [] and not out.exists()
+    assert window._current_job is None and not out.exists()
 
 
 @pytest.mark.parametrize("edge, size, shift", [
@@ -109,10 +108,10 @@ def test_a_bad_page_range_is_an_error_and_closes_the_document(window, dialogs, t
                                                               monkeypatch):
     src = make_pdf(tmp_path / "in.pdf", pages=3)
     out = tmp_path / "out.pdf"
-    opened = spy_open(window, monkeypatch)
-    _crop(window, dialogs, src, out, rng="9", top=50)
+    page = _crop(window, dialogs, src, out, rng="9", top=50)
     assert dialogs.errors()[-1][1] == "Crop" and "page 9 does not exist" in dialogs.errors()[-1][2]
-    assert opened and opened[0].is_closed and not out.exists()
+    assert window._current_job is None and not out.exists()
+    assert page._doc is not None                     # the page still shows the document
 
 
 def test_reset_undoes_previous_crops_first(window, dialogs, tmp_path):
@@ -185,21 +184,64 @@ def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_pat
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.margins["top"].setText("50")
-    opened = spy_open(window, monkeypatch)
+    held = page._doc
     page.run()                     # no save path queued: the dialog returns ""
-    assert opened and opened[0].is_closed
-    assert window._current_job is None
+    assert window._current_job is None and page._doc is held and not held.is_closed
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.margins["top"].setText("50")
-    opened = spy_open(window, monkeypatch)
+    held = page._doc
     out = tmp_path / "out.pdf"
     dialogs.save(out)
     page.run()
     window.show_page("CompressTool")
     wait_job(window)
-    assert opened and opened[0].is_closed
+    assert held.is_closed and page._doc is None      # left: the file is let go
     assert [h for _, h in _sizes(out)] == [792, 792, 792]
+
+
+# ── the pages on screen (owner, 2026-10-17) ─────────────────────────────────
+def _open(window, tmp_path, pages=4):
+    page = _page(window)
+    page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=pages))
+    pump(0.1)
+    return page
+
+
+def test_every_page_is_selected_and_the_field_reads_all(window, tmp_path):
+    page = _open(window, tmp_path)
+    assert page.order() == [0, 1, 2, 3] and page.pages() == [0, 1, 2, 3]
+    assert page.page_range.text() == "all" and not page.all_btn.isEnabled()
+
+
+def test_the_selection_and_the_range_field_stay_in_step(window, dialogs, tmp_path):
+    page = _open(window, tmp_path, pages=5)
+    page.grid.clearSelection()
+    for r in (0, 2, 3):
+        page.grid.item(r).setSelected(True)
+    assert page.page_range.text() == "1, 3-4"
+    page.page_range.setText("2, 5")
+    assert page.pages() == [1, 4]
+    page.page_range.setText("9")                      # not a page: the selection stays
+    assert page.pages() == [1, 4]
+    page.select_all_pages()
+    assert page.page_range.text() == "all"
+    out = tmp_path / "out.pdf"
+    page.page_range.setText("2, 5")
+    page.margins["top"].setText("50")
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert [h for _, h in _sizes(out)] == [842, 792, 842, 842, 792]
+
+
+def test_no_page_selected_turns_crop_off_and_says_why(window, tmp_path):
+    page = _open(window, tmp_path)
+    crop = next(b for b in page._buttons if getattr(b, "pk_primary", False))
+    page.grid.clearSelection()
+    assert not crop.isEnabled() and page.hint_label.text() == "Select at least one page."
+    page.select_all_pages()
+    assert crop.isEnabled()
