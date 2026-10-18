@@ -2392,14 +2392,15 @@ class PagePickPage(HeldDoc, OrganiserPage):
             want = set(_sel(text, len(self._doc)))
         except PageRangeError:
             return                          # said when the tool runs
+        # The field keeps what was typed: it is not rewritten under the cursor.
         self._syncing = True
         try:
             order = self.order()
             for i in range(self.grid.count()):
                 self.grid.item(i).setSelected(order[i] in want)
+            self._selection_changed()
         finally:
             self._syncing = False
-        self._selection_changed()
 
     def _selection_changed(self):
         super()._selection_changed()
