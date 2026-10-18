@@ -43,11 +43,12 @@ def test_page_builds_with_its_actions_and_one_thumbnail_per_page(window, tmp_pat
     page, _ = _open(window, tmp_path, pages=4)
     assert page.title_label.text() == "Rotate & Reorder"
     assert [b.text() for b in page._actions] == [
-        "↺ 90° CCW", "↻ 90° CW", "⤢ 180°", "← Move Left", "Move Right →"]
+        "↺ 90° CCW", "↻ 90° CW", "⤢ 180°", "← Move Left", "Move Right →",
+        "Delete", "Extract to a new PDF", "Undo"]
     assert page.order() == [0, 1, 2, 3]
     assert [page.grid.item(i).text() for i in range(4)] == ["p.1", "p.2", "p.3", "p.4"]
     assert not page.rendering() and not page.grid.item(0).icon().isNull()
-    assert not any(b.isEnabled() for b in page._actions)       # nothing selected yet
+    assert not any(b.isEnabled() for b in page._actions)       # nothing selected, nothing to undo
 
 
 def test_save_without_a_file_warns(window, dialogs):
@@ -196,3 +197,83 @@ def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, dialogs
     other = make_pdf(tmp_path / "other.pdf", pages=1)
     os.replace(other, src)                  # fails on Windows while a handle holds src
     assert _texts(src) == ["Page 1"]
+
+
+# ── Delete, Undo, Extract (owner, 2026-10-17) ────────────────────────────────
+def _select(page, *rows):
+    page.grid.clearSelection()
+    for r in rows:
+        page.grid.item(r).setSelected(True)
+
+
+def test_delete_asks_first_and_undo_brings_the_pages_back(window, dialogs, tmp_path):
+    page, _ = _open(window, tmp_path, pages=4)
+    _select(page, 1, 2)
+    dialogs.asks.append(False)                       # No: nothing goes
+    page.delete_pages()
+    assert page.order() == [0, 1, 2, 3] and not page.is_dirty()
+    assert dialogs.msgs[-1] == ("ask_yes_no", "Delete pages",
+                                "Delete 2 pages? Undo brings them back until you save.")
+    dialogs.asks.append(True)
+    page.delete_pages()
+    assert page.order() == [0, 3] and page.is_dirty() and page.undo_btn.isEnabled()
+    page.undo()
+    assert page.order() == [0, 1, 2, 3] and not page.is_dirty()
+    assert not page.undo_btn.isEnabled()
+
+
+def test_undo_steps_back_through_turns_moves_and_drags(window, dialogs, tmp_path):
+    page, _ = _open(window, tmp_path, pages=3)
+    _select(page, 0)
+    page.rotate(90)
+    page.move_pages(1)
+    assert page.order() == [1, 0, 2] and page._extra[0] == 90
+    page.undo()
+    assert page.order() == [0, 1, 2] and page._extra[0] == 90
+    page.undo()
+    assert page._extra[0] == 0 and not page.is_dirty()
+
+
+def test_deleting_every_page_is_refused(window, dialogs, tmp_path):
+    page, _ = _open(window, tmp_path, pages=2)
+    _select(page, 0, 1)
+    page.delete_pages()
+    assert dialogs.msgs[-1] == ("warning", "Delete", "A PDF needs at least one page: keep one or more.")
+    assert page.order() == [0, 1]
+
+
+def test_save_after_delete_writes_the_pages_left_whole(window, dialogs, tmp_path):
+    page, src = _open(window, tmp_path, pages=3)
+    before = open(src, "rb").read()
+    _select(page, 1)
+    dialogs.asks.append(True)
+    page.delete_pages()
+    _save(window, dialogs, page, src)               # over the file: written whole
+    assert _texts(src) == ["Page 1", "Page 3"]
+    assert not open(src, "rb").read().startswith(before)
+    assert not page.is_dirty() and not page.undo_btn.isEnabled()
+
+
+def test_extract_writes_the_selection_as_turned_and_keeps_the_document(window, dialogs, tmp_path):
+    page, src = _open(window, tmp_path, pages=4)
+    _select(page, 3)
+    page.rotate(90)
+    _select(page, 3, 1)
+    out = tmp_path / "picked.pdf"
+    dialogs.save(out)
+    page.extract()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+    assert _texts(out) == ["Page 2", "Page 4"] and _rotations(out) == [0, 90]
+    assert _texts(src) == ["Page 1", "Page 2", "Page 3", "Page 4"]     # the file is untouched
+    assert page.order() == [0, 1, 2, 3] and page.is_dirty()             # the turn is still pending
+    assert window.status_text() == "✓  Extracted 2 pages → picked.pdf"
+    assert page.offered_output() is not None
+
+
+def test_extract_over_the_open_file_is_refused(window, dialogs, tmp_path):
+    page, src = _open(window, tmp_path, pages=2)
+    _select(page, 0)
+    dialogs.save(src)
+    page.extract()
+    assert dialogs.msgs[-1][:2] == ("warning", "Extract") and window._current_job is None
