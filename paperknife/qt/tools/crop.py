@@ -1,4 +1,4 @@
-"""Crop / Trim — cut margins off the crop box of chosen pages.  The pages are on
+"""Crop / Trim — cut margins off the crop box of selected pages.  The pages are on
 screen (owner, 2026-10-17: the page-range tools show the document's pages,
 every page selected at first, the selection and the range field in step);
 the margins and the range sit in the column at the right."""

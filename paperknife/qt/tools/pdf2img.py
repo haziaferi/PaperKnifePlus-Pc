@@ -1,4 +1,4 @@
-"""PDF → Images — the chosen pages as PNGs, bundled in a ZIP.  The pages are on
+"""PDF → Images — the selected pages as PNGs, bundled in a ZIP.  The pages are on
 screen (owner, 2026-10-17: the page-range tools show the document's pages);
 the options sit in the column at the right."""
 from __future__ import annotations
@@ -16,7 +16,7 @@ DPI_RANGE = (72, 300)
 @register_page("Pdf2ImgTool")
 class Pdf2ImgPage(PagePickPage):
     def __init__(self, tool=None, window=None):
-        super().__init__("PDF → Images", "Export the chosen pages as PNGs · bundled in a ZIP",
+        super().__init__("PDF → Images", "Export the selected pages as PNGs · bundled in a ZIP",
                          tool=tool, window=window)
         s = self.settings
         s.addWidget(group_title("Options"))

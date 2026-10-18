@@ -1,4 +1,4 @@
-"""Extract Images — the embedded images of the chosen pages into a folder.  The
+"""Extract Images — the embedded images of the selected pages into a folder.  The
 pages are on screen (owner, 2026-10-17: the page-range tools show the
 document's pages); the options sit in the column at the right."""
 from __future__ import annotations
@@ -18,7 +18,7 @@ DEFAULT_MIN_PX = 50
 class ExtractPage(PagePickPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Extract Images",
-                         "Pull the embedded images of the chosen pages out to a folder",
+                         "Pull the embedded images of the selected pages out to a folder",
                          tool=tool, window=window)
         s = self.settings
         s.addWidget(group_title("Options"))

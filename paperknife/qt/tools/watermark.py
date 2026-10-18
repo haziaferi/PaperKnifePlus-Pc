@@ -1,4 +1,4 @@
-"""Watermark — diagonal text on the chosen pages.  The pages are on screen
+"""Watermark — diagonal text on the selected pages.  The pages are on screen
 (owner, 2026-10-17: the page-range tools show the document's pages; Watermark
 gains a page range); the options sit in the column at the right."""
 from __future__ import annotations
@@ -23,7 +23,7 @@ def _hex(rgb) -> str:
 @register_page("WatermarkTool")
 class WatermarkPage(PagePickPage):
     def __init__(self, tool=None, window=None):
-        super().__init__("Watermark", "Stamp a diagonal text watermark across the chosen pages",
+        super().__init__("Watermark", "Stamp a diagonal text watermark across the selected pages",
                          tool=tool, window=window)
         s = self.settings
         s.addWidget(group_title("Watermark"))

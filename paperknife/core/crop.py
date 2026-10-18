@@ -1,4 +1,4 @@
-"""Crop / Trim: cut margins off the crop box of chosen pages."""
+"""Crop / Trim: cut margins off the crop box of selected pages."""
 from __future__ import annotations
 
 import pymupdf as fitz

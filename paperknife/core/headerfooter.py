@@ -1,4 +1,4 @@
-"""Header / Footer: stamp a line of text into the margin of chosen pages."""
+"""Header / Footer: stamp a line of text into the margin of selected pages."""
 from __future__ import annotations
 
 import pymupdf as fitz

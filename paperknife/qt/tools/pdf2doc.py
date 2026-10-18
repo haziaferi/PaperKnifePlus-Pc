@@ -1,4 +1,4 @@
-"""PDF → Doc / Text — the chosen pages to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX or
+"""PDF → Doc / Text — the selected pages to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX or
 page images.  The pages are on screen (owner, 2026-10-17: the page-range tools
 show the document's pages); the options sit in the column at the right."""
 from __future__ import annotations

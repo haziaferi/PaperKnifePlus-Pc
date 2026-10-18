@@ -1,4 +1,4 @@
-"""OCR — make the chosen pages of a scanned PDF searchable with Tesseract.  The
+"""OCR — make the selected pages of a scanned PDF searchable with Tesseract.  The
 pages are on screen (owner, 2026-10-17: the page-range tools show the
 document's pages); the options sit in the column at the right."""
 from __future__ import annotations

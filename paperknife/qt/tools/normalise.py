@@ -1,4 +1,4 @@
-"""Normalise Pages — the chosen pages onto one paper size.  The pages are on
+"""Normalise Pages — the selected pages onto one paper size.  The pages are on
 screen (owner, 2026-10-17: the page-range tools show the document's pages);
 the options sit in the column at the right, the pages not chosen keep their
 size."""
@@ -21,7 +21,7 @@ SCALES = [("fit", "Fit", "keep ratio · recommended"),
 @register_page("NormaliseTool")
 class NormalisePage(PagePickPage):
     def __init__(self, tool=None, window=None):
-        super().__init__("Normalise Pages", "Resize the chosen pages to a standard paper size",
+        super().__init__("Normalise Pages", "Resize the selected pages to a standard paper size",
                          tool=tool, window=window)
         s = self.settings
         s.addWidget(group_title("Page size"))

@@ -1,4 +1,4 @@
-"""Header / Footer — a line of text in a page margin of the chosen pages.  The
+"""Header / Footer — a line of text in a page margin of the selected pages.  The
 pages are on screen (owner, 2026-10-17: the page-range tools show the
 document's pages); the options sit in the column at the right."""
 from __future__ import annotations
@@ -75,7 +75,7 @@ def _field(text: str = "", width: int = 72, placeholder: str = "") -> LineEdit:
 class HeaderFooterPage(PagePickPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Header / Footer",
-                         "Stamp text into the top or bottom margin of the chosen pages",
+                         "Stamp text into the top or bottom margin of the selected pages",
                          tool=tool, window=window)
         s = self.settings
         s.addWidget(group_title("Content"))

@@ -1,4 +1,4 @@
-"""The Qt Crop / Trim page: cut margins off the crop box of chosen pages."""
+"""The Qt Crop / Trim page: cut margins off the crop box of selected pages."""
 import pymupdf as fitz
 import pytest
 
