@@ -190,7 +190,7 @@ def test_missing_tesseract_is_an_error_and_writes_nothing(window, dialogs, tmp_p
     out = tmp_path / "o.pdf"
     _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), out)
     assert dialogs.errors() and "Tesseract not found" in dialogs.errors()[-1][2]
-    assert opened and opened[0].is_closed and not out.exists()
+    assert opened and opened[-1].is_closed and not out.exists()  # the job's copy (the page holds its own)
 
 
 def test_without_pytesseract_the_page_says_how_to_install_it(window, dialogs, monkeypatch,

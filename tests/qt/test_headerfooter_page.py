@@ -83,7 +83,7 @@ def test_a_bad_range_is_an_error_and_closes_the_document(window, dialogs, tmp_pa
     out = tmp_path / "out.pdf"
     _stamp(window, dialogs, page, make_pdf(tmp_path / "in.pdf", pages=2), out, "7-9")
     assert dialogs.errors() and dialogs.errors()[-1][1] == "Header/Footer"
-    assert opened and opened[0].is_closed and not out.exists()
+    assert opened and opened[-1].is_closed and not out.exists()  # the job's copy (the page holds its own)
 
 
 @pytest.mark.parametrize("field", ["size", "margin"])

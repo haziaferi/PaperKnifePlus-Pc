@@ -2366,14 +2366,22 @@ class PagePickPage(HeldDoc, OrganiserPage):
 
         pages()  the selected pages, 0-based, in page order"""
 
+    pick_pages = True   # False: the pages are shown only (Compress: the whole file)
+    view_hint = ""      # the bar's line when pages are shown only
+
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None, parent=None):
         super().__init__(title, subtitle, tool=tool, window=window, settings=True,
-                         drag_reorder=False, hint=PICK_HINT, parent=parent)
+                         drag_reorder=False, hint=PICK_HINT if self.pick_pages else self.view_hint,
+                         parent=parent)
         self.page_range = None
         self._syncing = False
-        self.grid.setProperty("pkMarkLeftOut", True)    # see _thumb_delegate
+        self.grid.setProperty("pkMarkLeftOut", self.pick_pages)    # see _thumb_delegate
         self.all_btn = self.add_action("All pages", None, self.select_all_pages,
                                        needs_selection=False)
+        if not self.pick_pages:
+            from PySide6.QtWidgets import QAbstractItemView
+            self.grid.setSelectionMode(QAbstractItemView.NoSelection)
+            self.all_btn.hide()
 
     # ── the range field ──
     def make_range_field(self, placeholder: str = "all  or  1-5, 8, 10-end", width: int = 180):
@@ -2406,6 +2414,9 @@ class PagePickPage(HeldDoc, OrganiserPage):
         super()._selection_changed()
         if not hasattr(self, "all_btn"):
             return
+        if not self.pick_pages:
+            self.hint_label.setText(self.view_hint)
+            return
         n, total = len(self.grid.selectedItems()), self.grid.count()
         if self.page_range is not None and not self._syncing and total:
             from ..pages import ranges_text as _rt
@@ -2428,6 +2439,8 @@ class PagePickPage(HeldDoc, OrganiserPage):
 
     def pages(self) -> list[int]:
         order = self.order()
+        if not self.pick_pages:
+            return sorted(order)
         return sorted(order[i] for i in self.selected())
 
     # ── the document ──
@@ -2438,7 +2451,8 @@ class PagePickPage(HeldDoc, OrganiserPage):
         if doc is None:
             return
         self.set_pages(list(range(len(doc))), self.render, lambda k: f"p.{k + 1}")
-        self.select_all_pages()
+        if self.pick_pages:
+            self.select_all_pages()
         self.on_loaded(doc)
 
     def on_loaded(self, doc):

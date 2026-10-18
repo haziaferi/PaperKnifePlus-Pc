@@ -79,7 +79,7 @@ def test_txt_end_to_end_writes_the_text_and_reports_it(window, dialogs, tmp_path
     _convert(window, dialogs, page, "TXT", make_pdf(tmp_path / "in.pdf", pages=2), out)
     text = out.read_text(encoding="utf-8")
     assert "Page 1" in text and "Page 2" in text and "── Page Break ──" in text
-    assert opened and opened[0].is_closed
+    assert opened and opened[-1].is_closed  # the job's copy (the page holds its own)
     assert window.status_text() == "✓  PDF → TXT: out.txt"
     assert window.status_role == "success"
     assert dialogs.msgs[-1] == ("info", "Done", f"Saved:\n{out}")

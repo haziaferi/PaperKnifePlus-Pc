@@ -1,4 +1,6 @@
-"""Header / Footer — a single-file transform (group C): a line of text in a page margin."""
+"""Header / Footer — a line of text in a page margin of the chosen pages.  The
+pages are on screen (owner, 2026-10-17: the page-range tools show the
+document's pages); the options sit in the column at the right."""
 from __future__ import annotations
 
 from datetime import date
@@ -12,8 +14,8 @@ from qfluentwidgets import ComboBox, LineEdit
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs, theme
-from ..pages import (RadioChoice, ToolPage, card, group_title, muted_caption,
-                     radio_button, register_page, setting_row)
+from ..pages import (PagePickPage, RadioChoice, card, group_title, muted_caption,
+                     radio_button, register_page)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
           "{date} for today's date")
@@ -70,53 +72,49 @@ def _field(text: str = "", width: int = 72, placeholder: str = "") -> LineEdit:
 
 
 @register_page("HeaderFooterTool")
-class HeaderFooterPage(ToolPage):
+class HeaderFooterPage(PagePickPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Header / Footer",
-                         "Stamp text into the top or bottom margin of every page",
+                         "Stamp text into the top or bottom margin of the chosen pages",
                          tool=tool, window=window)
-        self.doc_input()
-        self.body.addSpacing(16)
-
-        self.body.addWidget(group_title("Content"))
+        s = self.settings
+        s.addWidget(group_title("Content"))
         group = card(padding=0)
-        self.body.addWidget(group)
-        row = setting_row(group, "Position", "Where the text goes on every page")
+        s.addWidget(group)
+        row = self.setting_row(group, "Position", "Where the text goes on each page")
         picker, self.pos_group = position_picker("bottom-center", parent=self)
         row.layout().addWidget(picker)
         self.positions = self.pos_group.buttons
-        row = setting_row(group, "Content", TOKENS)
-        self.content = _field("Page {page} of {total}", width=260)
+        row = self.setting_row(group, "Content", TOKENS)
+        self.content = _field("Page {page} of {total}", width=170)
         row.layout().addWidget(self.content)
 
-        self.body.addWidget(group_title("Style"))
+        s.addWidget(group_title("Style"))
         group = card(padding=0)
-        self.body.addWidget(group)
-        row = setting_row(group, "Font")
+        s.addWidget(group)
+        row = self.setting_row(group, "Font")
         self.font = ComboBox()
         self.font.addItems([label for _f, label in FONTS])
         self.font.setCurrentText("Helvetica")
-        self.font.setMinimumWidth(150)
+        self.font.setMinimumWidth(140)
         row.layout().addWidget(self.font)
-        row = setting_row(group, "Size and margin")
-        self.size = _field("10")
+        row = self.setting_row(group, "Size and margin")
+        self.size = _field("10", width=56)
         self.size.setAccessibleName("Size")
         row.layout().addWidget(self.size)
         row.layout().addWidget(muted_caption("pt"))
         row.layout().addSpacing(8)
-        self.margin = _field("20")
+        self.margin = _field("20", width=56)
         self.margin.setAccessibleName("Margin")
         row.layout().addWidget(self.margin)
         row.layout().addWidget(muted_caption("pt"))
 
-        self.body.addWidget(group_title("Pages"))
+        s.addWidget(group_title("Pages"))
         group = card(padding=0)
-        self.body.addWidget(group)
-        row = setting_row(group, "Apply to pages", "blank = all pages")
-        self.page_range = _field(width=180, placeholder="all  or  1-5, 8, 10-end")
-        row.layout().addWidget(self.page_range)
-
-        self.body.addStretch(1)
+        s.addWidget(group)
+        self.setting_row(group, "Apply to", "or click the pages").layout().addWidget(
+            self.make_range_field(width=140))
+        s.addStretch(1)
         self.primary("Apply Header / Footer", self.run)
 
     @property
@@ -129,7 +127,7 @@ class HeaderFooterPage(ToolPage):
 
     def run(self):
         src = self.chosen_file("Header/Footer")
-        if not src:
+        if not src or self._doc is None:
             return
         template = self.content.text().strip()
         if not template:
@@ -139,7 +137,7 @@ class HeaderFooterPage(ToolPage):
             size, margin = core_hf.parse_style(self.size.text(), self.margin.text())
         except ValueError as e:
             return dialogs.warning("Header/Footer", str(e))
-        range_str = self.page_range.text().strip()
+        range_str = self.range_text()
         today = date.today().strftime("%Y-%m-%d")
 
         pages: list[int] = []
@@ -148,6 +146,7 @@ class HeaderFooterPage(ToolPage):
             pages[:] = selected_pages(range_str, len(doc))
 
         def work(doc, out, stop, progress):
+            self._release(out)              # over the open file: let it go first
             return core_hf.stamp_pdf(doc, out, pages, template, pos, font, size, margin,
                                      today, stop)
 
@@ -155,4 +154,5 @@ class HeaderFooterPage(ToolPage):
             "Header/Footer", work, lambda: f"Stamping {len(pages)} page(s)…",
             lambda _r, out: ("success", f"✓  Stamped {len(pages)} page(s) → {Path(out).name}",
                              "Done", f"PDF with header/footer saved:\n{out}"),
-            src=src, save=("stamped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare)
+            src=src, save=("stamped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
+            open_doc=self.job_copy)

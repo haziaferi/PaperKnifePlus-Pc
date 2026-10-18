@@ -1,4 +1,6 @@
-"""Watermark — a single-file transform (group C): diagonal text on every page."""
+"""Watermark — diagonal text on the chosen pages.  The pages are on screen
+(owner, 2026-10-17: the page-range tools show the document's pages; Watermark
+gains a page range); the options sit in the column at the right."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,9 +9,9 @@ from PySide6.QtWidgets import QFrame
 from qfluentwidgets import LineEdit, PushButton
 
 from ...core import enhance as core_enhance
+from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (ToolPage, card, group_title, labelled_slider, register_page,
-                     setting_row)
+from ..pages import PagePickPage, card, group_title, labelled_slider, register_page
 
 DEFAULT_COLOR = (128, 128, 128)
 
@@ -19,33 +21,32 @@ def _hex(rgb) -> str:
 
 
 @register_page("WatermarkTool")
-class WatermarkPage(ToolPage):
+class WatermarkPage(PagePickPage):
     def __init__(self, tool=None, window=None):
-        super().__init__("Watermark", "Stamp a diagonal text watermark across every page",
+        super().__init__("Watermark", "Stamp a diagonal text watermark across the chosen pages",
                          tool=tool, window=window)
-        self.doc_input()
-        self.body.addSpacing(16)
-        self.body.addWidget(group_title("Watermark"))
+        s = self.settings
+        s.addWidget(group_title("Watermark"))
         group = card(padding=0)
-        self.body.addWidget(group)
+        s.addWidget(group)
 
-        row = setting_row(group, "Watermark text")
+        row = self.setting_row(group, "Watermark text")
         self.text = LineEdit()
         self.text.setPlaceholderText("e.g. DRAFT · CONFIDENTIAL")
-        self.text.setMinimumWidth(260)
+        self.text.setMinimumWidth(180)
         row.layout().addWidget(self.text)
 
-        row = setting_row(group, "Font size")
-        self.size = labelled_slider(row, 18, 120, 60, " pt", width=200, label_width=52,
+        row = self.setting_row(group, "Font size")
+        self.size = labelled_slider(row, 18, 120, 60, " pt", width=120, label_width=52,
                                     fixed=False)
         self.size_label = self.size.value_label
 
-        row = setting_row(group, "Opacity")
-        self.opacity = labelled_slider(row, 5, 100, 25, "%", width=200, label_width=52,
+        row = self.setting_row(group, "Opacity")
+        self.opacity = labelled_slider(row, 5, 100, 25, "%", width=120, label_width=52,
                                        fixed=False)
         self.opacity_label = self.opacity.value_label
 
-        row = setting_row(group, "Colour")
+        row = self.setting_row(group, "Colour")
         self.color = DEFAULT_COLOR
         self.swatch = QFrame()
         self.swatch.setObjectName("colorSwatch")
@@ -56,7 +57,12 @@ class WatermarkPage(ToolPage):
         row.layout().addWidget(self.pick_button)
         self._show_color()
 
-        self.body.addStretch(1)
+        s.addWidget(group_title("Pages"))
+        pages = card(padding=0)
+        s.addWidget(pages)
+        self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
+            self.make_range_field(width=140))
+        s.addStretch(1)
         self.primary("Apply Watermark", self.run)
 
     # ── options ──
@@ -73,7 +79,7 @@ class WatermarkPage(ToolPage):
     # ── the action ──
     def run(self):
         src = self.chosen_file("Watermark")
-        if not src:
+        if not src or self._doc is None:
             return
         text = self.text.text().strip()
         if not text:
@@ -81,13 +87,20 @@ class WatermarkPage(ToolPage):
         size = int(self.size.value())
         opacity = self.opacity.value() / 100.0
         color = tuple(c / 255 for c in self.color)
+        range_str = self.range_text()
+        pages: list[int] = []
+
+        def prepare(doc):
+            pages[:] = selected_pages(range_str, len(doc))
 
         def work(doc, out, stop, progress):
+            self._release(out)              # over the open file: let it go first
             return core_enhance.watermark_pdf(doc, out, text, size, opacity, color, stop,
-                                              progress)
+                                              progress, pages=pages)
 
         self.run_on_file(
             "Watermark", work, "Applying watermark…",
             lambda _r, out: ("success", f"✓  Watermarked → {Path(out).name}",
                              "Done", f"Watermarked PDF saved:\n{out}"),
-            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]))
+            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
+            open_doc=self.job_copy)

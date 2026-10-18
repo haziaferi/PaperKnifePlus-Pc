@@ -54,8 +54,11 @@ def wait_job(window, timeout: float = 30.0):
 
 
 def spy_open(window, monkeypatch) -> list:
-    """Record every document window.open_pdf_safe returns (the real call
-    still runs); undone by monkeypatch at the end of the test."""
+    """Record every document a job opens for itself: what window.open_pdf_safe
+    returns, and the copy a page-range tool (pages.PagePickPage, which holds
+    its document open since 2026-10-17) gives its job.  The real calls still
+    run; undone by monkeypatch at the end of the test."""
+    from paperknife.qt import pages
     opened = []
     real = window.open_pdf_safe
 
@@ -64,6 +67,13 @@ def spy_open(window, monkeypatch) -> list:
         opened.append(doc)
         return doc
     monkeypatch.setattr(window, "open_pdf_safe", spy)
+    real_copy = pages.PagePickPage.job_copy
+
+    def spy_copy(self, *a, **k):
+        doc = real_copy(self, *a, **k)
+        opened.append(doc)
+        return doc
+    monkeypatch.setattr(pages.PagePickPage, "job_copy", spy_copy)
     return opened
 
 

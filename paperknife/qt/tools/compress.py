@@ -1,11 +1,13 @@
-"""Compress — the single-file transform pilot (group C)."""
+"""Compress — the whole file, with its pages on screen to see what is worked
+with (owner, 2026-10-17: the grid shows the pages; Compress always works on the
+whole file, so it has no selection); the level sits in the column at the right."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from ...core import enhance as core_enhance
 from ...prefs import PREFS
-from ..pages import ToolPage, card, group_title, radio_rows, register_page
+from ..pages import PagePickPage, card, group_title, radio_rows, register_page
 
 LEVELS = [
     ("light", "Light", "Clean and deflate only. Safe for every file."),
@@ -28,19 +30,21 @@ def size_report(orig: int, new: int, out: str):
 
 
 @register_page("CompressTool")
-class CompressPage(ToolPage):
+class CompressPage(PagePickPage):
+    pick_pages = False
+    view_hint = "Compress works on the whole file"
+
     def __init__(self, tool=None, window=None):
         super().__init__("Compress", "Reduce file size by cleaning streams and downsampling images",
                          tool=tool, window=window)
-        self.doc_input()
-        self.body.addSpacing(16)
-        self.body.addWidget(group_title("Compression level"))
+        s = self.settings
+        s.addWidget(group_title("Compression level"))
         group = card(padding=0)
-        self.body.addWidget(group)
+        s.addWidget(group)
         self.level_group = radio_rows(group, LEVELS, PREFS.compress_level or "medium",
-                                      parent=self)
+                                      row=self.setting_row, parent=self)
         self.radios = self.level_group.buttons
-        self.body.addStretch(1)
+        s.addStretch(1)
         self.primary("Compress", self.run)
 
     @property
@@ -48,16 +52,17 @@ class CompressPage(ToolPage):
         return self.level_group.value()
 
     def run(self):
-        level, orig = self.level, [0]
-
-        def prepare(doc):
-            orig[0] = Path(doc.name).stat().st_size
+        src = self.chosen_file("Compress")
+        if not src or self._doc is None:
+            return
+        level, orig = self.level, [Path(src).stat().st_size]
 
         def work(doc, out, stop, progress):
+            self._release(out)              # over the open file: let it go first
             core_enhance.compress_pdf(doc, out, level)
             return Path(out).stat().st_size
 
         self.run_on_file("Compress", work, "Compressing PDF…",
-                         lambda new, out: size_report(orig[0], new, out),
-                         save=("compressed.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-                         cancellable=False, warning_box=True)
+                         lambda new, out: size_report(orig[0], new, out), src=src,
+                         save=("compressed.pdf", ".pdf", [("PDF", "*.pdf")]),
+                         cancellable=False, warning_box=True, open_doc=self.job_copy)

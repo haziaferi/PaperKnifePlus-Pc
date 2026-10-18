@@ -219,7 +219,7 @@ def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, tmp_pat
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     page.file.set_path(src)
     held = page._doc
-    assert window.open_tool("CompressTool")
+    assert window.open_tool("MergeTool")      # (a tool showing the current document would hold it)
     # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
     # freed, the path kept; the page opens it again when shown.
     assert held.is_closed and page._doc is None and page.file.path() == src

@@ -68,9 +68,9 @@ def _tool(window, name):
 # ── a run_on_file page: Compress ─────────────────────────────────────────────
 def _compress(window, dialogs, src, out, answer=None, password=OPEN_PW):
     page = _tool(window, "CompressTool")
-    page.file.set_path(src)
     if password is not None:
-        dialogs.passwords.append(password)
+        dialogs.passwords.append(password)      # asked when the file opens
+    page.file.set_path(src)
     if out is not None:
         dialogs.save(out)
     if answer is not None:
@@ -131,8 +131,8 @@ def test_an_owner_password_only_input_asks_nothing(window, dialogs, tmp_path):
 
 def test_a_non_pdf_output_asks_nothing(window, dialogs, tmp_path):
     page = _tool(window, "Pdf2ImgTool")
+    dialogs.passwords.append(OPEN_PW)             # asked when the file opens
     page.file.set_path(_locked(tmp_path / "in.pdf", pages=1))
-    dialogs.passwords.append(OPEN_PW)
     dialogs.save(tmp_path / "pages.zip")
     page.run()
     wait_job(window)
@@ -146,7 +146,7 @@ def test_the_password_is_gone_once_the_job_closed_the_document(window, dialogs, 
     from paperknife.core import password as core
     opened = spy_open(window, monkeypatch)
     _compress(window, dialogs, _locked(tmp_path / "in.pdf"), tmp_path / "o.pdf", answer=True)
-    doc = opened[0]
+    doc = opened[-1]              # the job's own copy (the page holds the file while shown)
     assert doc.is_closed
     assert core.open_password_of(doc) is None
     assert OPEN_PW not in repr(vars(doc))
@@ -533,8 +533,8 @@ def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialog
     src = _locked(tmp_path / "in.pdf")
     before = open(src, "rb").read()
     page = _tool(window, "CompressTool")
+    dialogs.passwords.append(OPEN_PW)             # asked when the file opens
     page.file.set_path(src)
-    dialogs.passwords.append(OPEN_PW)
     dialogs.save(tmp_path / "small.pdf")
     dialogs.asks.append(True)
     page.run()

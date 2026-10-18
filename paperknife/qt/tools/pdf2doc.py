@@ -1,4 +1,6 @@
-"""PDF → Doc / Text — a PDF to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX or page images (group C)."""
+"""PDF → Doc / Text — the chosen pages to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX or
+page images.  The pages are on screen (owner, 2026-10-17: the page-range tools
+show the document's pages); the options sit in the column at the right."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,10 +8,10 @@ from pathlib import Path
 from qfluentwidgets import CaptionLabel, ComboBox
 
 from ...core import convert as core_convert
+from ...pages import selected_pages
 from ...prefs import pref_dpi
 from .. import theme
-from ..pages import (ToolPage, card, group_title, labelled_slider,
-                     register_page, setting_row)
+from ..pages import PagePickPage, card, group_title, labelled_slider, register_page
 
 INFO = {
     "TXT":  "Extracts all selectable text from the PDF into a plain .txt file.",
@@ -19,8 +21,8 @@ INFO = {
     "DOCX": "Extracts text paragraph-by-paragraph into a Word document.  Requires: python-docx",
     "PPTX": "Renders each page as a slide image inside a PowerPoint file.  Requires: python-pptx",
     "XLSX": "Extracts text per page; each page goes to its own Excel sheet.  Requires: openpyxl",
-    "PNG":  "Renders every page as a PNG image, bundled together in a ZIP.",
-    "JPEG": "Renders every page as a JPEG image, bundled together in a ZIP.",
+    "PNG":  "Renders each page as a PNG image, bundled together in a ZIP.",
+    "JPEG": "Renders each page as a JPEG image, bundled together in a ZIP.",
 }
 # format -> (extension, save-dialog filter name, default file name)
 OUT = {
@@ -40,41 +42,48 @@ QUALITY_RANGE, QUALITY_DEFAULT = (50, 100), 92
 
 
 @register_page("Pdf2DocTool")
-class Pdf2DocPage(ToolPage):
+class Pdf2DocPage(PagePickPage):
     def __init__(self, tool=None, window=None):
         super().__init__(
             "PDF → Doc / Text",
             "Export a PDF to TXT · HTML · DOCX · PPTX · XLSX · XML · RTF · PNG · JPEG",
             tool=tool, window=window)
-        self.doc_input()
-        self.body.addSpacing(16)
-        self.body.addWidget(group_title("Output"))
+        s = self.settings
+        s.addWidget(group_title("Output"))
         group = card(padding=0)
-        self.body.addWidget(group)
-        row = setting_row(group, "Output format", INFO["TXT"])
+        s.addWidget(group)
+        row = self.setting_row(group, "Output format", INFO["TXT"])
         self.fmt_info = row.desc_label
         self.fmt = ComboBox()
         self.fmt.addItems(core_convert.FORMATS)
         self.fmt.setCurrentText("TXT")
-        self.fmt.setMinimumWidth(160)
+        self.fmt.setMinimumWidth(120)
         row.layout().addWidget(self.fmt)
         self.missing = CaptionLabel("")
         theme.label_role(self.missing, "warning")
         self.missing.setWordWrap(True)
         self.missing.setContentsMargins(0, 4, 0, 0)
-        self.body.addWidget(self.missing)
+        s.addWidget(self.missing)
 
         self.image_title = group_title("Image options")
-        self.body.addWidget(self.image_title)
+        s.addWidget(self.image_title)
         self.image_card = card(padding=0)
-        self.body.addWidget(self.image_card)
-        row = setting_row(self.image_card, "Resolution")
-        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI")
-        row = setting_row(self.image_card, "JPEG quality")
-        self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%")
+        s.addWidget(self.image_card)
+        row = self.setting_row(self.image_card, "Resolution")
+        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI",
+                                          width=120, fixed=False)
+        row = self.setting_row(self.image_card, "JPEG quality")
+        self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%",
+                                              width=120, fixed=False)
         self.quality_row = row.parent()
         self._quality_divider = row.divider
-        self.body.addStretch(1)
+
+        s.addWidget(group_title("Pages"))
+        pages = card(padding=0)
+        s.addWidget(pages)
+        self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
+            self.make_range_field(width=140))
+        s.addStretch(1)
         self.fmt.currentTextChanged.connect(self._fmt_changed)
         self._fmt_changed("TXT")
         self.primary("Convert PDF", self.run)
@@ -107,18 +116,24 @@ class Pdf2DocPage(ToolPage):
     # ── actions ──
     def run(self):
         src = self.chosen_file("Convert")
-        if not src:
+        if not src or self._doc is None:
             return
         fmt = self.format
         ext, desc, default = OUT[fmt]
         dpi, quality = self.options()
+        range_str = self.range_text()
+        pages: list[int] = []
+
+        def prepare(doc):
+            pages[:] = selected_pages(range_str, len(doc))
 
         def work(doc, out, stop, progress):
             return core_convert.pdf_to_doc(doc, fmt, out, stop, progress,
-                                           dpi=dpi, quality=quality)
+                                           dpi=dpi, quality=quality, pages=pages)
 
         self.run_on_file(
             "Convert", work, f"Converting PDF → {fmt}…",
             lambda _ok, out: ("success", f"✓  PDF → {fmt}: {Path(out).name}",
                               "Done", f"Saved:\n{out}"),
-            src=src, save=(default, ext, [(desc, f"*{ext}"), ("All", "*.*")]))
+            src=src, save=(default, ext, [(desc, f"*{ext}"), ("All", "*.*")]), prepare=prepare,
+            open_doc=self.job_copy)

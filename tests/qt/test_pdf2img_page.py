@@ -81,8 +81,8 @@ def test_dpi_defaults_from_preferences(window, monkeypatch):
 
 def test_a_protected_input_is_unlocked(window, dialogs, tmp_path):
     page = _page(window)
+    dialogs.passwords.append("u")                  # asked when the file opens
     page.file.set_path(_encrypted(tmp_path / "enc.pdf"))
-    dialogs.passwords.append("u")
     out = tmp_path / "pages.zip"
     dialogs.save(out)
     page.run()

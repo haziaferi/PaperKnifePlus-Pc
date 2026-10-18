@@ -72,7 +72,7 @@ def test_extract_writes_each_unique_image_once_and_reports_it(window, dialogs, t
     assert sorted(n.rsplit(".", 1)[1] for n in names) == ["jpeg", "png"]
     sizes = sorted(Image.open(out_dir / n).size for n in names)
     assert sizes == [(120, 120), (200, 200)]
-    assert opened and opened[0].is_closed
+    assert opened and opened[-1].is_closed  # the job's copy (the page holds its own)
     assert page.log.text() == "Found and extracted 2 image(s)  (3 unique xrefs scanned)"
     assert window.status_text() == f"✓  Extracted 2 image(s) → {out_dir}"
     assert window.status_role == "success"

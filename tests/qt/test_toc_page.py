@@ -179,7 +179,7 @@ def test_saves_over_the_open_input(window, dialogs, tmp_path):
     page.page_edit.setText("2")
     page._add()
     _save(window, dialogs, page, src)
-    window.show_page("CompressTool")
+    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
     assert _toc_of(src) == [[1, "Chapter", 2]]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["in.pdf"]
 
@@ -199,7 +199,7 @@ def test_saving_over_an_encrypted_input_keeps_its_password(window, dialogs, tmp_
     page._add()
     dialogs.asks.append(True)               # "Keep the password on the new file?"
     _save(window, dialogs, page, str(src))
-    window.show_page("CompressTool")
+    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
     with fitz.open(str(src)) as d:
         assert d.needs_pass
         assert d.authenticate("u")
@@ -249,7 +249,7 @@ def test_leaving_the_tool_closes_its_document(window, dialogs, tmp_path, monkeyp
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     page.file.set_path(src)
     held = page._doc
-    window.show_page("CompressTool")
+    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
     assert held.is_closed and opened == [held]
     # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
     # freed, the path (and the list) kept; shown again, the page reopens it.
@@ -263,7 +263,7 @@ def test_a_file_opened_here_can_be_overwritten_after_leaving(window, dialogs, tm
     page = _page(window)
     page.file.set_path(src)
     held = page._doc
-    window.show_page("CompressTool")
+    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
     assert held.is_closed
     other = make_pdf(tmp_path / "other.pdf", pages=1)
     os.replace(other, src)              # Windows refuses this while a handle is held
