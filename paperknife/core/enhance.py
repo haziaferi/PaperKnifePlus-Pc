@@ -57,12 +57,15 @@ def compress_pdf(doc, out: str, level: str, stop=None) -> bool:
     return True
 
 
-def watermark_pdf(doc, out, text, size, opacity, color, stop, progress=None):
-    """Stamp *text* at 45° through the centre of every page.  Returns *out*,
-    or None when *stop* was set."""
+def watermark_pdf(doc, out, text, size, opacity, color, stop, progress=None, pages=None):
+    """Stamp *text* at 45° through the centre of every page, or of the 0-based
+    *pages* (the others are kept as they are).  Returns *out*, or None when
+    *stop* was set."""
     with atomic_output(out) as tmp, doc:
-        total = len(doc)
-        for i, page in enumerate(doc):
+        seq = list(range(len(doc))) if pages is None else list(pages)
+        total = len(seq)
+        for i, pno in enumerate(seq):
+            page = doc[pno]
             if stop.is_set():
                 return None
             r = page.rect
@@ -88,20 +91,26 @@ def watermark_pdf(doc, out, text, size, opacity, color, stop, progress=None):
 
 
 def normalise_pdf(doc, out: str, size: str, orient: str, stretch: bool, stop,
-                  progress) -> bool:
+                  progress, pages=None) -> bool:
     """Redraw every page of *doc* onto a *size* page (a PAGE_SIZES key) in
     *orient* ("Portrait", "Landscape" or "Keep original"), fitted or, with
-    *stretch*, filling it.  Returns False if cancelled, writing nothing."""
+    *stretch*, filling it.  With *pages* (0-based) only those are redrawn;
+    the others keep their size.  Returns False if cancelled, writing nothing."""
     tw, th = PAGE_SIZES[size]
     if orient == "Landscape":
         tw, th = th, tw
-    pages = len(doc)
+    chosen = set(pages) if pages is not None else None
+    total = len(doc)
     with atomic_output(out) as tmp, doc, fitz.open() as nd:
         for page in doc:
             if stop.is_set():
                 return False    # nothing written: atomic_output drops the file
-            progress((page.number + 1) / pages)
+            progress((page.number + 1) / total)
             pw, ph = page.rect.width, page.rect.height
+            if pages is not None and page.number not in chosen:
+                np = nd.new_page(width=pw, height=ph)      # kept as it is
+                np.show_pdf_page(np.rect, doc, page.number)
+                continue
             if orient == "Keep original":
                 ftw, fth = (tw, th) if pw <= ph else (th, tw)
             else:

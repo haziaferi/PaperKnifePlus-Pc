@@ -75,12 +75,14 @@ def add_text_layer(page: fitz.Page, words) -> None:
 
 
 def ocr_pdf(doc, out: str, lang: str, dpi: int, text_only: bool, stop, progress,
-            on_page=None) -> int | None:
+            on_page=None, pages=None) -> int | None:
     """OCR every page of *doc* (closed here) rendered at *dpi* and write *out*:
     the original pages with an invisible text layer, or with *text_only* one
     A4 page of plain text per page.  *on_page(n, total)* is called before page
     n (1-based) is read.  Returns the number of pages, or None if cancelled,
-    writing nothing.  Raises RuntimeError when Tesseract cannot be found."""
+    writing nothing.  Raises RuntimeError when Tesseract cannot be found.
+    *pages* (0-based) limits the reading to those pages; the others are
+    kept as they are (and left out of a text-only PDF)."""
     pytesseract = tesseract()
 
     try:
@@ -91,16 +93,18 @@ def ocr_pdf(doc, out: str, lang: str, dpi: int, text_only: bool, stop, progress,
             "Tesseract not found on PATH or in Program Files\\Tesseract-OCR.\n"
             "Install it from: https://github.com/UB-Mannheim/tesseract/wiki") from None
 
-    total = len(doc)
+    seq = list(range(len(doc))) if pages is None else list(pages)
+    total = len(seq)
     scale = dpi / 72.0
     # doc is closed before the replace, so the output may be the input file.
     with atomic_output(out) as tmp, doc, fitz.open() as nd:
-        for pg_i, page in enumerate(doc):
+        for n, pg_i in enumerate(seq):
+            page = doc[pg_i]
             if stop.is_set():
                 return None
             if on_page is not None:
-                on_page(pg_i + 1, total)
-            progress((pg_i + 1) / total)
+                on_page(n + 1, total)
+            progress((n + 1) / total)
 
             pix = render(page, scale)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)

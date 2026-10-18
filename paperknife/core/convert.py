@@ -65,14 +65,17 @@ def require(fmt: str) -> None:
         raise RuntimeError(f"{lib} not installed.\nRun: pip install {lib}")
 
 
-def pages_to_zip(path, doc, dpi, fmt, quality, stop, progress) -> None:
-    """Write every page of *doc* into a ZIP at *path* as PNG or JPEG images."""
-    total = len(doc)
+def pages_to_zip(path, doc, dpi, fmt, quality, stop, progress, pages=None) -> None:
+    """Write every page of *doc* (or the 0-based *pages*) into a ZIP at *path*
+    as PNG or JPEG images, named by their page number."""
+    seq = list(range(len(doc))) if pages is None else list(pages)
+    total = len(seq)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, page in enumerate(doc):
+        for n, i in enumerate(seq):
+            page = doc[i]
             if stop.is_set():
                 raise Cancelled
-            progress((i + 1) / total)
+            progress((n + 1) / total)
             pix = render(page, dpi / 72.0)
             if fmt == "JPEG":
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -165,12 +168,14 @@ def rtf_escape(text: str) -> str:
 
 
 def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
-               quality: int = 92) -> bool:
-    """Convert *doc* (closed here) to *fmt* at *out*.  Returns False if cancelled,
-    in which case nothing is written."""
+               quality: int = 92, pages=None) -> bool:
+    """Convert *doc* (closed here), or its 0-based *pages*, to *fmt* at *out*.
+    Pages keep their numbers ("Page 3").  Returns False if cancelled, in
+    which case nothing is written."""
     try:
         with atomic_output(out) as tmp, doc:
-            total = len(doc)
+            seq = list(range(len(doc))) if pages is None else list(pages)
+            total = len(seq)
 
             def step(i):
                 if stop.is_set():
@@ -179,10 +184,10 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
 
             if fmt == "TXT":
                 parts = []
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (_i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     parts.append(page.get_text())
-                    if i < total - 1:
+                    if n < total - 1:
                         parts.append("\n\n── Page Break ──\n\n")
                 if not any(p.strip() for p in parts[::2]):
                     raise NoText
@@ -194,8 +199,8 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                               '<style>body{font-family:sans-serif;max-width:900px;margin:auto}',
                               '.page{border-bottom:1px solid #ccc;padding-bottom:2em;'
                               'margin-bottom:2em}</style>', '</head>\n<body>\n']
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     html_parts.append(f'<div class="page" id="page-{i+1}">\n')
                     html_parts.append(page.get_text("html"))
                     html_parts.append("</div>\n")
@@ -204,8 +209,8 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
 
             elif fmt == "XML":
                 parts = ['<?xml version="1.0" encoding="utf-8"?>\n<document>\n']
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (_i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     # get_text("xml") is already one <page id="pageN"> element, no prolog
                     parts.append(page.get_text("xml"))
                 parts.append("</document>")
@@ -215,11 +220,11 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                 rtf = [r'{\rtf1\ansi\ansicpg1252\deff0',
                        r'{\fonttbl{\f0\froman\fcharset0 Times New Roman;}}',
                        r'\f0\fs22 ']
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (_i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     for line in page.get_text().splitlines():
                         rtf.append(rtf_escape(line) + r"\par" + "\n")
-                    if i < total - 1:
+                    if n < total - 1:
                         rtf.append(r"\page" + "\n")
                 rtf.append("}")
                 Path(tmp).write_bytes("".join(rtf).encode("ascii"))
@@ -228,8 +233,8 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                 require(fmt)
                 from docx import Document as _DocxDoc
                 wdoc = _DocxDoc()
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (_i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     for block in page.get_text("dict")["blocks"]:
                         if block.get("type") != 0:
                             continue
@@ -239,7 +244,7 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                         txt = _XML_ILLEGAL.sub("", txt)
                         if txt.strip():
                             wdoc.add_paragraph(txt)
-                    if i < total - 1:
+                    if n < total - 1:
                         wdoc.add_page_break()
                 wdoc.save(tmp)
 
@@ -248,13 +253,13 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                 from pptx import Presentation as _PptxPrs
                 scale = dpi / 72.0
                 prs   = _PptxPrs()
-                p0    = doc[0]
+                p0    = doc[seq[0]]
                 prs.slide_width  = int(p0.rect.width  * 12700)
                 prs.slide_height = int(p0.rect.height * 12700)
                 blank = prs.slide_layouts[6]
                 sw, sh = prs.slide_width, prs.slide_height
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (_i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     pix  = render(page, scale)
                     buf  = io.BytesIO(pix.tobytes("png"))
                     slide = prs.slides.add_slide(blank)
@@ -269,8 +274,8 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                 import openpyxl as _openpyxl
                 wb = _openpyxl.Workbook()
                 wb.remove(wb.active)
-                for i, page in enumerate(doc):
-                    step(i)
+                for n, (i, page) in enumerate((i, doc[i]) for i in seq):
+                    step(n)
                     ws = wb.create_sheet(f"Page {i+1}")
                     for row_i, line in enumerate(page.get_text().splitlines(), 1):
                         cell = ws.cell(row=row_i, column=1, value=_XML_ILLEGAL.sub("", line))
@@ -278,7 +283,7 @@ def pdf_to_doc(doc, fmt: str, out: str, stop, progress, dpi: int = 150,
                 wb.save(tmp)
 
             elif fmt in ("PNG", "JPEG"):
-                pages_to_zip(tmp, doc, dpi, fmt, quality, stop, progress)
+                pages_to_zip(tmp, doc, dpi, fmt, quality, stop, progress, pages=seq)
     except Cancelled:
         return False
     return True
@@ -429,16 +434,20 @@ class Extracted:
     failed: int       # images that could not be decoded
 
 
-def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress) -> Extracted | None:
-    """Write every embedded image of *doc* (closed here) at least *min_px* on both
-    sides into *out_dir*, as "Original", "PNG" or "JPEG".  None if cancelled."""
+def extract_images(doc, out_dir: str, fmt: str, min_px: int, stop, progress,
+                   pages=None) -> Extracted | None:
+    """Write every embedded image of *doc* (closed here), or of its 0-based
+    *pages*, at least *min_px* on both sides into *out_dir*, as "Original",
+    "PNG" or "JPEG".  None if cancelled."""
     seen, count, failed = set(), 0, 0
-    total = len(doc)
+    seq = list(range(len(doc))) if pages is None else list(pages)
+    total = len(seq)
     with doc:
-        for pg_i, page in enumerate(doc):
+        for n, pg_i in enumerate(seq):
+            page = doc[pg_i]
             if stop.is_set():
                 return None
-            progress((pg_i + 1) / total)
+            progress((n + 1) / total)
             for img_info in page.get_images(full=True):
                 xref = img_info[0]
                 if xref in seen:
