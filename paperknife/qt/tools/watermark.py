@@ -8,7 +8,7 @@ from pathlib import Path
 from ...core import enhance as core_enhance
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import PagePickPage, card, group_title, register_page
+from ..pages import PagePickPage, batch_prototype, card, group_title, register_page
 from ..tool_options import DEFAULT_COLOR, WatermarkOptions  # noqa: F401
 
 
@@ -23,13 +23,19 @@ class WatermarkPage(PagePickPage):
         self.opacity, self.opacity_label = o.opacity, o.opacity_label
         self.swatch, self.pick_button = o.swatch, o.pick_button
 
-        s.addWidget(group_title("Pages"))
-        pages = card(padding=0)
+        self.pages_title = group_title("Pages")
+        s.addWidget(self.pages_title)
+        pages = self.pages_card = card(padding=0)
         s.addWidget(pages)
         self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
         s.addStretch(1)
         self.primary("Apply Watermark", self.run)
+        if batch_prototype() == "B":
+            from ..folder_mode import FolderMode
+            FolderMode(self, self.opts, "watermark", "Watermark", self.columns, self.grid_card,
+                       row=self.setting_row, hide=(self.context_bar_widget, self.drop_target,
+                                 self.pages_title, self.pages_card))
 
     # ── options (the panel's) ──
     @property
@@ -46,6 +52,9 @@ class WatermarkPage(PagePickPage):
 
     # ── the action ──
     def run(self):
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.run():
+            return                          # a folder is the input (prototype B)
         src = self.chosen_file("Watermark")
         if not src or self._doc is None:
             return

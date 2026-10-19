@@ -11,7 +11,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 from ...core import ocr as core_ocr
 from ...pages import selected_pages
 from .. import bridge
-from ..pages import PagePickPage, card, group_title, muted_caption, register_page
+from ..pages import PagePickPage, batch_prototype, card, group_title, muted_caption, register_page
 from ..tool_options import OCR_MODES as MODES  # noqa: F401
 from ..tool_options import OcrOptions
 MISSING_TITLE = "⚠  pytesseract not installed"
@@ -42,6 +42,12 @@ class OCRPage(PagePickPage):
         self.settings.addStretch(1)
         self.run_button = self.primary("Run OCR", self.run)
         self.run_button.setEnabled(self.available)
+        if self.available:
+            if batch_prototype() == "B":
+                from ..folder_mode import FolderMode
+                FolderMode(self, self.opts, "ocr", "OCR", self.columns, self.grid_card,
+                           row=self.setting_row, hide=(self.context_bar_widget, self.drop_target,
+                                 self.pages_title, self.pages_card))
 
     def _build_options(self):
         s = self.settings
@@ -49,8 +55,9 @@ class OCRPage(PagePickPage):
         self.lang, self.dpi, self.dpi_label = o.lang, o.dpi, o.dpi_label
         self.mode_group, self.modes = o.mode_group, o.modes
 
-        s.addWidget(group_title("Pages"))
-        pages = card(padding=0)
+        self.pages_title = group_title("Pages")
+        s.addWidget(self.pages_title)
+        pages = self.pages_card = card(padding=0)
         s.addWidget(pages)
         self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
@@ -83,6 +90,9 @@ class OCRPage(PagePickPage):
     def run(self):
         if not self.available:
             return
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.run():
+            return                          # a folder is the input (prototype B)
         src = self.chosen_file("OCR")
         if not src or self._doc is None:
             return

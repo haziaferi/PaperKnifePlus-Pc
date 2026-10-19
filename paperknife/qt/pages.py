@@ -79,6 +79,15 @@ def action_placement() -> str:
     return v if v in ("header", "bar") else "header"
 
 
+def batch_prototype() -> str:
+    """Which Batch prototype runs (owner, 2026-10-18; env PK_BATCH): "A"
+    Batch as it is (the default), "B" a folder input on Compress, Watermark,
+    OCR and PDF → Other (no Batch screen), "C" Batch with each tool's full
+    settings."""
+    v = os.environ.get("PK_BATCH", "A").strip().upper()
+    return v if v in ("A", "B", "C") else "A"
+
+
 # Layout constants (4 px grid)
 PAGE_MARGINS = (32, 20, 32, 16)
 LABEL_COLUMN = 320          # setting rows: width of the name / description column
@@ -969,7 +978,8 @@ class ToolPage(QWidget):
 
     def _show_target(self, empty: bool):
         if self.drop_target is not None:
-            self.drop_target.setVisible(empty)
+            fm = self.__dict__.get("_folder_mode")
+            self.drop_target.setVisible(empty and not (fm is not None and fm.on))
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -1213,7 +1223,11 @@ class ToolPage(QWidget):
     def accept_drop(self, path: str) -> bool:
         """A dropped PDF becomes the current document (a single-input page,
         through the window: unsaved edits are asked about), else the first
-        visible file card that takes it gets it."""
+        visible file card that takes it gets it.  With a folder input
+        (prototype B, folder_mode), a dropped folder becomes its input."""
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.accept_drop(path):
+            return True
         f = getattr(self, "file", None)
         if isinstance(f, DocInput):
             if not f.accepts(path):
@@ -2717,8 +2731,9 @@ class OrganiserPage(ToolPage):
         bar = QWidget()
         bar.setObjectName("contextBar")
         # As tall with or without its buttons: the grid starts at the same
-        # place on every organiser screen (Compress shows no actions).
+        # place on every organiser screen.
         bar.setMinimumHeight(CONTROL_H)
+        self.context_bar_widget = bar
         self.context_bar = QHBoxLayout(bar)
         self.context_bar.setContentsMargins(0, 0, 0, 0)
         self.context_bar.setSpacing(4)
@@ -2731,6 +2746,7 @@ class OrganiserPage(ToolPage):
 
         cols = QHBoxLayout()
         cols.setSpacing(16)
+        self.columns = cols
         self.grid_card = plain_card()
         gv = QVBoxLayout(self.grid_card)
         gv.setContentsMargins(8, 8, 8, 8)
@@ -3014,6 +3030,9 @@ class PagePickPage(HeldDoc, OrganiserPage):
         super()._selection_changed()
         if not hasattr(self, "all_btn"):
             return
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.on:
+            return                          # a folder is the input: no page to choose
         n, total = len(self.grid.selectedItems()), self.grid.count()
         if self.page_range is not None and not self._syncing and total:
             from ..pages import ranges_text as _rt

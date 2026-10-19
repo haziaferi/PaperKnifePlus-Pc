@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ...core import convert as core_convert
 from ...pages import selected_pages
-from ..pages import PagePickPage, card, group_title, register_page
+from ..pages import PagePickPage, batch_prototype, card, group_title, register_page
 from ..tool_options import DPI_FORMATS, OTHER_INFO as INFO, OtherOptions  # noqa: F401
 
 # format -> (extension, save-dialog filter name, default file name)
@@ -39,13 +39,19 @@ class Pdf2DocPage(PagePickPage):
         self.dpi_slider, self.quality_slider = o.dpi_slider, o.quality_slider
         self.quality_row, self._quality_divider = o.quality_row, o._quality_divider
 
-        s.addWidget(group_title("Pages"))
-        pages = card(padding=0)
+        self.pages_title = group_title("Pages")
+        s.addWidget(self.pages_title)
+        pages = self.pages_card = card(padding=0)
         s.addWidget(pages)
         self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
         s.addStretch(1)
         self.primary("Convert PDF", self.run)
+        if batch_prototype() == "B":
+            from ..folder_mode import FolderMode
+            FolderMode(self, self.opts, "other", "PDF → Other", self.columns, self.grid_card,
+                       row=self.setting_row, hide=(self.context_bar_widget, self.drop_target,
+                                 self.pages_title, self.pages_card))
 
     # ── options (the panel's) ──
     def _fmt_changed(self, fmt: str):
@@ -62,6 +68,9 @@ class Pdf2DocPage(PagePickPage):
 
     # ── actions ──
     def run(self):
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.run():
+            return                          # a folder is the input (prototype B)
         src = self.chosen_file("Convert")
         if not src or self._doc is None:
             return

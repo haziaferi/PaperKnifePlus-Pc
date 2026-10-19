@@ -1,4 +1,8 @@
-"""Batch — a collection (group D): one operation applied to every PDF in a folder."""
+"""Batch — a collection (group D): one operation applied to every PDF in a folder.
+
+Prototype C (PK_BATCH=C, owner 2026-10-18): the operation is one of the four
+tools, chosen in radio rows, with that tool's own full settings under them
+(qt/tool_options panels) instead of the reduced copies."""
 from __future__ import annotations
 
 import os
@@ -9,10 +13,20 @@ from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 
 from ...core import batch as core
 from ...prefs import DPI_RANGE, PREFS, pref_dpi
-from .. import bridge, dialogs
-from ..pages import (CollectionPage, card, group_title, labelled_slider, radio_rows,
-                     register_page, spin_box)
+from .. import dialogs
+from ..folder_mode import run_over_folder
+from ..pages import (CollectionPage, batch_prototype, card, group_title, labelled_slider,
+                     radio_rows, register_page, spin_box)
+from ..tool_options import PANELS
 from .compress import LEVELS
+
+# Prototype C's operations: the tools, each with the line its screen shows.
+TOOLS_C = [
+    ("compress", "Compress", "Reduce file size by cleaning streams and downsampling images"),
+    ("watermark", "Watermark", "Stamp a diagonal text watermark across every page"),
+    ("ocr", "OCR", "Make a scanned or image-only PDF searchable · powered by Tesseract"),
+    ("other", "PDF → Other", "Export to TXT · HTML · DOCX · PPTX · XLSX · XML · RTF · PNG · JPEG"),
+]
 
 EMPTY_TEXT = ("Choose an input folder: its PDFs are listed here, "
               "and each file's result appears beside it during the run.")
@@ -27,16 +41,23 @@ class BatchPage(CollectionPage):
         self.in_dir = ""
         self.out_dir = ""
         self.controls: dict[str, QWidget] = {}
+        self.mode = batch_prototype()
+        self.panels: dict = {}
 
         self.settings.addWidget(group_title("Operation"))
         group = card(padding=0)
         self.settings.addWidget(group)
-        row = self.setting_row(group, "Operation")
-        self.op = ComboBox()
-        self.op.addItems(list(core.OPS.keys()))
-        self.op.setCurrentText("Compress")
-        self.op.setMinimumWidth(150)
-        row.layout().addWidget(self.op)
+        if self.mode == "C":
+            self.tool_group = radio_rows(group, TOOLS_C, "compress", row=self.setting_row,
+                                         parent=self)
+            self.tool_radios = self.tool_group.buttons
+        else:
+            row = self.setting_row(group, "Operation")
+            self.op = ComboBox()
+            self.op.addItems(list(core.OPS.keys()))
+            self.op.setCurrentText("Compress")
+            self.op.setMinimumWidth(150)
+            row.layout().addWidget(self.op)
 
         self.settings.addWidget(group_title("Folders"))
         group = card(padding=0)
@@ -47,8 +68,14 @@ class BatchPage(CollectionPage):
                                           self._set_out_dir)
 
         self.opts_box = None
-        self._op_changed(self.op.currentText())
-        self.op.currentTextChanged.connect(self._op_changed)
+        if self.mode == "C":
+            for key, (cls, _label) in PANELS.items():
+                self.panels[key] = cls(self.settings, self.setting_row, parent=self)
+            self.tool_group.buttonToggled.connect(lambda *_: self._tool_changed())
+            self._tool_changed()
+        else:
+            self._op_changed(self.op.currentText())
+            self.op.currentTextChanged.connect(self._op_changed)
         self.settings.addStretch(1)
         self.primary("Run Batch", self.run)
 
@@ -85,6 +112,12 @@ class BatchPage(CollectionPage):
         return files
 
     # ── options ──
+    def _tool_changed(self):
+        """Prototype C: the chosen tool's panel shows, the others do not."""
+        chosen = self.tool_group.value()
+        for key, panel in self.panels.items():
+            panel.box.setVisible(key == chosen)
+
     def _op_changed(self, op: str):
         if self.opts_box is not None:
             self.opts_box.hide()
@@ -185,7 +218,7 @@ class BatchPage(CollectionPage):
             row.set_note(text, role)
 
     def run(self):
-        in_dir, out_dir, op = self.in_dir, self.out_dir, self.op.currentText()
+        in_dir, out_dir = self.in_dir, self.out_dir
         if not in_dir or not out_dir:
             return dialogs.warning("Batch", "Set input and output folders.")
         if self._busy():
@@ -193,52 +226,22 @@ class BatchPage(CollectionPage):
         files = self.refill()
         if not files:
             return dialogs.warning("Batch", "No PDF files found in input folder.")
+        if self.mode == "C":
+            key = self.tool_group.value()
+            panel = self.panels[key]
+            refused = panel.check()
+            if refused:
+                return dialogs.warning("Batch", refused)
+            raw, fn, op = panel.options(), core.TOOL_OPS[key], PANELS[key][1]
+        else:
+            op = self.op.currentText()
+            raw, fn = self.options(), core.OPS[op]
         try:
-            opts = core.validate_options(self.options())
+            opts = core.validate_options(raw)
         except ValueError as e:
             return dialogs.warning("Batch", str(e))
-        fn = core.OPS[op]
-        win = self.window_
-        rows = list(self.rows)
-
-        def work(stop):
-            ok = err = done = 0
-            n_files = len(files)
-            for i, (src, row) in enumerate(zip(files, rows, strict=True)):
-                if stop.is_set():
-                    break
-                name = Path(src).name
-                bridge.post(self._note, row, f"⏳  {name}", "muted")
-                bridge.post(win.set_progress, (i + 1) / n_files)
-                try:
-                    if fn(src, out_dir, opts, stop):
-                        ok += 1
-                        bridge.post(self._note, row, f"✓  {name}", "success")
-                    else:
-                        bridge.post(self._note, row, f"—  {name}  (cancelled)", "warning")
-                except Exception as e:
-                    err += 1
-                    bridge.post(self._note, row, f"✗  {name}  — {e}", "danger")
-                done = i + 1
-            if stop.is_set():
-                msg, role = (f"Batch cancelled after {done} of {n_files} file(s) — "
-                             f"{ok} OK, {err} errors"), "warning"
-            else:
-                msg, role = (f"✓  Batch done — {ok} OK, {err} errors",
-                             "success" if not err else "warning")
-                finished.append(True)
-            bridge.post(win.set_status, msg, role)
-
-        finished: list = []
-
-        def then(kind, _value):
-            # A finished batch empties the list and its input folder (owner);
-            # a cancelled one keeps them with each file's result.
-            if kind == "done" and finished:
-                self.clear_document()
-
-        win.set_status(f"Batch {op} on {len(files)} file(s)…")
-        win.run_job(work, f"Batch {op} · {len(files)} file(s)…", then=then)
+        run_over_folder(self.window_, files, list(self.rows), self._note, fn, out_dir, opts,
+                        f"Batch {op}", self.clear_document)
 
     def clear_document(self):
         self._set_in_dir("")

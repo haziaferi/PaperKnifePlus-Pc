@@ -239,7 +239,10 @@ class MainWindow(FluentWindow):
 
         if tools is None:
             from ..tool_registry import TOOL_REGISTRY
-            tools = TOOL_REGISTRY
+            from .pages import batch_prototype
+            # Prototype B: the four tools take a folder; no Batch screen.
+            tools = [t for t in TOOL_REGISTRY
+                     if not (t.name == "BatchTool" and batch_prototype() == "B")]
         self.tools = list(tools)
 
         # State
