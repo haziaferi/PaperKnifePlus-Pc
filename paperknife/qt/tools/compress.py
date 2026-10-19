@@ -5,14 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import enhance as core_enhance
-from ...prefs import PREFS
-from ..pages import ToolPage, card, group_title, radio_rows, register_page
-
-LEVELS = [
-    ("light", "Light", "Clean and deflate only. Safe for every file."),
-    ("medium", "Medium", "Also resample images to 150 DPI, JPEG quality 80%."),
-    ("aggressive", "Aggressive", "Also scale images to 96 DPI. Visible quality loss."),
-]
+from ..pages import ToolPage, register_page, setting_row
+from ..tool_options import LEVELS, CompressOptions  # noqa: F401  (LEVELS: Batch's)
 
 
 def size_report(orig: int, new: int, out: str):
@@ -35,12 +29,8 @@ class CompressPage(ToolPage):
                          tool=tool, window=window)
         self.doc_input()
         self.body.addSpacing(16)
-        self.body.addWidget(group_title("Compression level"))
-        group = card(padding=0)
-        self.body.addWidget(group)
-        self.level_group = radio_rows(group, LEVELS, PREFS.compress_level or "medium",
-                                      parent=self)
-        self.radios = self.level_group.buttons
+        self.opts = CompressOptions(self.body, setting_row, parent=self)
+        self.level_group, self.radios = self.opts.level_group, self.opts.radios
         self.body.addStretch(1)
         self.primary("Compress", self.run)
 

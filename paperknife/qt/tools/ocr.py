@@ -6,17 +6,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
+from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...core import ocr as core_ocr
 from ...pages import selected_pages
-from ...prefs import PREFS, pref_dpi
 from .. import bridge
-from ..pages import (PagePickPage, card, group_title, labelled_slider, muted_caption,
-                     radio_rows, register_page)
-
-MODES = [("overlay", "Overlay", "invisible text layer"),
-         ("text", "Text-only PDF", "")]
+from ..pages import PagePickPage, card, group_title, muted_caption, register_page
+from ..tool_options import OCR_MODES as MODES  # noqa: F401
+from ..tool_options import OcrOptions
 MISSING_TITLE = "⚠  pytesseract not installed"
 MISSING_TEXT = ("Install it with:  pip install pytesseract\n"
                 "Then install the Tesseract binary from:\n"
@@ -48,28 +45,9 @@ class OCRPage(PagePickPage):
 
     def _build_options(self):
         s = self.settings
-        s.addWidget(group_title("Recognition"))
-        group = card(padding=0)
-        s.addWidget(group)
-
-        row = self.setting_row(group, "Language code",
-                               "e.g.  eng  ·  ita  ·  deu  ·  fra  ·  eng+ita")
-        self.lang = LineEdit()
-        self.lang.setPlaceholderText("eng")
-        self.lang.setText(PREFS.ocr_lang or "eng")
-        self.lang.setFixedWidth(120)
-        row.layout().addWidget(self.lang)
-
-        row = self.setting_row(group, "Render DPI")
-        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400), " DPI", width=120,
-                                   fixed=False)
-        self.dpi_label = self.dpi.value_label
-
-        s.addWidget(group_title("Output mode"))
-        group = card(padding=0)
-        s.addWidget(group)
-        self.mode_group = radio_rows(group, MODES, "overlay", row=self.setting_row, parent=self)
-        self.modes = self.mode_group.buttons
+        o = self.opts = OcrOptions(s, self.setting_row, parent=self)
+        self.lang, self.dpi, self.dpi_label = o.lang, o.dpi, o.dpi_label
+        self.mode_group, self.modes = o.mode_group, o.modes
 
         s.addWidget(group_title("Pages"))
         pages = card(padding=0)

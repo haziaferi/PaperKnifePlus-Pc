@@ -7,7 +7,7 @@ import pymupdf as fitz
 
 from ..job_queue import atomic_output
 from ..prefs import DPI_RANGE
-from .convert import NoText
+from .convert import NoText, pdf_to_doc
 from .enhance import compress_pdf, watermark_pdf
 from .ocr import ocr_pdf
 
@@ -34,13 +34,13 @@ def _do_watermark(src, out_dir, opts, stop):
     out = os.path.join(out_dir, Path(src).stem + "_watermarked.pdf")
     return watermark_pdf(open_input(src), out, opts.get("text", "DRAFT"),
                          opts.get("size", 60), opts.get("opacity", 0.25),
-                         (0.5, 0.5, 0.5), stop)
+                         tuple(opts.get("color", (0.5, 0.5, 0.5))), stop)
 
 def _do_ocr(src, out_dir, opts, stop):
     if stop.is_set(): return None
     out = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
     n = ocr_pdf(open_input(src), out, opts.get("lang", "eng"), opts.get("dpi", 150),
-                False, stop, lambda v: None)
+                bool(opts.get("text_only", False)), stop, lambda v: None)
     return out if n is not None else None
 
 def _do_pdf2txt(src, out_dir, opts, stop):
@@ -57,6 +57,31 @@ def _do_pdf2txt(src, out_dir, opts, stop):
     with atomic_output(out) as tmp:
         Path(tmp).write_text("".join(parts), encoding="utf-8")
     return out
+
+# What PDF → Other writes, by format: (extension, suffix of the file name).
+OTHER_OUT = {"TXT": (".txt", ""), "HTML": (".html", ""), "XML": (".xml", ""),
+             "RTF": (".rtf", ""), "DOCX": (".docx", ""), "PPTX": (".pptx", ""),
+             "XLSX": (".xlsx", ""), "PNG": (".zip", "_png"), "JPEG": (".zip", "_jpeg")}
+
+
+def _do_pdf2other(src, out_dir, opts, stop):
+    fmt = opts.get("fmt", "TXT")
+    ext, suffix = OTHER_OUT[fmt]
+    out = os.path.join(out_dir, Path(src).stem + suffix + ext)
+    if not pdf_to_doc(open_input(src), fmt, out, stop, lambda v: None,
+                      dpi=opts.get("dpi", 150), quality=opts.get("quality", 92)):
+        return None
+    return out
+
+
+# The tools' own full settings, by tool (prototypes B and C): what the
+# single-file screens offer, applied to a folder.
+TOOL_OPS = {
+    "compress":  _do_compress,
+    "watermark": _do_watermark,
+    "ocr":       _do_ocr,
+    "other":     _do_pdf2other,
+}
 
 OPS = {
     "Compress":      _do_compress,
