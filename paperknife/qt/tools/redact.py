@@ -16,6 +16,8 @@ from .. import dialogs, theme
 from ..pages import (WorkspaceDoc, WorkspacePage, ask_keep_password, muted_caption,
                      register_page, same_path)
 
+PAGES_ONLY_QUESTION = "Save the page changes? No redaction boxes are drawn."
+
 # Segoe Fluent Icons code points
 GLYPHS = {"box": 0xE739, "search": 0xE721, "undo": 0xE7A7}
 TOOLS = {
@@ -31,9 +33,11 @@ WARN_BODY = ("Content under redaction boxes is completely destroyed — "
 @register_page("RedactTool")
 class RedactPage(WorkspaceDoc, WorkspacePage):
     save_name = "redacted.pdf"
+    saved_what = "PDF"
 
     def __init__(self, tool=None, window=None):
-        super().__init__("Redact", SUBTITLE, tool=tool, window=window)
+        super().__init__("Redact", SUBTITLE, tool=tool, window=window, page_strip=True)
+        self._undo_stack: list = []         # page changes (PagesStep); boxes undo as _pending
         self.kind = "box"
         self.fill = "Black"
         self.search_text = ""
@@ -43,6 +47,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self._secrets: dict[str, bool] = {}
         for key, (name, _desc) in TOOLS.items():
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
+        self.add_pages_tool()
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo last (Ctrl+Z)", self.undo, toggle=False)
         self.primary("Apply and save", self.save, danger=True)
@@ -118,12 +123,12 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
     def open_path(self, path: str):
         if self.open_document(path, "Redact") is None:
             return
-        self._pending, self._secrets = [], {}
+        self._pending, self._secrets, self._undo_stack = [], {}, []
         self.build_panel()
         self.show_current()
 
     def clear_document(self):
-        self._pending, self._secrets = [], {}
+        self._pending, self._secrets, self._undo_stack = [], {}, []
         super().clear_document()
         self.build_panel()
 
@@ -141,6 +146,30 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
                          if isinstance(pg, int) and 0 <= pg < n]
         self._secrets = {str(k): bool(v) for k, v in state.get("secrets", {}).items()}
         self.build_panel()
+
+    # ── page changes (the page strip): the boxes follow their pages ────────
+    def page_state(self):
+        return list(self._pending)
+
+    def restore_page_state(self, state):
+        self._pending = list(state)
+        self._refresh_boxes()
+
+    def remap_pages(self, mapping, turned):
+        # A box is kept in the page's unrotated space: a turn leaves it as it is.
+        self._pending = [(mapping[pg], r, phrase) for pg, r, phrase in self._pending
+                         if mapping.get(pg) is not None]
+        self._refresh_boxes()
+
+    def pages_after(self):
+        return list(self._pending)
+
+    def page_step_on_top(self) -> bool:
+        """A box drawn since the last page change comes off before it."""
+        if not super().page_step_on_top():
+            return False
+        after = self._undo_stack[-1].after or []
+        return not (self._pending and not any(b is self._pending[-1] for b in after))
 
     # ── mouse ────────────────────────────────────────────────────────────────
     def _add_box(self, start, end, click: bool):
@@ -190,6 +219,8 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
 
     # ── undo / delete ────────────────────────────────────────────────────────
     def undo(self):
+        if self.undo_page_change():
+            return
         if self._pending:
             self._pending.pop()
             self._refresh_boxes()
@@ -206,6 +237,17 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
     def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Apply", "Open a PDF first.")
+        if not self._pending and self._pages_changed:
+            # Pages moved, turned or deleted, no box (owner, 2026-10-18): the
+            # page changes are saved, the file written whole.
+            if not dialogs.ask_yes_no("Apply and save", PAGES_ONLY_QUESTION):
+                return
+
+            def saved():
+                self._pages_changed = False
+                if callable(after):
+                    after()
+            return WorkspaceDoc.save(self, saved)
         if not self._pending:
             return dialogs.info("Apply", "No redaction boxes drawn yet.")
         n = len(self._pending)
@@ -246,12 +288,16 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
             # Pages done are redacted in memory whatever the outcome.
             core_redact.merge_secrets(self._secrets, found)
             self._pending = [p for p in self._pending if p[0] not in modes]
+            if modes:
+                # An undone page change would bring back what was redacted.
+                self._undo_stack = []
+                self.strip_refresh(sorted(modes))
             self._refresh_boxes()
             self.show_current()
             if not saved:
                 self._dirty = self._dirty or bool(modes)    # redacted in memory, not saved
                 return
-            self._dirty = False
+            self._dirty = self._pages_changed = False
             removed = saved[0]
             whole = [str(p + 1) for p, m in modes.items() if m == "whole"]
             image = [str(p + 1) for p, m in modes.items() if m == "image"]

@@ -23,7 +23,8 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
     saved_what = "Edited PDF"
 
     def __init__(self, tool=None, window=None):
-        super().__init__("Edit Text", "Open a PDF to start", tool=tool, window=window)
+        super().__init__("Edit Text", "Open a PDF to start", tool=tool, window=window,
+                         page_strip=True)
         self._undo_stack: list = []
         self._blocks: list[dict] = []      # {"bi", "block": {"bbox"}, "lines"} of the page shown
         self._sel_bi: int | None = None
@@ -32,6 +33,7 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self.edit_box = None
         self.apply_btn = None
         self.add_rail("select", GLYPHS["select"], "Select text", lambda _=False: self.build_panel())
+        self.add_pages_tool()
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.mark_rail("select")
@@ -101,6 +103,9 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
     def on_page(self):
         self._sel_bi = None
         self.build_panel()
+
+    def remap_pages(self, mapping, turned):
+        self._sel_bi = None                 # a selection belongs to one page as it was
 
     def clear_document(self):
         self._blocks, self._sel_bi, self._undo_stack = [], None, []
@@ -175,6 +180,7 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self._dirty = True
         self._sel_bi = None
         self.build_panel()
+        self.strip_refresh(range(self._pg, len(self._doc)))     # a reflow may carry on
         if res.fallback_fonts:
             fonts = ", ".join(sorted(res.fallback_fonts))
             win.set_status(f"Edit applied — some letters are not in the font '{fonts}' and were "
@@ -184,6 +190,8 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self.show_current()
 
     def undo(self):
+        if self.undo_page_change():
+            return
         if not self._undo_stack or self._doc is None:
             return
         self._pop_undo()

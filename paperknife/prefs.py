@@ -21,6 +21,7 @@ _DEFAULTS: dict = {
     "qt_window_geometry": "",     # the Qt window's saveGeometry(), base64
     "qt_stale_parts":  [],        # .part files a job left when the Qt app quit
     "qt_nav_folded":   [],        # navigation groups folded under their title (section names)
+    "qt_page_strip":   True,      # the editors' page strip is open (owner, 2026-10-18)
     "appearance":      "light",   # light / dark / system
 }
 

@@ -35,10 +35,11 @@ import os
 from pathlib import Path
 
 import pymupdf as fitz
-from PySide6.QtCore import QEasingCurve, QEvent, QObject, QPoint, Qt, QVariantAnimation
+from PySide6.QtCore import (QEasingCurve, QEvent, QItemSelectionModel, QObject, QPoint, Qt, QTimer,
+                            QVariantAnimation, Signal)
 from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLayout, QSizePolicy, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFrame, QHBoxLayout, QLayout, QListView,
+                               QListWidget, QListWidgetItem, QSizePolicy, QVBoxLayout, QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, LineEdit, PrimaryPushButton, PushButton,
                             RadioButton, Slider, SwitchButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
@@ -48,7 +49,7 @@ from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, LineEdit, Prima
 
 from . import dialogs
 from . import theme
-from ..core.doc_state import DocHolder
+from ..core.doc_state import UNDO_DEPTH, DocHolder
 from ..core.password import OpenPassword, open_password_of, shared_open_password
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -674,6 +675,7 @@ class WorkspaceDoc(DocHolder):
         self._close_doc()
         self._doc, self._pg, self._undo_stack = doc, 0, []
         self._src_path, self._dirty = str(path), False
+        self._pages_changed = self._pages_cut = False
         self.refresh_document(announce=True)
         return doc
 
@@ -1254,6 +1256,48 @@ class ToolPage(QWidget):
 
 # ── Group templates ───────────────────────────────────────────────────────────
 PANEL_W, PANEL_MIN, PANEL_MAX, SLIDE_MS = 280, 220, 480, 250
+# The editors' page strip (owner, 2026-10-18): left of the page, resizable,
+# collapses below STRIP_MIN; open or closed is remembered (prefs qt_page_strip).
+STRIP_W, STRIP_MIN, STRIP_MAX = 150, 120, 240
+STRIP_THUMB = (84, 108)         # its largest thumbnail, in px
+STRIP_ZOOM = 0.16
+GLYPH_PAGES = 0xE7C3            # Segoe Fluent Icons: Page
+PAGES_TITLE = "Pages"
+PAGES_DESC = "Select pages in the strip · drag them to move"
+KEEP_ONE = "A PDF needs at least one page: keep one or more."
+
+
+def pages_phrase(nums) -> str:
+    """How the delete question names 1-based page numbers: "page 4",
+    "pages 2 and 3", "pages 1-3, 7"."""
+    from ..pages import ranges_text as _rt
+    nums = sorted(nums)
+    if len(nums) == 1:
+        return f"page {nums[0]}"
+    if len(nums) == 2:
+        return f"pages {nums[0]} and {nums[1]}"
+    return "pages " + _rt([n - 1 for n in nums])
+
+
+def delete_question(nums) -> str:
+    return f"Delete {pages_phrase(nums)}? Undo brings them back until you save."
+
+
+def _rearrange(doc, order) -> None:
+    """*doc*'s pages in *order*, in place, with what belongs to the document
+    kept (core.organise.rearrange: bookmarks, forms, labels, layers)."""
+    from ..core import organise
+    organise.rearrange(doc, list(order))
+
+
+class PagesStep:
+    """A page change on an editor's undo list: the whole document before it,
+    the page shown then, and the tool's own page-bound state (page_state);
+    *after* is what the tool keeps to tell later edits from it (pages_after)."""
+    __slots__ = ("pg", "data", "state", "after")
+
+    def __init__(self, pg: int, data: bytes, state):
+        self.pg, self.data, self.state, self.after = pg, data, state, None
 
 
 class WorkspacePage(ToolPage):
@@ -1268,10 +1312,20 @@ class WorkspacePage(ToolPage):
     Subclasses: add_rail(key, glyph, tip, slot), panel_begin(title, desc) then
     add widgets to self.panel_body, set_doc / show_current for the document.
     view_cls: the centre view's class (PageView), built with the page ground
-    colour; rail=False hides the rail and its divider (a viewer has no tools)."""
+    colour; rail=False hides the rail and its divider (a viewer has no tools).
+
+    page_strip=True (the editors, owner 2026-10-18): a strip of page
+    thumbnails between the rail and the page, resizable and collapsible like
+    the panel.  A click goes to the page; Ctrl / Shift click selects several;
+    a drag moves them.  add_pages_tool() puts "Pages" in the rail: the panel
+    then shows Rotate left / right and Delete for the selection.  A page
+    change goes on the tool's _undo_stack as a PagesStep (whole document);
+    the tool's undo() calls undo_page_change() first, and a tool with state
+    tied to page numbers keeps it in step (page_state, restore_page_state,
+    remap_pages, pages_after)."""
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
-                 view_cls=None, rail: bool = True):
+                 view_cls=None, rail: bool = True, page_strip: bool = False):
         from PySide6.QtWidgets import QSplitter
         from qfluentwidgets import FluentIcon as FIF
         from .pageview import PageView
@@ -1316,6 +1370,14 @@ class WorkspacePage(ToolPage):
         mv.addWidget(Divider())
         strip = QHBoxLayout()
         strip.setContentsMargins(8, 4, 12, 4)
+        self.strip_reopen_btn = None
+        if page_strip:
+            # The page strip's way back, at the left as the panel's is at the right.
+            self.strip_reopen_btn = icon_button(theme.glyph_icon(0xE76C, 14))
+            self.strip_reopen_btn.setToolTip("Show pages")
+            self.strip_reopen_btn.clicked.connect(lambda: self.show_strip(True))
+            self.strip_reopen_btn.hide()
+            strip.addWidget(self.strip_reopen_btn)
         self.prev_btn = icon_button(FIF.LEFT_ARROW)
         self.next_btn = icon_button(FIF.RIGHT_ARROW)
         self.page_label = BodyLabel("–")
@@ -1341,9 +1403,16 @@ class WorkspacePage(ToolPage):
         mv.addLayout(strip)
 
         panel = QWidget()
-        self._panel_v = QVBoxLayout(panel)
-        self._panel_v.setContentsMargins(16, 12, 12, 16)
+        pv = QVBoxLayout(panel)
+        pv.setContentsMargins(16, 12, 12, 16)
+        pv.setSpacing(0)
+        # The tool's own panel (panel_begin) and, with a page strip, the Pages
+        # panel: one of the two shows, so neither is rebuilt for the other.
+        self._panel_tools = QWidget(panel)
+        self._panel_v = QVBoxLayout(self._panel_tools)
+        self._panel_v.setContentsMargins(0, 0, 0, 0)
         self._panel_v.setSpacing(0)
+        pv.addWidget(self._panel_tools, 1)
         self._panel_box = None
         self.panel = panel
         self.split.addWidget(mid)
@@ -1354,7 +1423,11 @@ class WorkspacePage(ToolPage):
         panel.setMaximumWidth(PANEL_MAX)
         self.split.splitterMoved.connect(self._clamp)
         self.split.handle(1).installEventFilter(self)
-        h.addWidget(self.split, 1)
+        self.thumbs = None
+        if page_strip:
+            h.addWidget(self._build_strip(), 1)
+        else:
+            h.addWidget(self.split, 1)
         self.body.addWidget(frame, 1)
         self._panel_w = PANEL_W
         self._zoom_timer = None
@@ -1412,8 +1485,11 @@ class WorkspacePage(ToolPage):
 
     def _style_split(self):
         accent = theme.hex_color("accent")
-        self.split.setStyleSheet("QSplitter::handle { background: transparent; }"
-                                 f"QSplitter::handle:hover {{ background: {accent}; }}")
+        qss = ("QSplitter::handle { background: transparent; }"
+               f"QSplitter::handle:hover {{ background: {accent}; }}")
+        self.split.setStyleSheet(qss)
+        if getattr(self, "outer", None) is not None:
+            self.outer.setStyleSheet(qss)
 
     def _apply_theme(self):
         from PySide6.QtGui import QBrush
@@ -1426,6 +1502,11 @@ class WorkspacePage(ToolPage):
         self.reopen_btn.setIcon(theme.glyph_icon(0xE76B, 14))
         if self._panel_hide_btn is not None:
             self._panel_hide_btn.setIcon(theme.glyph_icon(0xE76C, 14))
+        if self.thumbs is not None:
+            self.strip_reopen_btn.setIcon(theme.glyph_icon(0xE76C, 14))
+            self._strip_hide_btn.setIcon(theme.glyph_icon(0xE76B, 14))
+            if self._pages_hide_btn is not None:
+                self._pages_hide_btn.setIcon(theme.glyph_icon(0xE76C, 14))
 
     # ── rail ──
     def add_rail(self, key: str, glyph: int, tip: str, slot, toggle: bool = True):
@@ -1434,6 +1515,9 @@ class WorkspacePage(ToolPage):
         btn.setFixedSize(40, 40)
         btn.setToolTip(tip)
         btn.pk_key, btn.pk_glyph = key, glyph
+        if toggle and key != "pages":
+            # A tool of the page's own: its panel comes back from the Pages one.
+            btn.clicked.connect(lambda _=False: self._pages_on and self.show_pages_panel(False))
         btn.clicked.connect(slot)
         self.rail.insertWidget(self.rail.count() - 1, btn)
         return btn
@@ -1441,12 +1525,19 @@ class WorkspacePage(ToolPage):
     def add_rail_gap(self):
         self.rail.insertSpacing(self.rail.count() - 1, 12)
 
+    _pages_on = False       # the Pages panel shows (page_strip)
+    _tool_key = ""          # the tool marked last, for when the Pages panel goes
+
     def mark_rail(self, key: str):
-        """Mark the chosen tool: its toggle button checked (Fluent draws it)."""
+        """Mark the chosen tool: its toggle button checked (Fluent draws it).
+        While the Pages panel shows, Pages stays marked."""
+        if key != "pages":
+            self._tool_key = key
+        shown = "pages" if self._pages_on else key
         for i in range(self.rail.count()):
             w = self.rail.itemAt(i).widget()
             if w is not None and hasattr(w, "pk_key") and w.isCheckable():
-                w.setChecked(w.pk_key == key)
+                w.setChecked(w.pk_key == shown)
 
     # ── context panel ──
     def panel_begin(self, title: str, desc: str = ""):
@@ -1502,7 +1593,10 @@ class WorkspacePage(ToolPage):
 
     def eventFilter(self, obj, ev):
         if ev.type() == ev.Type.MouseButtonDblClick:
-            self.show_context(not self.context_shown())
+            if obj is self.__dict__.get("_strip_handle"):
+                self.show_strip(not self.strip_shown())
+            else:
+                self.show_context(not self.context_shown())
             return True
         return False
 
@@ -1544,6 +1638,369 @@ class WorkspacePage(ToolPage):
         self._panel_anim = a
         a.start(QVariantAnimation.DeleteWhenStopped)
 
+    # ── page strip (page_strip=True) ──
+    _strip_doc = None       # the document the strip shows (None: load it again)
+    _pages_box = None
+    _pages_hide_btn = None
+    _pages_changed = False  # pages moved, turned or deleted since the file was opened
+    _pages_cut = False      # pages deleted since the file was opened (a save writes it whole)
+
+    def _build_strip(self) -> QWidget:
+        """The strip and the panel's splitter in one splitter of their own."""
+        from PySide6.QtWidgets import QSplitter
+        from ..prefs import PREFS
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(8, 8, 2, 8)
+        v.setSpacing(4)
+        top = QHBoxLayout()
+        top.addWidget(muted_caption(PAGES_TITLE))
+        top.addStretch(1)
+        self._strip_hide_btn = icon_button(theme.glyph_icon(0xE76B, 14))
+        self._strip_hide_btn.setToolTip("Hide pages")
+        self._strip_hide_btn.clicked.connect(lambda: self.show_strip(False))
+        top.addWidget(self._strip_hide_btn)
+        v.addLayout(top)
+        self.thumbs = ThumbList(STRIP_THUMB, can_render=self._strip_can_render)
+        self.thumbs.currentItemChanged.connect(self._strip_clicked)
+        self.thumbs.itemSelectionChanged.connect(self._pages_buttons)
+        self.thumbs.moved.connect(self._strip_moved)
+        v.addWidget(self.thumbs, 1)
+        box.setMinimumWidth(STRIP_MIN)
+        box.setMaximumWidth(STRIP_MAX)
+        box.hide()                              # until a document is open
+        self.strip_box = box
+        outer = QSplitter(Qt.Horizontal)
+        outer.setHandleWidth(6)
+        outer.setChildrenCollapsible(True)
+        outer.addWidget(box)
+        outer.addWidget(self.split)
+        outer.setCollapsible(1, False)
+        outer.setStretchFactor(1, 1)
+        self.outer = outer
+        self._style_split()
+        self._strip_w = STRIP_W
+        self._strip_open = bool(PREFS.qt_page_strip)
+        self._strip_sync = False
+        self._from_strip = False
+        self._strip_reselect = None
+        self._strip_anim = None
+        outer.splitterMoved.connect(self._clamp_strip)
+        # Kept: the filter compares with it and never asks the splitter,
+        # which may already be deleted while the window closes.
+        self._strip_handle = outer.handle(1)
+        self._strip_handle.installEventFilter(self)
+        return outer
+
+    def strip_shown(self) -> bool:
+        return self.thumbs is not None and not self.strip_box.isHidden() \
+            and self.outer.sizes()[0] > 0
+
+    def _remember_strip(self, on: bool):
+        from ..prefs import PREFS
+        self._strip_open = on
+        if PREFS.qt_page_strip != on:
+            PREFS.qt_page_strip = on
+            try:
+                PREFS.save()
+            except OSError:
+                pass                            # remembered for this session only
+
+    def _strip_buttons(self):
+        if self.thumbs is not None:
+            self.strip_reopen_btn.setVisible(not self.strip_box.isHidden()
+                                             and self.outer.sizes()[0] == 0)
+
+    def show_strip(self, on: bool):
+        """Slide the page strip open or closed (as show_context the panel)."""
+        if self.thumbs is None:
+            return
+        self._remember_strip(on)
+        old = self._strip_anim
+        if old is not None:
+            self._strip_anim = None
+            old.stop()
+        start, target = self.outer.sizes()[0], (self._strip_w if on else 0)
+        if start == target or self.strip_box.isHidden():
+            self._strip_buttons()
+            return
+        a = QVariantAnimation(self)
+        a.setDuration(SLIDE_MS)
+        a.setStartValue(start)
+        a.setEndValue(target)
+        a.setEasingCurve(QEasingCurve.OutCubic)
+
+        def step(w):
+            total = sum(self.outer.sizes())
+            self.outer.setSizes([int(w), total - int(w)])
+        a.valueChanged.connect(step)
+        a.finished.connect(self._strip_buttons)
+        a.finished.connect(lambda: self._strip_anim is a and setattr(self, "_strip_anim", None))
+        self._strip_anim = a
+        a.start(QVariantAnimation.DeleteWhenStopped)
+
+    def _clamp_strip(self, *_):
+        w = self.outer.sizes()[0]
+        if 0 < w < STRIP_MIN:
+            self.show_strip(False)
+        elif w:
+            self._strip_w = min(STRIP_MAX, w)
+            self._remember_strip(True)
+        else:
+            self._remember_strip(False)
+        self._strip_buttons()
+
+    def _strip_can_render(self) -> bool:
+        """No thumbnail is drawn while a job works on the document."""
+        win = self.window_
+        job = getattr(win, "_current_job", None) if win is not None else None
+        if job is None:
+            return True
+        thread = getattr(job, "_thread", None)
+        return not (job.is_running or (thread is not None and thread.is_alive()))
+
+    def _strip_render(self, key: int):
+        from PySide6.QtGui import QImage
+        pix = self._doc[key].get_pixmap(matrix=fitz.Matrix(STRIP_ZOOM, STRIP_ZOOM), alpha=False)
+        return QImage(pix.samples, pix.width, pix.height, pix.stride,
+                      QImage.Format_RGB888).copy()
+
+    def _sync_strip(self):
+        """After show_current: the strip shows the document, its page current."""
+        doc = getattr(self, "_doc", None)
+        if doc is None:
+            if not self.strip_box.isHidden() or self._strip_doc is not None:
+                self.thumbs.clear_pages()
+                self._strip_doc = None
+                self.strip_box.hide()
+            self._strip_buttons()
+            return
+        if self.strip_box.isHidden():
+            self.strip_box.show()
+            total = sum(self.outer.sizes())
+            w = self._strip_w if self._strip_open else 0
+            self.outer.setSizes([w, max(1, total - w)])
+        self._strip_sync = True
+        try:
+            if doc is not self._strip_doc or self.thumbs.count() != len(doc):
+                self.thumbs.load(len(doc), self._strip_render,
+                                 self.__dict__.pop("_strip_icons", None))
+                self._strip_doc = doc
+            else:
+                self.thumbs.refresh([self._pg])     # an edit on the page shown
+            reselect, self._strip_reselect = self._strip_reselect, None
+            self.thumbs.show_row(self._pg, keep_selection=self._from_strip, select=reselect)
+        finally:
+            self._strip_sync = False
+        self._strip_buttons()
+        self._pages_buttons()
+
+    def strip_refresh(self, pages=None):
+        """Draw these pages' thumbnails again (None: every page), after an
+        edit that reached beyond the page shown."""
+        if self.thumbs is not None and self._doc is not None:
+            self.thumbs.refresh(range(len(self._doc)) if pages is None else pages)
+
+    def _strip_clicked(self, cur, _prev=None):
+        if self._strip_sync or cur is None or getattr(self, "_doc", None) is None:
+            return
+        k = cur.data(Qt.UserRole)
+        if k == self._pg or not (0 <= k < len(self._doc)):
+            return
+        self._pg = k
+        self._from_strip = True
+        try:
+            self.on_page()
+            self.show_current()
+        finally:
+            self._from_strip = False
+
+    # ── the Pages panel ──
+    def add_pages_tool(self):
+        """Pages in the rail: the panel shows the page actions."""
+        return self.add_rail("pages", GLYPH_PAGES, PAGES_TITLE,
+                             lambda _=False: self.show_pages_panel(True))
+
+    def _build_pages_panel(self):
+        box = QWidget(self.panel)
+        bv = QVBoxLayout(box)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(4)
+        top = QHBoxLayout()
+        top.addWidget(SubtitleLabel(PAGES_TITLE))
+        top.addStretch(1)
+        self._pages_hide_btn = icon_button(theme.glyph_icon(0xE76C, 14))
+        self._pages_hide_btn.setToolTip("Hide panel")
+        self._pages_hide_btn.clicked.connect(lambda: self.show_context(False))
+        top.addWidget(self._pages_hide_btn)
+        bv.addLayout(top)
+        d = muted_caption(PAGES_DESC)
+        d.setWordWrap(True)
+        bv.addWidget(d)
+        bv.addSpacing(8)
+        self.rotate_left_btn = PushButton("Rotate left")
+        self.rotate_left_btn.clicked.connect(lambda: self.rotate_pages(-90))
+        self.rotate_right_btn = PushButton("Rotate right")
+        self.rotate_right_btn.clicked.connect(lambda: self.rotate_pages(90))
+        self.delete_pages_btn = PushButton("Delete")
+        self.delete_pages_btn.clicked.connect(self.delete_pages)
+        for b in (self.rotate_left_btn, self.rotate_right_btn, self.delete_pages_btn):
+            bv.addWidget(b)
+        self.pages_hint = muted_caption("")
+        self.pages_hint.setWordWrap(True)
+        bv.addSpacing(4)
+        bv.addWidget(self.pages_hint)
+        bv.addStretch(1)
+        self.panel.layout().addWidget(box, 1)
+        box.hide()
+        self._pages_box = box
+
+    def show_pages_panel(self, on: bool):
+        """The panel shows the page actions (on) or the tool's own panel."""
+        if on and self._pages_box is None:
+            self._build_pages_panel()
+        self._pages_on = on
+        if self._pages_box is not None:
+            self._pages_box.setVisible(on)
+        self._panel_tools.setVisible(not on)
+        self.mark_rail(self._tool_key)
+        if on and not self.context_shown():
+            self.show_context(True)
+        self._pages_buttons()
+
+    def _pages_buttons(self):
+        """Rotate and Delete act on the strip's selection; Delete never takes
+        every page (Rotate & Reorder's rule and line)."""
+        if self._pages_box is None or self.thumbs is None:
+            return
+        doc = getattr(self, "_doc", None)
+        n = len(self.thumbs.selectedItems()) if doc is not None else 0
+        every = doc is not None and n == len(doc)
+        self.rotate_left_btn.setEnabled(bool(n))
+        self.rotate_right_btn.setEnabled(bool(n))
+        self.delete_pages_btn.setEnabled(bool(n) and not every)
+        self.pages_hint.setText(KEEP_ONE if every else "")
+        theme.label_role(self.pages_hint, "warning" if every else "muted")
+
+    # ── page changes and their undo ──
+    def page_state(self):
+        """A tool's state tied to page numbers, kept with a page change."""
+        return None
+
+    def restore_page_state(self, state) -> None:
+        """Undo of a page change: the state page_state() gave back."""
+
+    def remap_pages(self, mapping: dict, turned: set) -> None:
+        """The pages changed: *mapping* old index -> new index (None: deleted);
+        *turned* the indices turned (their page space changed)."""
+
+    def pages_after(self):
+        """Kept on the page change's step after remap_pages (PagesStep.after)."""
+        return None
+
+    def rotate_pages(self, deg: int):
+        rows = self.thumbs.selected_rows() if self.thumbs is not None else []
+        if not rows or getattr(self, "_doc", None) is None:
+            return
+
+        def turn(doc):
+            for i in rows:
+                p = doc[i]
+                p.set_rotation((p.rotation + deg) % 360)
+        self._page_change(turn, {i: i for i in range(len(self._doc))}, turned=set(rows))
+
+    def delete_pages(self):
+        """Delete the selected pages, after asking; Undo brings them back."""
+        rows = self.thumbs.selected_rows() if self.thumbs is not None else []
+        doc = getattr(self, "_doc", None)
+        if not rows or doc is None or len(rows) == len(doc):
+            return                              # Delete is off then; the panel says why
+        if not dialogs.ask_yes_no("Delete pages", delete_question([r + 1 for r in rows])):
+            return
+        gone = set(rows)
+        keep = [i for i in range(len(doc)) if i not in gone]
+        mapping = {old: None for old in gone}
+        mapping.update({old: new for new, old in enumerate(keep)})
+        self._page_change(lambda d: _rearrange(d, keep), mapping, cut=True)
+
+    def _strip_moved(self, order: list):
+        """A drag in the strip: *order* the pages' old indices in their new order."""
+        if getattr(self, "_doc", None) is None or order == list(range(len(order))):
+            return
+        if sorted(order) != list(range(len(self._doc))):
+            self._strip_doc = None              # not the document's pages: show them again
+            return self.show_current()
+        mapping = {old: new for new, old in enumerate(order)}
+        self._page_change(lambda d: _rearrange(d, order), mapping)
+
+    def _page_change(self, apply, mapping: dict, *, turned=(), cut: bool = False):
+        """apply(doc) changes the open document's pages in place; on the
+        tool's undo list goes the whole document as it was (PagesStep)."""
+        doc = self._doc
+        turned = set(turned)
+        icons = self.thumbs.icons()
+        sel = [self.thumbs.item(r).data(Qt.UserRole) for r in self.thumbs.selected_rows()]
+        step = PagesStep(self._pg, doc.tobytes(), self.page_state())
+        try:
+            apply(doc)
+        except Exception as e:
+            # Half done: the document as it was.
+            self._replace_doc(fitz.open("pdf", step.data))
+            self._strip_doc = None
+            self.show_current()
+            return dialogs.error(PAGES_TITLE, f"The pages could not be changed:\n{e}")
+        self._push_step(step)
+        self.remap_pages(mapping, turned)
+        step.after = self.pages_after()
+        new_pg = mapping.get(self._pg)
+        if new_pg is None:
+            # The page shown was deleted: the next one kept, else the last.
+            later = [mapping[k] for k in sorted(mapping) if k > self._pg and mapping[k] is not None]
+            new_pg = later[0] if later else len(self._doc) - 1
+        self._pg = new_pg
+        self._pages_changed = True
+        self._pages_cut = self._pages_cut or cut
+        self._strip_icons = {mapping[k]: ic for k, ic in icons.items()
+                             if mapping.get(k) is not None and k not in turned}
+        self._strip_reselect = sorted(mapping[k] for k in sel if mapping.get(k) is not None)
+        self._strip_doc = None
+        self._dirty = True
+        self.on_page()
+        self.show_current()
+        if self.window_ is not None:
+            self.window_.set_status("Pages changed — use Save to write to disk", "success")
+
+    def _push_step(self, step: PagesStep):
+        """Onto the undo list, keeping at most UNDO_DEPTH whole-document copies."""
+        stack = list(getattr(self, "_undo_stack", [])) + [step]
+        copies = [i for i, e in enumerate(stack)
+                  if isinstance(e, PagesStep)
+                  or (isinstance(e, tuple) and len(e) == 2 and isinstance(e[1], bytes))]
+        if len(copies) > UNDO_DEPTH:
+            stack = stack[copies[-UNDO_DEPTH]:]
+        self._undo_stack = stack
+
+    def page_step_on_top(self) -> bool:
+        """The last thing done (to undo first) is a page change."""
+        stack = getattr(self, "_undo_stack", None)
+        return bool(stack) and isinstance(stack[-1], PagesStep)
+
+    def undo_page_change(self) -> bool:
+        """Undo the last page change when it is the last thing done; whether it was."""
+        if getattr(self, "_doc", None) is None or not self.page_step_on_top():
+            return False
+        step = self._undo_stack.pop()
+        self._pg = step.pg
+        self._replace_doc(fitz.open("pdf", step.data))
+        self.restore_page_state(step.state)
+        self._strip_doc = None
+        self._dirty = True
+        self.on_page()
+        self.show_current()
+        if self.window_ is not None:
+            self.window_.set_status("Undo applied", "success")
+        return True
+
     # ── document ──
     _src_path = ""
 
@@ -1583,10 +2040,12 @@ class WorkspacePage(ToolPage):
         if doc is None:
             self.view.show_page(None)
             self.page_label.setText("–")
-            return
-        self.view.show_page(doc[self._pg])
-        self.page_label.setText(f"{self._pg + 1} / {len(doc)}")
-        self.draw_overlay(doc[self._pg])
+        else:
+            self.view.show_page(doc[self._pg])
+            self.page_label.setText(f"{self._pg + 1} / {len(doc)}")
+            self.draw_overlay(doc[self._pg])
+        if self.thumbs is not None:
+            self._sync_strip()
 
     def _wheel_zoomed(self, z: float):
         # Ctrl+wheel set the view's zoom without rendering: move the slider
@@ -2001,8 +2460,8 @@ CUT_ROLE = Qt.UserRole + 2      # True: the grid is cut after this item
 GAP_PX = 10                 # how near a cell's edge a click counts as the gap
 
 
-def _thumb_delegate():
-    """Paints an organiser item: the page centred in THUMB_BOX with a hairline
+def _thumb_delegate(thumb_box=THUMB_BOX):
+    """Paints an organiser item: the page centred in *thumb_box* with a hairline
     border, its label under it; selected = accent border on a tinted backing,
     hover = a faint backing.  (qfluentwidgets' ListWidget delegate paints
     list rows only, clipping icons in IconMode.)"""
@@ -2012,7 +2471,7 @@ def _thumb_delegate():
 
     class ThumbDelegate(QStyledItemDelegate):
         def sizeHint(self, option, index):
-            return QSize(THUMB_BOX[0] + 24, THUMB_BOX[1] + 40)
+            return QSize(thumb_box[0] + 24, thumb_box[1] + 40)
 
         def paint(self, p, option, index):
             p.save()
@@ -2043,9 +2502,9 @@ def _thumb_delegate():
                 p.setBrush(bg)
                 p.drawRoundedRect(QRectF(r), 6, 6)
             icon = index.data(Qt.DecorationRole)
-            box = QRect(r.x() + (r.width() - THUMB_BOX[0]) // 2, r.y() + 8, *THUMB_BOX)
+            box = QRect(r.x() + (r.width() - thumb_box[0]) // 2, r.y() + 8, *thumb_box)
             if icon is not None and not icon.isNull():
-                pm = icon.pixmap(QSize(*THUMB_BOX))
+                pm = icon.pixmap(QSize(*thumb_box))
                 dpr = pm.devicePixelRatio() or 1
                 w, h = int(pm.width() / dpr), int(pm.height() / dpr)
                 img = QRect(box.x() + (box.width() - w) // 2,
@@ -2077,6 +2536,148 @@ def _thumb_delegate():
             p.restore()
 
     return ThumbDelegate()
+
+
+def _thumb_icon_of(img, box):
+    """A rendered page (QImage) as an icon no larger than *box*."""
+    from PySide6.QtGui import QIcon, QPixmap
+    pm = QPixmap.fromImage(img)
+    if pm.width() > box[0] or pm.height() > box[1]:
+        pm = pm.scaled(*box, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    return QIcon(pm)
+
+
+class ThumbList(QListWidget):
+    """The editors' page strip (WorkspacePage page_strip=True): a thumbnail
+    per page, its key the page's index, labelled "p.N"; drawn a few per
+    event-loop turn while can_render() allows; multi-selectable.  A drag
+    emits moved(keys in their new order) once the drop is over.
+
+        load(n, render, icons)  render(key) -> QImage; icons: key -> QIcon kept
+        refresh(keys)   draw these again, first
+        show_row(i, keep_selection, select)   page i current (and selected)"""
+
+    moved = Signal(list)
+
+    def __init__(self, box=STRIP_THUMB, can_render=lambda: True, parent=None):
+        from PySide6.QtCore import QSize
+        super().__init__(parent)
+        self._box = box
+        self._can_render = can_render
+        self.setObjectName("thumbStrip")
+        self.setStyleSheet("QListWidget#thumbStrip { background: transparent; border: none; }")
+        self._delegate = _thumb_delegate(box)       # Qt does not own a Python delegate
+        self.setItemDelegate(self._delegate)
+        self.setMouseTracking(True)
+        self.viewport().setAttribute(Qt.WA_Hover, True)
+        self.setViewMode(QListView.IconMode)
+        self.setResizeMode(QListView.Adjust)
+        self.setWrapping(True)
+        self.setUniformItemSizes(True)
+        self.setSpacing(2)
+        self.setIconSize(QSize(*box))
+        self.setGridSize(QSize(box[0] + 24, box[1] + 40))
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setMovement(QListView.Snap)
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._render = None
+        self._queue: list = []
+        self._timer = QTimer(self, interval=0)
+        self._timer.timeout.connect(self._render_some)
+        self._move_due = False
+        self.model().rowsMoved.connect(self._rows_moved)
+
+    def load(self, n: int, render, icons: dict | None = None):
+        self._timer.stop()
+        self._queue = []
+        self.clear()
+        self._render = render
+        icons = icons or {}
+        for k in range(n):
+            it = QListWidgetItem(f"p.{k + 1}")
+            it.setData(Qt.UserRole, k)
+            it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            it.setFlags(it.flags() | Qt.ItemIsDragEnabled)
+            if k in icons:
+                it.setIcon(icons[k])
+            self.addItem(it)
+        self._queue = [self.item(k) for k in range(n) if k not in icons]
+        if self._queue:
+            self._timer.start()
+
+    def clear_pages(self):
+        self._timer.stop()
+        self._queue = []
+        self.clear()
+
+    def refresh(self, keys):
+        want = [self.item(k) for k in keys if 0 <= k < self.count()]
+        self._queue = want + [it for it in self._queue if all(it is not w for w in want)]
+        if self._queue:
+            self._timer.start()
+
+    def _render_some(self):
+        if not self._can_render():
+            self._timer.setInterval(100)        # a job has the document: wait, idly
+            return
+        self._timer.setInterval(0)
+        for _ in range(THUMBS_PER_TICK):
+            if not self._queue:
+                self._timer.stop()
+                return
+            it = self._queue.pop(0)
+            if self._render is None or self.row(it) < 0:
+                continue
+            try:
+                it.setIcon(_thumb_icon_of(self._render(it.data(Qt.UserRole)), self._box))
+            except Exception:
+                pass                            # a page that cannot be drawn keeps its placeholder
+
+    def rendering(self) -> bool:
+        return bool(self._queue)
+
+    def keys(self) -> list:
+        return [self.item(i).data(Qt.UserRole) for i in range(self.count())]
+
+    def selected_rows(self) -> list[int]:
+        return sorted(self.row(it) for it in self.selectedItems())
+
+    def icons(self) -> dict:
+        out = {}
+        for i in range(self.count()):
+            it = self.item(i)
+            if not it.icon().isNull():
+                out[it.data(Qt.UserRole)] = it.icon()
+        return out
+
+    def show_row(self, i: int, keep_selection: bool = False, select=None):
+        it = self.item(i)
+        if it is None:
+            return
+        if select is not None:
+            self.clearSelection()
+            for r in select or [i]:
+                x = self.item(r)
+                if x is not None:
+                    x.setSelected(True)
+        elif not keep_selection and not it.isSelected():
+            self.clearSelection()
+            it.setSelected(True)
+        self.setCurrentItem(it, QItemSelectionModel.NoUpdate)
+        self.scrollToItem(it)
+
+    def _rows_moved(self, *_):
+        # After the drop, not inside it: the receiver rebuilds the list.
+        if not self._move_due:
+            self._move_due = True
+            QTimer.singleShot(0, self, self._emit_moved)
+
+    def _emit_moved(self):
+        self._move_due = False
+        self.moved.emit(self.keys())
 
 
 class OrganiserPage(ToolPage):

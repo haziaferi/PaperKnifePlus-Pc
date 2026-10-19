@@ -11,13 +11,13 @@ from PySide6.QtGui import QImage
 
 from ...core import organise
 from ...core.doc_state import can_append
-from ...pages import ranges_text
 from .. import dialogs, theme
-from ..pages import HeldDoc, OrganiserPage, ask_keep_password, register_page
+from ..pages import (KEEP_ONE, HeldDoc, OrganiserPage, ask_keep_password, delete_question,
+                     register_page)
 
-# Scored winners (phase10/rotate_score.py, owner 2026-10-17).
+# Scored winners (phase10/rotate_score.py, owner 2026-10-17); KEEP_ONE and
+# the delete question are shared with the editors' page strip.
 SUBTITLE = "Select pages · then rotate, move, delete or extract them"
-KEEP_ONE = "A PDF needs at least one page: keep one or more."
 THUMB_ZOOM = 0.28           # thumbnail render scale
 
 
@@ -121,12 +121,7 @@ class RotatePage(HeldDoc, OrganiserPage):
         if len(rows) == self.grid.count():
             return                          # Delete is off then; the bar says why
         order = self.order()
-        nums = sorted(order[r] + 1 for r in rows)
-        what = (f"page {nums[0]}" if len(nums) == 1 else
-                f"pages {nums[0]} and {nums[1]}" if len(nums) == 2 else
-                "pages " + ranges_text([n - 1 for n in nums]))
-        if not dialogs.ask_yes_no("Delete pages",
-                                  f"Delete {what}? Undo brings them back until you save."):
+        if not dialogs.ask_yes_no("Delete pages", delete_question(order[r] + 1 for r in rows)):
             return
         for r in sorted(rows, reverse=True):
             self.grid.takeItem(r)

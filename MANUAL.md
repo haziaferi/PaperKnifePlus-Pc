@@ -108,6 +108,8 @@ Every tool page has its title at the top left and its main action (the accent bu
 
 Read / Preview, Edit Text, Find & Replace, Annotate and Redact open as a document workspace: a tool rail at the left (not in Read / Preview), the page in the centre with page arrows and **Zoom** under it, and a context panel at the right. Drag the panel's edge to resize it (220–480 px), double-click the edge or use the panel's hide / show buttons to toggle it.
 
+Edit Text, Find & Replace, Annotate and Redact also show the document's pages as thumbnails in a strip between the rail and the page. Click a thumbnail to go to its page; `Ctrl`- or `Shift`-click to select several; drag thumbnails to move those pages. **Pages** in the rail shows **Rotate left**, **Rotate right** and **Delete** for the selected pages in the panel; choosing another tool in the rail brings its panel back. **Delete** asks first, and is off while every page is selected (a PDF keeps at least one page). The rail's **Undo** and `Ctrl+Z` step back through edits and page changes in the order they were made, and **Save** writes the pages in their new order with the edits. The strip resizes like the panel (120–240 px) and closes with its hide button, a double-click on its edge, or a drag below its narrowest; the button at the left of the page arrows opens it again. Whether it is open is remembered.
+
 **Compact Mode** (`Ctrl+Alt+C`) hides the navigation pane, the page header and the context panel; moving the pointer to the left, top or right edge of the window brings each back. The title bar hides and comes back when the pointer reaches the top edge (set the environment variable `PK_TITLEBAR=always` to keep it shown). The window's size, position and maximized state are restored at the next start.
 
 **Crash recovery.** While a tool holds unsaved edits (Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate, Redact), PaperKnife+ PC keeps a copy of them in its data folder (Section 7), refreshed within 10 seconds of a change. Saving, **Discard** and a normal exit remove the copy. If the app closes without that — a crash, a power cut, the process ended — the next start asks **Recover unsaved changes?** and lists each file with its tool and the time of the copy: **Recover** opens each in its tool with the edits shown as unsaved, and **Discard** deletes the copies. Closing the question asks it again at the next start. For Rotate & Reorder, Bookmarks / TOC and Metadata the copy holds only the edits, so the file must still be where it was; the copy of a password-protected PDF keeps its password, which is asked again on Recover.
@@ -142,27 +144,26 @@ The OCR tool requires the Tesseract OCR engine to be installed separately. Paper
 
 ## 5. Tools Reference
 
-The navigation pane lists 26 tools in five groups, with Preferences at the bottom.
+The navigation pane lists 25 tools in five groups, with Preferences at the bottom.
 
 | Group | Tool | What it does | § |
 |---|---|---|---|
 | Read | Read / Preview | Continuous-scroll, view-only PDF viewer | 5.1 |
 | Organise | Merge | Combine PDFs, with optional page ranges per file | 5.2 |
-| | Split | Extract page ranges, or every page, to separate files | 5.3 |
-| | Rotate & Reorder | Rotate or move pages on a thumbnail grid | 5.4 |
-| | Split by Bookmarks | One file per bookmark (chapter) | 5.5 |
+| | Split | Cut a PDF into files at page ranges or bookmarks | 5.3 |
+| | Rotate & Reorder | Rotate, move, delete or extract pages on a thumbnail grid | 5.4 |
 | | Bookmarks / TOC | Edit the PDF's bookmark (outline) tree | 5.6 |
 | | Batch | Compress, Watermark, OCR, or PDF → TXT on every PDF in a folder | 5.7 |
 | Enhance | Password | Add, change, or remove an AES-256 password | 5.11 |
 | | Compress | Clean and deflate; optionally downsample images | 5.8 |
-| | Watermark | Diagonal text watermark on every page | 5.9 |
-| | Normalise Pages | Resize every page to a standard paper size | 5.10 |
+| | Watermark | Diagonal text watermark on the selected pages | 5.9 |
+| | Normalise Pages | Resize the selected pages to a standard paper size | 5.10 |
 | | Header / Footer | Stamp page numbers, text, or the date in a margin | 5.13 |
 | | Crop / Trim | Cut margins from the crop box | 5.12 |
 | | PDF Tools | Repair a damaged PDF | 5.14 |
 | Convert | Image → PDF | Images to a PDF, one page per image | 5.21 |
-| | PDF → Images | Every page as a PNG, in a ZIP | 5.22 |
-| | Extract Images | Save the embedded images to a folder | 5.23 |
+| | PDF → Images | The selected pages as PNGs, in a ZIP | 5.22 |
+| | Extract Images | Save the embedded images of the selected pages to a folder | 5.23 |
 | | PDF → Doc / Text | Export to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX, PNG, or JPEG | 5.24 |
 | | Doc / Text → PDF | Convert TXT, HTML, XML, RTF, DOCX, PPTX, XLSX, PNG, or JPEG to PDF | 5.25 |
 | Content | Edit Text | Edit a text block in place | 5.16 |
@@ -177,11 +178,13 @@ A tool that works on one PDF uses the current document (Section 4.1): open one w
 
 Merge, Image → PDF and Batch keep their lists (Batch its folders) while you move around; adding files to them does not change the current document, and a finished job empties them.
 
-After a job that writes one PDF, or a save to a new file in an editor, a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Split by Bookmarks, Extract Images, Batch) or a file that is not a PDF (PDF → Images, PDF → Doc / Text) ask nothing, and the current document stays.
+After a job that writes one PDF, or a save to a new file in an editor, a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Extract Images, Batch) or a file that is not a PDF (PDF → Images, PDF → Doc / Text) ask nothing, and the current document stays.
 
 Unsaved edits in Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact are never dropped silently: leaving the tool, opening another document, **✕**, **Start over** and closing the window ask "Save changes to *name*?" with **Save** (the step goes on once the file is saved), **Discard** and **Cancel**.
 
 Page ranges, where a tool accepts them, are written like `1-3, 5, 8-end`. A range that names a page the document does not have, or runs backwards, is refused with a message before anything is written.
+
+Crop / Trim, Header / Footer, Watermark, Normalise Pages, PDF → Images, PDF → Doc / Text, Extract Images and OCR show the document's pages as thumbnails in the centre, with the tool's settings in the column at the right. Every page starts selected. Click pages to choose them (`Ctrl` / `Shift` for several, **All pages** for every one); a page left out is veiled. The **Apply to** field in the **Pages** card follows the selection (`all`, or its ranges), and a range typed there selects its pages. With no page selected the main action is off and the bar says "Select at least one page." The tool works on the selected pages only; the others are written unchanged (PDF → Images, PDF → Doc / Text and Extract Images write only the selected pages, under their own page numbers).
 
 A password-protected PDF asks for its open password when it is opened. The password stays with the open document only: it is forgotten when the document is closed, and asked again the next time. When a new PDF is written from a document opened with a password, the app asks whether the new file keeps it; Merge asks only when every protected input has the same open password.
 
@@ -191,12 +194,13 @@ A view-only viewer of the current document: open a PDF with the document bar's *
 
 ### 5.2 Merge
 
-Merge combines two or more PDF files into a single output document. Files are processed in the order shown in the list.
+Merge combines two or more PDF files into a single output document. The centre shows every page of the merged result, in its order, with each file's pages under its name; the file list sits in the column at the right.
 
-- Click **Add PDFs** (or `Ctrl+O`) to add files, or drop PDFs onto the list.
-- Click a file to select it, then use **Up / Down** (or `Alt+Up` / `Alt+Down`) to reorder or **Remove** (or `Delete`) to remove it.
-- Optionally enter a page range in each file's range field; blank includes all pages.
-- Click **Merge** and choose an output path.
+- Click **Add PDFs** (or `Ctrl+O`) to add files, or drop PDFs onto the page. A file is read when it is added (a protected one asks for its password once).
+- Select pages in the strip and click **Leave out** to leave them out of the merge (they stay in place, veiled) or **Put back** to include them again. Drag pages to a new place, also between files: the strip's order is what is merged.
+- Click a file in the list, then use **Up / Down** (or `Alt+Up` / `Alt+Down`) to move it, which gathers its pages together, or **Remove** (or `Delete`) to remove it.
+- A file's range field shows the pages it contributes; typing a range there includes those pages, in that order.
+- Click **Merge** and choose an output path. With every page left out, **Merge** is off and the bar says so.
 
 The list stays while you visit other tools and empties after a finished merge.
 
@@ -204,20 +208,22 @@ The merged file has a top-level bookmark for each input, named after its file, w
 
 ### 5.3 Split
 
-Split extracts pages from a PDF into separate files in a folder you choose.
+Split cuts a PDF into separate files in a folder you choose. The pages are shown as thumbnails; the parts to be written are shaded in two alternating tones and listed under **Parts** in the column at the right.
 
-- Enter comma-separated page ranges (e.g., `1-3, 5, 7-9`); each range becomes one file.
-- Leave the field blank to write one PDF per page.
+- Under **Cut at**, choose **Page ranges**, **Bookmarks, top level** or **Bookmarks, all levels** (the bookmark choices are off for a PDF without bookmarks). With bookmarks, each chosen bookmark starts a file that runs to the next one; bookmarks that point to no page are skipped and counted in the result message.
+- In the range field, a semicolon separates files and a comma lists pages within one: `1-3; 4, 6; 7-end` writes three files. Leave it blank to write one PDF per page.
+- Click the gap between two thumbnails to cut there, or click a cut again to join the parts.
+- Select pages and click **Selected pages to one part** to make a file of pages from anywhere in the document; the rest of their parts stays as it was.
 
 Each part keeps what belongs to its pages: the bookmarks, form fields, links and page labels that go with them, and the document's properties, XMP, layers and attachments.
 
 ### 5.4 Rotate & Reorder
 
-Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. Click **Save PDF** to write the result; the file keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
+Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. **Delete** removes the selected pages after asking; it is off while every page is selected. **Extract to a new PDF** writes the selected pages, as turned, to a new file and leaves the document as it is. **Undo** (or `Ctrl+Z`) steps back through turns, moves, drags and deletes until you save. Click **Save PDF** to write the result; the file keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
 
 ### 5.5 Split by Bookmarks
 
-Open a PDF to see its bookmarks (the first 60 are listed), choose **Top-level only (level 1)** or **All bookmark levels** under **Split at**, click **Split**, and pick an output folder. Each chosen bookmark starts a new file that runs to the next one. Bookmarks that point to no page are skipped and counted in the result message.
+Split by Bookmarks is now part of Split (Section 5.3): choose a bookmark level under **Cut at**.
 
 ### 5.6 Bookmarks / TOC
 
@@ -248,11 +254,11 @@ Text and vector content are kept in every level. If the output is not smaller th
 
 ### 5.9 Watermark
 
-Enter the text, then set the font size (18–120 pt), opacity (5–100 %), and colour (**Pick…**). The text is drawn at 45° through the centre of every page and shrunk if needed to fit inside the page.
+Enter the text, then set the font size (18–120 pt), opacity (5–100 %), and colour (**Pick…**). The text is drawn at 45° through the centre of each selected page and shrunk if needed to fit inside the page.
 
 ### 5.10 Normalise Pages
 
-Choose a target size (A4, A3, A5, Letter, Legal, Tabloid), an orientation (Portrait, Landscape, or Keep original), and **Fit** (keep ratio) or **Stretch** (fill page). Each page is redrawn onto a new page of that size.
+Choose a target size (A4, A3, A5, Letter, Legal, Tabloid), an orientation (Portrait, Landscape, or Keep original), and **Fit** (keep ratio) or **Stretch** (fill page). Each selected page is redrawn onto a new page of that size; the others are kept as they are.
 
 ### 5.11 Password
 
@@ -267,11 +273,11 @@ The password fields are emptied at every end of an attempt (the job ended, the s
 
 ### 5.12 Crop / Trim
 
-Enter how much to cut from each edge, in points (72 pt = 1 inch = 25.4 mm), and optionally a page range (blank = all pages). Turn on **Reset to full media box first** to undo earlier crops. Margins are measured on the page as displayed, also on rotated pages. There is no preview.
+Enter how much to cut from each edge, in points (72 pt = 1 inch = 25.4 mm), and choose the pages on the grid or in **Apply to**. Turn on **Reset to full media box first** to undo earlier crops. Margins are measured on the page as displayed, also on rotated pages. There is no preview.
 
 ### 5.13 Header / Footer
 
-Choose one of six positions on the page outline (top or bottom; left, centre, or right), enter the text — `{page}`, `{total}`, and `{date}` are replaced — and set the font (Helvetica, Times Roman, Courier), size, margin in points, and an optional page range.
+Choose one of six positions on the page outline (top or bottom; left, centre, or right), enter the text — `{page}`, `{total}`, and `{date}` are replaced — and set the font (Helvetica, Times Roman, Courier), size and margin in points; choose the pages on the grid or in **Apply to**.
 
 ### 5.14 PDF Tools
 
@@ -279,7 +285,7 @@ Choose one of six positions on the page outline (top or bottom; left, centre, or
 
 ### 5.15 OCR
 
-Runs Tesseract on each page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract (see Section 4.3).
+Runs Tesseract on each selected page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract (see Section 4.3).
 
 - **Language code:** must match the document language. It starts with the code from Preferences; change it per run.
 - **Render DPI:** higher values give better accuracy at the cost of time; it starts at the Preferences DPI (limited to 72–400). 300 DPI is recommended for standard documents.
@@ -300,7 +306,7 @@ Pick one of seven tools on the rail — **Highlight**, **Underline**, **Strikeou
 
 ### 5.19 Redact
 
-Choose **Draw box** on the rail and drag boxes over content, or choose **Find & redact text**, type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. The panel lists the pending boxes: **Remove** (or `Delete`) drops the selected one, and the rail's **Undo last** (or `Ctrl+Z`) the last one added. **Apply and save** asks for confirmation and a file name, then permanently removes the text, image pixels and drawings under the boxes, plus any annotations or form fields they touch. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
+Choose **Draw box** on the rail and drag boxes over content, or choose **Find & redact text**, type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. The panel lists the pending boxes: **Remove** (or `Delete`) drops the selected one, and the rail's **Undo last** (or `Ctrl+Z`) the last one added. With no box drawn but pages moved, turned or deleted in the page strip, **Apply and save** asks "Save the page changes? No redaction boxes are drawn." and writes the file. **Apply and save** asks for confirmation and a file name, then permanently removes the text, image pixels and drawings under the boxes, plus any annotations or form fields they touch. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
 
 ### 5.20 Metadata
 
@@ -312,11 +318,11 @@ Add JPG, PNG, WEBP, BMP, TIFF, or GIF images with **Add Images** (or drop them o
 
 ### 5.22 PDF → Images
 
-Every page is rendered as a PNG at the chosen DPI (72–300, starting at the Preferences DPI) and saved into one ZIP file with **Export as ZIP**.
+Each selected page is rendered as a PNG at the chosen DPI (72–300, starting at the Preferences DPI) and saved into one ZIP file with **Export as ZIP**.
 
 ### 5.23 Extract Images
 
-Saves every embedded image of at least the **Minimum dimension** (default 50 px) to a folder, in its original format (**Keep original**) or converted to PNG or JPEG.
+Saves every embedded image of the selected pages of at least the **Minimum dimension** (default 50 px) to a folder, in its original format (**Keep original**) or converted to PNG or JPEG.
 
 ### 5.24 PDF → Doc / Text
 
@@ -347,7 +353,7 @@ Click **Save Preferences** (or `Ctrl+S`) to keep changes; **Restore defaults** r
 |---|---|
 | `Ctrl + O` | Open: the file dialog for the current document, as the document bar's **Open** (Section 4.1); add files in Merge and Image → PDF; choose the input folder in Batch; choose the file in Doc / Text → PDF |
 | `Ctrl + S` | Save in Rotate & Reorder, Bookmarks / TOC, Edit Text, Find & Replace, Annotate, Redact (**Apply and save**, after confirmation), Metadata, and Preferences; other tools ignore it |
-| `Ctrl + Z` | Undo in Edit Text, Find & Replace, Annotate, and Redact |
+| `Ctrl + Z` | Undo in Rotate & Reorder, Edit Text, Find & Replace, Annotate, and Redact (edits and page changes, last first) |
 | `Delete` | Remove the selected file (Merge, Image → PDF), annotation (Annotate), pending box (Redact), or bookmark (Bookmarks / TOC); ignored while typing in a field |
 | `Alt + Up` / `Alt + Down` | Move the selected file up / down in Merge and Image → PDF |
 | `Ctrl + K` | Focus the navigation search box |
@@ -467,6 +473,7 @@ Apart from the operation you invoke, the only file content read is the first pag
 
 ### v4.0.0 — current
 
+- **New:** the pages are on screen. Merge shows the merged pages in one strip (leave pages out, put them back, drag them between files); Split cuts at page ranges or bookmarks on a thumbnail grid (Split by Bookmarks is now part of it, and `;` separates files in a range); the page-range tools pick their pages on a grid kept in step with the range field (Watermark, Normalise Pages, PDF → Images, PDF → Doc / Text, Extract Images and OCR gain a page choice); Rotate & Reorder gains **Delete**, **Extract to a new PDF** and **Undo**; Edit Text, Find & Replace, Annotate and Redact gain a page strip to go to, move, turn and delete pages, with one Undo for edits and page changes.
 - **Changed:** the interface moves from CustomTkinter to PySide6 (Qt 6) with QFluentWidgets, in the Windows 11 Fluent style: a navigation pane with the tools in groups and a search box; document workspaces (tool rail, page, context panel) for Read / Preview, Edit Text, Find & Replace, Annotate and Redact; settings-style cards for the single-file tools; the main action at the top right of every page.
 - **Changed:** Windows neutrals with an Oxford blue accent as the colour scheme; its text colours meet WCAG AA contrast (4.5:1) in light and dark mode.
 - **Changed:** every coloured status line starts with ✓, ⚠ or ✗, so its state is not told by colour alone.

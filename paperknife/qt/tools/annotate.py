@@ -29,7 +29,8 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
     saved_what = "Annotated PDF"
 
     def __init__(self, tool=None, window=None):
-        super().__init__("Annotate", "Open a PDF to start", tool=tool, window=window)
+        super().__init__("Annotate", "Open a PDF to start", tool=tool, window=window,
+                         page_strip=True)
         self.kind = "highlight"
         self.color = (1.0, 1.0, 0.0)
         self.opacity = 60
@@ -38,6 +39,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self._undo_stack: list = []
         for key, (name, _desc) in TOOLS.items():
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
+        self.add_pages_tool()
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.primary("Save", self.save)
@@ -112,12 +114,16 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
 
     def appends_only(self) -> bool:
         """Annotations only added: a save over the file appends them; one
-        removed (its text would stay readable in the file) writes it whole."""
-        return not self._removed
+        removed (its text would stay readable in the file), or a page
+        deleted, writes it whole."""
+        return not (self._removed or self._pages_cut)
 
     def on_page(self):
         self.sel_xref = None
         self.build_panel()
+
+    def remap_pages(self, mapping, turned):
+        self.sel_xref = None
 
     def clear_document(self):
         self._undo_stack, self.sel_xref = [], None
@@ -160,14 +166,20 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
     def undo(self):
         if self._doc is None:
             return
-        while self._undo_stack:
+        # Annotations added since the last page change come off one by one;
+        # then the page change itself (one Undo for both, owner 2026-10-18).
+        while self._undo_stack and not self.page_step_on_top():
             pg_num, xref = self._undo_stack.pop()
             page = self._doc[pg_num]
             annot = core_annotate.by_xref(page, xref)
             if annot is not None:
                 page.delete_annot(annot)
                 self._dirty = self._removed = True
+                self.strip_refresh([pg_num])
                 break
+        else:
+            if self.undo_page_change():
+                return
         self.show_current()
 
     def delete(self):

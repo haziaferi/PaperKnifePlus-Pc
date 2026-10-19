@@ -9,6 +9,8 @@ is left as it was and listed after the job."""
 from __future__ import annotations
 
 
+import dataclasses
+
 import pymupdf as fitz
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QListWidgetItem
@@ -19,7 +21,7 @@ from ...core import text as core_text
 from .. import dialogs, theme
 from ..pages import WorkspaceDoc, WorkspacePage, register_page
 
-GLYPH_UNDO = 0xE7A7          # Segoe Fluent Icons
+GLYPH_UNDO, GLYPH_FIND = 0xE7A7, 0xE721       # Segoe Fluent Icons
 # Current hit, other hits, hit outline; the fills are see-through so the
 # text under a hit stays readable.
 HIT_CUR, HIT, HIT_EDGE = "#80FFD700", "#80FFFACD", "#CCCCCC"
@@ -32,12 +34,18 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
     saved_what = "PDF"
 
     def __init__(self, tool=None, window=None):
-        super().__init__("Find & Replace", "Open a PDF to start", tool=tool, window=window)
+        super().__init__("Find & Replace", "Open a PDF to start", tool=tool, window=window,
+                         page_strip=True)
         self._undo_stack: list = []
         self._hits: list = []           # (page_num, [rect per line of the match])
         self._hit_idx = -1
         self.skips: list = []           # reflow.Skip of the last Replace All
+        # Its own tool, so the panel comes back from Pages (owner, 2026-10-18).
+        self.add_rail("find", GLYPH_FIND, "Find & Replace", lambda _=False: self.mark_rail("find"))
+        self.add_pages_tool()
+        self.add_rail_gap()
         self.add_rail("undo", GLYPH_UNDO, "Undo (Ctrl+Z)", self.undo, toggle=False)
+        self.mark_rail("find")
         self.secondary("Find All", self.find_all)
         self.secondary("Replace All", self.replace_all)
         self.primary("Save", self.save)
@@ -121,6 +129,25 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self._show_skips([])
         super().clear_document()
 
+    # ── page changes (the page strip): hits and skips follow their pages ────
+    def page_state(self):
+        return list(self._hits), self._hit_idx, list(self.skips), self.hit_label.text()
+
+    def restore_page_state(self, state):
+        self._hits, self._hit_idx, skips, label = state
+        self._show_skips(skips)
+        self.hit_label.setText(label)
+
+    def remap_pages(self, mapping, turned):
+        # A turned page's hits are in its old page space: they go.
+        hits = [(mapping[pg], rects) for pg, rects in self._hits
+                if mapping.get(pg) is not None and pg not in turned]
+        if hits != self._hits:
+            self._hits, self._hit_idx = hits, (0 if hits else -1)
+            self.hit_label.setText(f"Found {len(hits)} hit(s)" if hits else "")
+        self._show_skips([dataclasses.replace(s, page=mapping[s.page]) for s in self.skips
+                          if mapping.get(s.page) is not None])
+
     # ── search ───────────────────────────────────────────────────────────────
     def find_all(self):
         if self._doc is None:
@@ -203,6 +230,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
                     self._dirty = True
                 self._hits, self._hit_idx = [], -1
                 self._show_skips(res.skips)
+                self.strip_refresh()
                 left = len(res.skips)
                 self.hit_label.setText(f"Replaced {res.done} occurrence(s)"
                                        + (f" · {left} left as they were:" if left else ""))
@@ -244,7 +272,10 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
 
     # ── undo / save ──────────────────────────────────────────────────────────
     def undo(self):
-        """Restores the whole document as it was before the last Replace All."""
+        """Restores the whole document as it was before the last Replace All
+        (or the last page change, whichever came last)."""
+        if self.undo_page_change():
+            return
         if not self._undo_stack or self._doc is None:
             return
         self._pop_undo()
