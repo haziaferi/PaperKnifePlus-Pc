@@ -2241,9 +2241,16 @@ class CollectionRow(QWidget):
         h.addLayout(texts, 1)
         self.note = muted_caption("")
         self.note.hide()
-        h.addWidget(self.note, 0, Qt.AlignVCenter)
-        if extra is not None:
-            h.addWidget(extra, 0, Qt.AlignVCenter)
+        if getattr(page, "rows_stacked", False):
+            # a narrow column (structure prototype, PK_DETAILS=right): the note and
+            # the control under the name
+            texts.addWidget(self.note)
+            if extra is not None:
+                texts.addWidget(extra, 0, Qt.AlignLeft)
+        else:
+            h.addWidget(self.note, 0, Qt.AlignVCenter)
+            if extra is not None:
+                h.addWidget(extra, 0, Qt.AlignVCenter)
         self.set_selected(False)
 
     def set_number(self, n: int):

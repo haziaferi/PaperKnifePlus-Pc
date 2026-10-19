@@ -274,6 +274,8 @@ class MainWindow(FluentWindow):
         self._build_shortcuts()
         self._build_timers()
         self.titleBar.installEventFilter(self)
+        from . import structure
+        structure.install_left(self)        # a structure prototype's navigation shape
 
         self._stale_parts = _remove_stale_parts(PREFS.get(STALE_PARTS_KEY, []))
 
@@ -588,6 +590,7 @@ class MainWindow(FluentWindow):
         self._ctx_revealed = False
         self.stackedWidget.setCurrentWidget(self._hosts[key], popOut=False)
         self.navigationInterface.setCurrentItem(key)
+        structure.follow_left(self, key, page)
         if changed:
             if self.compact:
                 page.set_compact(True)
@@ -1090,7 +1093,7 @@ class MainWindow(FluentWindow):
         if on:
             self.hBoxLayout.removeWidget(nav)
             nav.hide()
-        else:
+        elif not getattr(self, "_nav_gone", False):   # (a prototype without the column)
             self.hBoxLayout.insertWidget(0, nav)
             nav.show()
         page = self.current_page()
@@ -1132,7 +1135,7 @@ class MainWindow(FluentWindow):
         tb = self.titleBar
         if self._anims.get("top") and self._anims["top"].state() == QPropertyAnimation.Running:
             return
-        x = 0 if self.compact else 46
+        x = 0 if (self.compact or getattr(self, "_nav_gone", False)) else 46
         y = 0 if (self._top_shown or not self._autohide_title) else -tb.height()
         tb.setGeometry(x, y, max(0, self.width() - x), tb.height())
         tb.raise_()

@@ -59,6 +59,24 @@ def windows_mode() -> str:
     return _env("PK_WINDOWS", ("one", "separate"), "one")
 
 
+def details() -> str:
+    """Where a chosen tool's details sit: the left pane, or a column at the right."""
+    return _env("PK_DETAILS", ("left", "right"), "left")
+
+
+def left_mode() -> str:
+    """The navigation: its column (nav), its icon strip (rail), merged into the left
+    column (merged), or a row across the top (tabs)."""
+    return _env("PK_LEFT", ("nav", "rail", "merged", "tabs"), "nav")
+
+
+# The details column at the right (owner, 2026-10-19: 200 px), and the tool list
+# beside the page when the details sit there.
+DETAILS_W = 200
+LIST_W = 200
+STACK_CONTROL_W = 96     # the widest minimum a stacked row's control keeps (a slider)
+
+
 def active() -> bool:
     """A re-hosting structure (not today's, nor the control's)."""
     return struct() in ("workspace", "purpose", "pdfx")
@@ -129,6 +147,74 @@ def _trim_top(area):
     lay = inner.layout() if inner is not None else None
     while lay is not None and lay.count() and isinstance(lay.itemAt(0), QSpacerItem):
         lay.takeAt(0)
+
+
+def _stack_rows(widget):
+    """A form's setting rows for the 200 px details column: the name above its
+    control (a narrow column takes another row, never a squeezed one).  A row
+    whose control is a radio button, a switch or a check box keeps it beside the
+    name: it is one mark."""
+    from PySide6.QtWidgets import QCheckBox, QRadioButton
+    from qfluentwidgets import SwitchButton
+    for row in widget.findChildren(QWidget, "settingRow"):
+        lay = row.layout()
+        if not isinstance(lay, QHBoxLayout):
+            continue
+        ctl = row.findChild(QWidget, "settingControl")
+        marks = ctl.findChildren(QWidget) if ctl is not None else []
+        if marks and all(isinstance(m, (QRadioButton, QCheckBox, SwitchButton)) or
+                         isinstance(m.parent(), (QRadioButton, QCheckBox, SwitchButton))
+                         for m in marks):
+            continue
+        items = []
+        while lay.count():
+            items.append(lay.takeAt(0))
+        m = lay.contentsMargins()
+        QWidget().setLayout(lay)            # the old layout leaves with a throwaway widget
+        v = QVBoxLayout(row)
+        v.setContentsMargins(m)
+        v.setSpacing(6)
+        for it in items:
+            w = it.widget()
+            if w is None:
+                continue
+            if w.objectName() == "settingControl":
+                for c in w.findChildren(QWidget):   # under the name: the column's width
+                    if c.minimumWidth() > STACK_CONTROL_W:
+                        c.setMinimumWidth(STACK_CONTROL_W)
+                v.addWidget(w, 0, Qt.AlignLeft)
+            else:
+                v.addWidget(w)
+
+
+def _wrap_buttons(card, buttons, width):
+    """Buttons of one row, at their own size, wrapped onto as many rows as the
+    width needs (the row that held them keeps the first ones)."""
+    first = buttons[0].parentWidget()
+    lay = first.layout()
+    for b in buttons:
+        lay.removeWidget(b)
+    while lay.count():                              # its trailing stretch
+        lay.takeAt(0)
+    rows, used, cur = [], 0, None
+    for b in buttons:
+        bw = b.sizeHint().width()
+        if cur is None or used + bw > width:
+            cur = lay if not rows else QHBoxLayout()
+            if rows:
+                w = QWidget(card)
+                m = lay.contentsMargins()
+                cur.setParent(None)
+                cur = QHBoxLayout(w)
+                cur.setContentsMargins(m.left(), 0, m.right(), m.bottom())
+                cur.setSpacing(lay.spacing())
+                card.layout().insertWidget(card.layout().indexOf(first) + len(rows), w)
+            rows.append(cur)
+            used = 0
+        cur.addWidget(b)
+        used += bw + lay.spacing()
+    for r in rows:
+        r.addStretch(1)
 
 
 def _narrow_rows(widget):
@@ -207,6 +293,8 @@ class StructureHost(QWidget):
         self.tool, self.window_ = tool, window
         self.groups = groups
         self.ribbon = picker() == "ribbon" and not self.files
+        # The details at the right (PK_DETAILS=right): the pane is only the list.
+        self.right = details() == "right" and not self.ribbon
         self._views: dict[str, _View] = {}
         self._current: str | None = None
         self._title = title
@@ -268,12 +356,13 @@ class StructureHost(QWidget):
         self.options_stack.addWidget(QWidget())
         if not self.ribbon:
             self.pane = QStackedWidget()
-            self.pane.setFixedWidth(FILES_LIST_W if self.files else PANE_W)
+            self.pane.setFixedWidth(LIST_W if self.right else
+                                    FILES_LIST_W if self.files else PANE_W)
             self.list_page = QWidget()
             lv = QVBoxLayout(self.list_page)
             lv.setContentsMargins(0, 0, 0, 0)
             lv.setSpacing(2)
-            if not self.files:
+            if not self.files and not self.right:
                 lv.addWidget(SubtitleLabel("All tools"))
                 lv.addSpacing(8)
             self.tool_list = self._tool_list(groups)
@@ -304,16 +393,17 @@ class StructureHost(QWidget):
                 self.group_lists.addWidget(gl)
             tv.addWidget(self.group_lists)
             tv.addSpacing(8)
-            tv.addWidget(self.options_stack, 1)
+            if not self.right:
+                tv.addWidget(self.options_stack, 1)
             self.pane.addWidget(self.tool_page)
             body.addWidget(self.pane)
         self.centre = QStackedWidget()
         # The centre gives way: the pane and the options keep their width.
         self.centre.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         body.addWidget(self.centre, 1)
-        if self.ribbon:
+        if self.ribbon or self.right:
             self.options_panel = QWidget()
-            self.options_panel.setFixedWidth(PANE_W)
+            self.options_panel.setFixedWidth(DETAILS_W if self.right else PANE_W)
             ov = QVBoxLayout(self.options_panel)
             ov.setContentsMargins(0, 0, 0, 0)
             ov.addWidget(self.options_stack, 1)
@@ -377,6 +467,17 @@ class StructureHost(QWidget):
     def tools(self) -> list[str]:
         return [t for _g, ts in self.groups for t in ts]
 
+    def _opt_w(self) -> int:
+        """The width of the options place: the right column, or the pane."""
+        return DETAILS_W if self.right else PANE_W
+
+    def _fit(self, area):
+        """A re-hosted form or settings column, fitted to the options place."""
+        _narrow_rows(area)
+        if self.right:
+            _stack_rows(area)
+        _trim_top(area)
+
     def _embed_page(self, key: str):
         page = self.window_.page_for(_registry()[key])
         page.header.hide()
@@ -397,10 +498,24 @@ class StructureHost(QWidget):
             sa = getattr(page, "settings_area", None)
             if sa is not None and not self.files:     # Files keeps each tool whole
                 sa.setParent(None)
-                sa.setFixedWidth(PANE_W)
-                _narrow_rows(sa)
-                _trim_top(sa)
+                sa.setFixedWidth(self._opt_w())
+                self._fit(sa)
                 options = sa
+            elif self.files and self.right:
+                # Files keeps each tool whole; its own details column (Batch's
+                # settings, Merge's file list) takes the details width.
+                if sa is not None:
+                    sa.setFixedWidth(DETAILS_W)
+                    self._fit(sa)
+                card = getattr(page, "list_card", None)
+                if card is not None and hasattr(page, "strip_card"):
+                    # Merge: its file list is the column at the right (the page
+                    # strip is its centre).  Up / Down / Remove keep their size
+                    # (owner, 2026-10-17): what does not fit takes another row.
+                    card.setFixedWidth(DETAILS_W)
+                    _wrap_buttons(card, [page.up_btn, page.down_btn, page.remove_btn],
+                                  DETAILS_W - 16)
+                page.rows_stacked = True
             elif (sa is None and not self.files and getattr(page, "_actions", None)
                     and not hasattr(page, "all_btn")):
                 # A page organiser's commands (Rotate & Reorder) go into the pane
@@ -414,7 +529,7 @@ class StructureHost(QWidget):
                     _pane_row(b)
                     bv.addWidget(b)
                 bv.addStretch(1)
-                box.setFixedWidth(PANE_W)
+                box.setFixedWidth(self._opt_w())
                 options = box
         elif isinstance(page, ToolPage):
             # A form: its cards are the options; the document shows in the viewer.
@@ -425,9 +540,8 @@ class StructureHost(QWidget):
             area.setParent(None)
             if hasattr(area, "setHorizontalScrollBarPolicy"):
                 area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            area.setFixedWidth(PANE_W)
-            _narrow_rows(area)
-            _trim_top(area)
+            area.setFixedWidth(self._opt_w())
+            self._fit(area)
             options = area
         if centre is not None:
             self.centre.addWidget(centre)
@@ -482,7 +596,7 @@ class StructureHost(QWidget):
         bv.addSpacing(8)
         bv.addWidget(panel, 1)
         panel.setMinimumWidth(0)
-        panel.setMaximumWidth(PANE_W)
+        panel.setMaximumWidth(self._opt_w())
         panel.layout().setContentsMargins(0, 0, 0, 0)
         # The rows and the panel scroll together when the window is short
         # (Annotate: ten tools and a panel in an 820 px window).
@@ -494,7 +608,7 @@ class StructureHost(QWidget):
         box.setObjectName("paneEditor")
         box.setStyleSheet("QWidget#paneEditor { background: transparent; }")
         area.setWidget(box)
-        area.setFixedWidth(PANE_W)
+        area.setFixedWidth(self._opt_w())
         return area
 
     def pick(self, key: str):
@@ -512,7 +626,7 @@ class StructureHost(QWidget):
         t = _registry().get(key)
         name = plain_label(t.label) if t else key
         self.title_label.setText(name)
-        if self.pane is not None and not self.files:     # Files' list stays shown
+        if self.pane is not None and not self.files and not self.right:
             gname = next(g for g, ts in self.groups if key in ts)
             self.pane_title.setText(gname)
             gl = self._group_list[gname]
@@ -522,10 +636,12 @@ class StructureHost(QWidget):
                 if gl.item(i).data(Qt.UserRole) == key:
                     gl.setCurrentRow(i)
             self.pane.setCurrentWidget(self.tool_page)
-        if self.pane is not None and self.files:
+        if self.pane is not None and (self.files or self.right):   # the list stays shown
             for i in range(self.tool_list.count()):
                 if self.tool_list.item(i).data(Qt.UserRole) == key:
                     self.tool_list.setCurrentRow(i)
+        if self.right:
+            self.options_panel.setVisible(view.options is not None)
         if self.ribbon:
             self.options_panel.setVisible(view.options is not None)
             for gname, gtools in self.groups:          # the tab the tool is on
@@ -545,7 +661,7 @@ class StructureHost(QWidget):
         self.centre.setCurrentWidget(self.viewer or self.centre.widget(0))
         self.action_slot.setCurrentIndex(0)
         self.title_label.setText(self._title)
-        if self.ribbon:
+        if self.ribbon or self.right:
             self.options_panel.hide()
 
     def current_tool(self):
@@ -721,6 +837,145 @@ class FilesWorkspace(StructureHost):
     def __init__(self, tool=None, window=None):
         os.environ.setdefault("PK_BATCH", "C")      # the folder jobs with full settings
         super().__init__("Files", [("", FILE_TOOLS)], tool=tool, window=window)
+
+
+# ── the navigation merged with the left pane (PK_LEFT; owner, 2026-10-19) ──
+PLACE_KEYS = ("home", "DocWorkspace", "FilesWorkspace")
+PREFS_KEY = "SettingsTool"
+
+
+def _place_rows(win, keys):
+    """The places as rows of the tool list's kind (icon, name; the current one
+    selected); a click goes there."""
+    from PySide6.QtWidgets import QAbstractItemView, QListWidgetItem
+    from qfluentwidgets import ListWidget
+
+    from .shell import DEFAULT_GLYPH, NAV_GLYPH
+    lst = ListWidget()
+    lst.setSelectionMode(QAbstractItemView.SingleSelection)
+    lst.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    for k in keys:
+        it = QListWidgetItem(theme.glyph_icon(NAV_GLYPH.get(k, DEFAULT_GLYPH), 16),
+                             win._labels.get(k, k))
+        it.setData(Qt.UserRole, k)
+        it.setSizeHint(QSize(0, ROW_H))
+        lst.addItem(it)
+    lst.setFixedHeight(sum(lst.sizeHintForRow(i) for i in range(lst.count()))
+                       + 2 * lst.frameWidth() + 4)
+    lst.itemClicked.connect(lambda it: win.show_page(it.data(Qt.UserRole)))
+    return lst
+
+
+def _prefs_button(win):
+    from .shell import DEFAULT_GLYPH, NAV_GLYPH
+    b = _row_button(False)(theme.glyph_icon(NAV_GLYPH.get(PREFS_KEY, DEFAULT_GLYPH), 16),
+                           win._labels.get(PREFS_KEY, "Preferences"))
+    b.clicked.connect(lambda: win.show_page(PREFS_KEY))
+    return b
+
+
+def install_left(win):
+    """Build the navigation's shape for PK_LEFT (nothing for nav)."""
+    mode = left_mode()
+    if not active() or mode == "nav":
+        return
+    nav = win.navigationInterface
+    if mode == "rail":
+        nav.setMinimumExpandWidth(10 ** 6)          # never expands: the icon strip
+        nav.panel.collapse()
+        return
+    win.hBoxLayout.removeWidget(nav)                # merged / tabs: no navigation column
+    nav.hide()
+    win._nav_gone = True
+    keys = [k for k in PLACE_KEYS if k in win._labels]
+    if mode == "merged":
+        col = QWidget()
+        col.setObjectName("mergedColumn")
+        col.setFixedWidth((LIST_W if details() == "right" else PANE_W) + 16)
+        cv = QVBoxLayout(col)
+        cv.setContentsMargins(12, 8, 4, 8)
+        cv.setSpacing(4)
+        win.search.setParent(col)
+        win.search.setCompacted(False)              # the field, not the nav's icon
+        win.search.setFixedHeight(36)
+        cv.addWidget(win.search)
+        places = _place_rows(win, keys)
+        cv.addWidget(places)
+        slot = QStackedWidget()
+        slot.addWidget(QWidget())                   # Home, Preferences: nothing below
+        cv.addWidget(slot, 1)
+        prefs = _prefs_button(win)
+        _pane_row(prefs)
+        cv.addWidget(prefs)
+        win.hBoxLayout.insertWidget(0, col)
+        win._left = {"mode": mode, "column": col, "places": places, "slot": slot}
+    else:                                           # tabs: one row across the top
+        bar = QWidget()
+        bar.setObjectName("placeBar")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(PAGE_MARGINS[0], 6, PAGE_MARGINS[2], 0)
+        h.setSpacing(8)
+        tabs = Pivot(bar)
+        for k in keys:
+            tabs.addItem(k, win._labels.get(k, k), lambda _=False, key=k: win.show_page(key))
+        h.addWidget(tabs)
+        h.addStretch(1)
+        win.search.setParent(bar)
+        win.search.setCompacted(False)
+        win.search.setFixedSize(240, 36)
+        h.addWidget(win.search)
+        h.addWidget(_prefs_button(win))
+        win.body.layout().insertWidget(0, bar)
+        win._left = {"mode": mode, "bar": bar, "tabs": tabs}
+    # The search filters the tools where they are listed (the pane), as it does
+    # the navigation's entries.
+    win.search.edit.textChanged.connect(lambda q: _filter_lists(win, q))
+
+
+def _filter_lists(win, q):
+    q = q.strip().lower()
+    for page in win._pages.values():
+        lst = getattr(page, "tool_list", None)
+        if lst is None:
+            continue
+        head, shown = None, 0
+        for i in range(lst.count()):
+            it = lst.item(i)
+            if not it.data(Qt.UserRole):            # a group's heading
+                if head is not None:
+                    head.setHidden(bool(q) and not shown)
+                head, shown = it, 0
+                continue
+            vis = not q or q in it.text().lower()
+            it.setHidden(not vis)
+            shown += vis
+        if head is not None:
+            head.setHidden(bool(q) and not shown)
+
+
+def follow_left(win, key, page):
+    """The shown place selected in the places; merged: the place's tools under them."""
+    left = getattr(win, "_left", None)
+    if left is None:
+        return
+    if left["mode"] == "merged":
+        places = left["places"]
+        for i in range(places.count()):
+            if places.item(i).data(Qt.UserRole) == key:
+                places.setCurrentRow(i)
+                break
+        else:
+            places.clearSelection()
+        slot = left["slot"]
+        pane = getattr(page, "pane", None) if isinstance(page, StructureHost) else None
+        if pane is not None:
+            if slot.indexOf(pane) < 0:
+                slot.addWidget(pane)                # the host's list moves into the column
+            slot.setCurrentWidget(pane)
+        else:
+            slot.setCurrentIndex(0)
+    elif key in PLACE_KEYS:
+        left["tabs"].setCurrentItem(key)
 
 
 def matching_tools(q: str) -> list[str]:
