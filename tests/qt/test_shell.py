@@ -92,7 +92,7 @@ def test_home_first_and_preferences_at_bottom(window):
 def test_labels_have_no_emoji(window):
     assert window._labels["CompressTool"] == "Compress"
     assert window._labels["EditTextTool"] == "Edit Text"
-    assert window._labels["Img2PdfTool"] == "Image → PDF"
+    assert window._labels["Img2PdfTool"] == "Other → PDF"
 
 
 def test_search_filters_by_label_and_hides_empty_groups(window):
@@ -102,7 +102,7 @@ def test_search_filters_by_label_and_hides_empty_groups(window):
     assert not headers["Enhance"].isHidden()
     assert headers["Organise"].isHidden()
     window.search.edit.setText("PDF")
-    assert set(window.visible_tools()) >= {"Img2PdfTool", "Pdf2ImgTool", "PdfToolsTool"}
+    assert set(window.visible_tools()) >= {"Img2PdfTool", "Pdf2DocTool", "PdfToolsTool"}
     window.clear_search()
     assert len(window.visible_tools()) == len(TOOLS)
     assert all(not h.isHidden() for h in headers.values())

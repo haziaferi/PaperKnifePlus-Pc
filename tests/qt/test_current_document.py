@@ -8,7 +8,7 @@ from qt_harness import make_pdf, pump, wait_job
 
 SINGLE_INPUT = ["CompressTool", "SplitTool", "PasswordTool", "PdfToolsTool", "CropTool",
                 "WatermarkTool", "NormaliseTool", "HeaderFooterTool", "OCRTool",
-                "Pdf2ImgTool", "ExtractTool", "Pdf2DocTool", "TocTool", "RotateTool",
+                "ExtractTool", "Pdf2DocTool", "TocTool", "RotateTool",
                 "MetadataTool", "AnnotateTool", "EditTextTool",
                 "FindReplaceTool", "RedactTool", "ReaderTool"]
 # The eight that cleared their input on leave (memory inventory, behaviour 2).

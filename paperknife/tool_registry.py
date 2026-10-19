@@ -34,11 +34,9 @@ TOOL_REGISTRY: tuple[ToolEntry, ...] = (
     ToolEntry('HeaderFooterTool', 'ENHANCE', '📋  Header / Footer'),
     ToolEntry('CropTool', 'ENHANCE', '✂   Crop / Trim'),
     ToolEntry('PdfToolsTool', 'ENHANCE', '🔧  PDF Tools'),
-    ToolEntry('Img2PdfTool', 'CONVERT', '🖼   Image → PDF'),
-    ToolEntry('Pdf2ImgTool', 'CONVERT', '📸  PDF → Images'),
+    ToolEntry('Img2PdfTool', 'CONVERT', '🖼   Other → PDF'),       # Image → PDF + Doc / Text → PDF (owner, 2026-10-18)
     ToolEntry('ExtractTool', 'CONVERT', '🖼   Extract Images'),
-    ToolEntry('Pdf2DocTool', 'CONVERT', '📄  PDF → Doc / Text'),
-    ToolEntry('Doc2PdfTool', 'CONVERT', '📤  Doc / Text → PDF'),
+    ToolEntry('Pdf2DocTool', 'CONVERT', '📄  PDF → Other'),       # PDF → Doc / Text + PDF → Images
     ToolEntry('EditTextTool', 'CONTENT', '✏️   Edit Text'),
     ToolEntry('FindReplaceTool', 'CONTENT', '🔍  Find & Replace'),
     ToolEntry('AnnotateTool', 'CONTENT', '📝  Annotate'),

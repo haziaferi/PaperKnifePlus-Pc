@@ -1,4 +1,5 @@
-"""The Qt PDF → Doc / Text page."""
+"""The Qt PDF → Other page (PDF → Doc / Text, with PDF → Images folded in:
+owner, 2026-10-18)."""
 import io
 import zipfile
 
@@ -278,3 +279,14 @@ def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path, monkeypat
     _convert(window, dialogs, page, "TXT", make_pdf(tmp_path / "in.pdf"), tmp_path / "o.txt")
     assert window.show_page("home")
     assert opened and all(d.is_closed for d in opened)
+
+
+def test_named_pdf_to_other_and_the_dpi_defaults_from_preferences(window, monkeypatch):
+    # PDF → Images's own checks, folded in with its screen (owner, 2026-10-18).
+    from paperknife.prefs import PREFS
+    monkeypatch.setitem(PREFS._data, "default_dpi", 200)
+    assert window.open_tool("Pdf2DocTool")
+    page = window.current_page()
+    assert page.title_label.text() == "PDF → Other"
+    assert window._labels["Pdf2DocTool"] == "PDF → Other"
+    assert int(page.dpi_slider.value()) == 200

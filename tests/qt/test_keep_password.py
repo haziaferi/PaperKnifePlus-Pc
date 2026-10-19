@@ -130,9 +130,10 @@ def test_an_owner_password_only_input_asks_nothing(window, dialogs, tmp_path):
 
 
 def test_a_non_pdf_output_asks_nothing(window, dialogs, tmp_path):
-    page = _tool(window, "Pdf2ImgTool")
+    page = _tool(window, "Pdf2DocTool")
     dialogs.passwords.append(OPEN_PW)             # asked when the file opens
     page.file.set_path(_locked(tmp_path / "in.pdf", pages=1))
+    page.fmt.setCurrentText("PNG")
     dialogs.save(tmp_path / "pages.zip")
     page.run()
     wait_job(window)

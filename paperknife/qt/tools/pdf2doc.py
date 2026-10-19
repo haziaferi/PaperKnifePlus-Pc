@@ -1,6 +1,7 @@
-"""PDF → Doc / Text — the selected pages to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX or
-page images.  The pages are on screen (owner, 2026-10-17: the page-range tools
-show the document's pages); the options sit in the column at the right."""
+"""PDF → Other — the selected pages to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX or
+page images (PDF → Doc / Text, with PDF → Images folded in: owner, 2026-10-18).
+The pages are on screen (owner, 2026-10-17: the page-range tools show the
+document's pages); the options sit in the column at the right."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -45,8 +46,8 @@ QUALITY_RANGE, QUALITY_DEFAULT = (50, 100), 92
 class Pdf2DocPage(PagePickPage):
     def __init__(self, tool=None, window=None):
         super().__init__(
-            "PDF → Doc / Text",
-            "Export a PDF to TXT · HTML · DOCX · PPTX · XLSX · XML · RTF · PNG · JPEG",
+            "PDF → Other",
+            "Export the selected pages to TXT · HTML · DOCX · PPTX · XLSX · XML · RTF · PNG · JPEG",
             tool=tool, window=window)
         s = self.settings
         s.addWidget(group_title("Output"))

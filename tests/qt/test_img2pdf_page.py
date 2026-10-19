@@ -1,4 +1,5 @@
-"""The Qt Image → PDF page: a collection of images into one PDF (group D)."""
+"""Images into Other → PDF (Image → PDF until 2026-10-18): a collection into one PDF
+(group D).  Its documents: test_doc2pdf_page.py."""
 import threading
 
 import pymupdf as fitz
@@ -31,14 +32,14 @@ def test_the_page_builds_as_a_collection_without_settings(window):
     from paperknife.qt.pages import CollectionPage
     page = _page(window)
     assert isinstance(page, CollectionPage)
-    assert page.settings is None and page.add_btn.text() == "Add Images"
+    assert page.settings is None and page.add_btn.text() == "Add Files"
     assert page.paths() == [] and page.empty_label.isVisibleTo(page)
 
 
-def test_without_images_it_warns(window, dialogs):
+def test_without_files_it_warns(window, dialogs):
     page = _page(window)
     page.run()
-    assert dialogs.msgs[-1] == ("warning", "Convert", "Add images first.")
+    assert dialogs.msgs[-1] == ("warning", "Convert", "Add files first.")
 
 
 def test_images_become_one_page_each_in_list_order(window, dialogs, tmp_path):
@@ -64,7 +65,7 @@ def test_images_become_one_page_each_in_list_order(window, dialogs, tmp_path):
         r, g, bl = doc[1].get_pixmap(alpha=False).pixel(10, 10)
         assert r > 200 and g < 60 and bl < 60          # the red one is second
     assert dialogs.msgs[-1] == ("info", "Done", f"PDF saved:\n{out}")
-    assert window.status_text() == "✓  Converted 3 image(s) → out.pdf"
+    assert window.status_text() == "✓  Converted 3 file(s) → out.pdf"
     assert window.status_role == "success"
 
 
@@ -83,10 +84,10 @@ def test_transparent_png_gets_white_background(window, dialogs, tmp_path):
 def test_a_dropped_image_is_taken_and_other_files_refused(window, tmp_path):
     page = _page(window)
     img = _image(tmp_path / "x.webp", (40, 40), (10, 20, 30))
-    txt = tmp_path / "x.txt"
-    txt.write_text("x", encoding="utf-8")
+    other = tmp_path / "x.doc"
+    other.write_text("x", encoding="utf-8")
     pdf = make_pdf(tmp_path / "x.pdf")
-    assert page.accept_drop(str(txt)) is False
+    assert page.accept_drop(str(other)) is False
     assert page.accept_drop(pdf) is False
     assert page.accept_drop(img) is True and page.paths() == [img]
 
@@ -100,12 +101,12 @@ def test_cancelling_the_save_dialog_writes_nothing(window, dialogs, tmp_path):
 
 
 def test_a_stopped_conversion_leaves_no_file(tmp_path):
-    from paperknife.core.convert import images_to_pdf
+    from paperknife.core.convert import files_to_pdf
     stop = threading.Event()
     stop.set()
     out = tmp_path / "o.pdf"
-    assert images_to_pdf([_image(tmp_path / "a.png", (30, 30), (0, 0, 0))],
-                         str(out), stop) is False
+    assert files_to_pdf([_image(tmp_path / "a.png", (30, 30), (0, 0, 0))],
+                        str(out), stop) is None
     assert not out.exists() and not list(tmp_path.glob("*.part"))
 
 

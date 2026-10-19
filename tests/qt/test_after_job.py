@@ -100,13 +100,14 @@ def test_an_editor_saving_over_its_own_file_asks_nothing(window, dialogs, tmp_pa
     assert page.offer_bar() is None and _same(window.current_document, src)
 
 
-@pytest.mark.parametrize("tool", ["SplitTool", "ExtractTool", "Pdf2ImgTool"])
+@pytest.mark.parametrize("tool", ["SplitTool", "ExtractTool", "Pdf2DocTool"])
 def test_jobs_with_several_outputs_ask_nothing(window, dialogs, tmp_path, tool):
     src = image_pdf(tmp_path / "in.pdf") if tool == "ExtractTool" else make_pdf(tmp_path / "in.pdf")
     page = _open(window, tool, src)
     outdir = tmp_path / "out"
     outdir.mkdir()
-    if tool == "Pdf2ImgTool":
+    if tool == "Pdf2DocTool":
+        page.fmt.setCurrentText("PNG")          # PDF → Images until 2026-10-18
         dialogs.save(str(outdir / "pages.zip"))
     else:
         dialogs.dirs.append(str(outdir))

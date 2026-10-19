@@ -70,8 +70,8 @@ NAV_GLYPH: dict[str, int] = {
     "BatchTool": 0xE81E, "CompressTool": 0xE7B8, "WatermarkTool": 0xE790,
     "NormaliseTool": 0xE740, "OCRTool": 0xE8D2, "PasswordTool": 0xE72E,
     "HeaderFooterTool": 0xE7C3, "CropTool": 0xE7A8, "PdfToolsTool": 0xE90F,
-    "Img2PdfTool": 0xE8B9, "Pdf2ImgTool": 0xEB9F, "ExtractTool": 0xE7C5,
-    "Pdf2DocTool": 0xE8A5, "Doc2PdfTool": 0xE8E5, "EditTextTool": 0xE70F,
+    "Img2PdfTool": 0xE8B9, "ExtractTool": 0xE7C5,
+    "Pdf2DocTool": 0xE8A5, "EditTextTool": 0xE70F,
     "FindReplaceTool": 0xE721, "AnnotateTool": 0xE7E6, "RedactTool": 0xE7AB,
     "MetadataTool": 0xE946, "SettingsTool": 0xE713,
 }

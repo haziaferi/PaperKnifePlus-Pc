@@ -10,7 +10,7 @@ from PySide6.QtCore import QPoint
 
 from qt_harness import make_pdf, pump
 
-NO_FOLLOW = {"MergeTool", "Img2PdfTool", "BatchTool", "SettingsTool", "Doc2PdfTool"}
+NO_FOLLOW = {"MergeTool", "Img2PdfTool", "BatchTool", "SettingsTool"}
 CHIP_MIN = 2 * 80           # the chip name's least room: twice the 80 px of before
 WORKSPACES = ["ReaderTool", "AnnotateTool", "EditTextTool", "FindReplaceTool", "RedactTool"]
 
