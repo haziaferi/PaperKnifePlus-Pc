@@ -28,8 +28,7 @@ from qfluentwidgets import (Pivot, SubtitleLabel, TitleLabel,
 
 from . import theme
 from .pages import (PAGE_MARGINS, SETTINGS_W, CollectionPage, MasterDetailPage, OrganiserPage,
-                    ToolPage, WorkspacePage, icon_button, muted_caption, plain_label,
-                    register_page)
+                    ToolPage, WorkspacePage, icon_button, muted_caption, plain_label)
 
 PANE_W = SETTINGS_W      # the pane is as wide as every screen's settings column
 
@@ -513,6 +512,18 @@ class StructureHost(QWidget):
         return self._hook("delete")
 
 
+# The hosts are pages only in a structure: kept apart from pages.QT_PAGES (the
+# screens of today's navigation), the shell's page_for looks here for them.
+HOSTS: dict[str, type] = {}
+
+
+def _host(key: str):
+    def deco(cls):
+        HOSTS[key] = cls
+        return cls
+    return deco
+
+
 # ── PDF X's separate windows (PK_WINDOWS=separate) ──
 _windows: dict = {}
 
@@ -546,7 +557,7 @@ def show_separate(window, key: str, page):
     return w
 
 
-@register_page("DocWorkspace")
+@_host("DocWorkspace")
 class DocWorkspace(StructureHost):
     def __init__(self, tool=None, window=None):
         super().__init__("Document" if struct() != "pdfx" else "Editor", GROUPS,
@@ -556,7 +567,7 @@ class DocWorkspace(StructureHost):
 def _purpose(key):
     group = PURPOSE_HOSTS[key]
 
-    @register_page(key)
+    @_host(key)
     class PurposeWorkspace(StructureHost):
         def __init__(self, tool=None, window=None):
             super().__init__(group, [(group, dict(GROUPS)[group])], tool=tool, window=window)
@@ -568,7 +579,7 @@ for _k in PURPOSE_HOSTS:
     _purpose(_k)
 
 
-@register_page("FilesWorkspace")
+@_host("FilesWorkspace")
 class FilesWorkspace(StructureHost):
     """The jobs on many files in one screen (PDF X's Converter): Merge, Other →
     PDF, and the folder jobs (Batch with each tool's full settings)."""
@@ -578,3 +589,17 @@ class FilesWorkspace(StructureHost):
     def __init__(self, tool=None, window=None):
         os.environ.setdefault("PK_BATCH", "C")      # the folder jobs with full settings
         super().__init__("Files", [("", FILE_TOOLS)], tool=tool, window=window)
+
+
+def matching_tools(q: str) -> list[str]:
+    """The workspace tools whose label holds *q* (lower case); none outside a
+    re-hosting structure (today's navigation lists every tool itself)."""
+    if not q or not active():
+        return []
+    reg = _registry()
+    out = []
+    for t in ONE_DOC + FILE_TOOLS + ["ReaderTool"]:
+        e = reg.get(t)
+        if e is not None and q in plain_label(e.label).lower() and host_for(t):
+            out.append(t)
+    return out

@@ -520,7 +520,11 @@ class MainWindow(FluentWindow):
     # ══════════════════════════════════════════════════════════════════════════
     def page_for(self, tool) -> QWidget:
         """The Qt page for *tool*: its registered class."""
-        return pages.QT_PAGES[tool.name](tool, self)
+        cls = pages.QT_PAGES.get(tool.name)
+        if cls is None:                     # a structure prototype's workspace host
+            from . import structure
+            cls = structure.HOSTS[tool.name]
+        return cls(tool, self)
 
     def _ensure_page(self, key: str) -> QWidget:
         page = self._pages.get(key)
@@ -724,11 +728,16 @@ class MainWindow(FluentWindow):
         no titles, shows every icon."""
         q = self.search.edit.text().strip().lower()
         icons = self.navigationInterface.panel.displayMode == NavigationDisplayMode.COMPACT
+        from . import structure
+        # In a structure prototype the tools live in workspaces: a search for a
+        # tool shows the workspace that holds it (the reference apps' Ctrl+K).
+        hosting = {structure.host_for(t) for t in structure.matching_tools(q)} if q else set()
         for section, header, keys in self._sections:
             folded = header is not None and section in self._folded
             shown = 0
             for k in keys:
-                vis = (q in self._labels[k].lower()) if q else (icons or not folded)
+                vis = (q in self._labels[k].lower() or k in hosting) if q \
+                    else (icons or not folded)
                 self._items[k].setVisible(vis)
                 shown += vis
             if header is not None:
@@ -776,6 +785,11 @@ class MainWindow(FluentWindow):
     def _open_first_match(self):
         q = self.search.edit.text().strip()
         if not q:
+            return
+        from . import structure
+        tools = structure.matching_tools(q.lower())
+        if tools:                           # a tool in a workspace: open it there
+            self.show_page(tools[0])
             return
         vis = self.visible_tools()
         if vis:
