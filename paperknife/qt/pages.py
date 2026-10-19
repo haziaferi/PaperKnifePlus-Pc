@@ -1578,11 +1578,12 @@ class WorkspacePage(ToolPage):
         top = QHBoxLayout()
         top.addWidget(SubtitleLabel(title))
         top.addStretch(1)
-        hide = icon_button(theme.glyph_icon(0xE76C, 14))
-        hide.setToolTip("Hide panel")
-        hide.clicked.connect(lambda: self.show_context(False))
-        top.addWidget(hide)
-        self._panel_hide_btn = hide
+        if not self.panel_hosted:
+            hide = icon_button(theme.glyph_icon(0xE76C, 14))
+            hide.setToolTip("Hide panel")
+            hide.clicked.connect(lambda: self.show_context(False))
+            top.addWidget(hide)
+            self._panel_hide_btn = hide
         bv.addLayout(top)
         if desc:
             d = muted_caption(desc)
@@ -1602,6 +1603,8 @@ class WorkspacePage(ToolPage):
         return _field_row(self.panel_body, label)
 
     def _clamp(self, *_):
+        if self.panel_hosted:
+            return
         w = self.split.sizes()[1]
         if 0 < w < PANEL_MIN:
             self.show_context(False)
@@ -1622,12 +1625,14 @@ class WorkspacePage(ToolPage):
         return True
 
     def context_shown(self) -> bool:
-        return self.split.sizes()[1] > 0
+        return self.panel_hosted or self.split.sizes()[1] > 0
 
     def context_width(self) -> int:
         return self.split.sizes()[1]
 
     def show_context(self, on: bool):
+        if self.panel_hosted:                   # in a host's pane: always shown
+            return
         target = self._panel_w if on else 0
         # One slide at a time: a second call within SLIDE_MS takes over from
         # where the running one is instead of fighting it over setSizes.
@@ -1660,6 +1665,7 @@ class WorkspacePage(ToolPage):
     _strip_doc = None       # the document the strip shows (None: load it again)
     _pages_box = None
     _pages_hide_btn = None
+    panel_hosted = False    # the context panel moved into a host's pane (structure.py)
     _pages_changed = False  # pages moved, turned or deleted since the file was opened
     _pages_cut = False      # pages deleted since the file was opened (a save writes it whole)
 

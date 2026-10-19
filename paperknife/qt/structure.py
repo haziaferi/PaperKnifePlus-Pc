@@ -21,16 +21,21 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
-from qfluentwidgets import (Pivot, SubtitleLabel, TitleLabel,
+from qfluentwidgets import (Pivot, StrongBodyLabel, SubtitleLabel, TitleLabel,
                             TransparentPushButton)
 
 from . import theme
 from .pages import (PAGE_MARGINS, SETTINGS_W, CollectionPage, MasterDetailPage, OrganiserPage,
-                    ToolPage, WorkspacePage, icon_button, muted_caption, plain_label)
+                    ToolPage, WorkspacePage, muted_caption, plain_label)
 
-PANE_W = SETTINGS_W      # the pane is as wide as every screen's settings column
+# The pane, measured on the reference apps (owner, 2026-10-19): PdfCraft 272,
+# Affinity's studio 264, Stirling 296, Acrobat 299 px; median about 284.  Every
+# re-hosted settings column takes it (same place, same size).
+PANE_W = 284
+FILES_LIST_W = 200       # Files' list of jobs: a narrow column (PDF X's Converter)
+_ = SETTINGS_W           # (today's column width, for comparison)
 
 
 def _env(name: str, allowed, default: str) -> str:
@@ -116,6 +121,16 @@ def _registry():
     return {t.name: t for t in TOOL_REGISTRY}
 
 
+def _trim_top(area):
+    """A page body's leading space (it sat under the page's title) goes: in the
+    pane the options start right under the group's tools, as an editor's do."""
+    from PySide6.QtWidgets import QSpacerItem
+    inner = area.widget() if hasattr(area, "widget") else area
+    lay = inner.layout() if inner is not None else None
+    while lay is not None and lay.count() and isinstance(lay.itemAt(0), QSpacerItem):
+        lay.takeAt(0)
+
+
 def _narrow_rows(widget):
     """A form's setting rows, made for a page's width (a fixed name column),
     fitted to the pane as a settings column's rows are (column_setting_row):
@@ -133,6 +148,46 @@ def _narrow_rows(widget):
             lay.takeAt(1)
         for lbl in texts.findChildren(QLabel):
             lbl.setWordWrap(True)
+    # A control keeps no more than PANE_CONTROL_W of its page minimum: the row's
+    # name wraps first, then the control gives way, and the row fits the pane.
+    for ctl in widget.findChildren(QWidget, "settingControl"):
+        for c in ctl.findChildren(QWidget):
+            if c.minimumWidth() > PANE_CONTROL_W:
+                c.setMinimumWidth(PANE_CONTROL_W)
+
+
+ROW_H = 36      # a row in the pane: a tool, a command
+PANE_CONTROL_W = 120    # the widest minimum a form control keeps in the pane
+
+
+def _pane_row(btn):
+    """A command in the pane, read as a row of the tool list above it: full width,
+    ROW_H tall, icon and text at the left; checked = the list's selected tint (the
+    accent fill stays for the main action)."""
+    from qfluentwidgets import setCustomStyleSheet
+
+    def qss(dark):
+        tint = theme.hex_color("tint_selected", dark)
+        fg = theme.hex_color("fluent_text", dark)
+        pad = 12 if btn.icon().isNull() else 12 + 16 + 10    # after the icon
+        return (f"QPushButton{{text-align:left;padding-left:{pad}px;}}"
+                f"QPushButton:checked,QPushButton:checked:hover,QPushButton:checked:pressed"
+                f"{{background-color:{tint};border:none;color:{fg};}}")
+    btn.setMinimumHeight(ROW_H)
+    btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    theme.keep_styled(btn, lambda b: setCustomStyleSheet(b, qss(False), qss(True)))
+
+
+def _row_button(toggle: bool):
+    """A transparent (toggle) button whose icon sits at the left edge: with no
+    minimum width hint qfluentwidgets draws it at x = 12."""
+    from qfluentwidgets import TransparentTogglePushButton
+    base = TransparentTogglePushButton if toggle else TransparentPushButton
+
+    class Row(base):
+        def minimumSizeHint(self):
+            return QSize(0, super().minimumSizeHint().height())
+    return Row
 
 
 class _View:
@@ -159,24 +214,26 @@ class StructureHost(QWidget):
         v.setContentsMargins(*PAGE_MARGINS)
         v.setSpacing(0)
 
-        # Header: the title (the tool chosen), the document, the action
+        # Header, slim (no reference app has a page title): the document bar at
+        # the left, the tool's main action at the right, on one row.  The tool's
+        # name is on the pane.
         head = QHBoxLayout()
-        titles = QVBoxLayout()
-        titles.setSpacing(0)
-        self.title_label = TitleLabel(title)
+        self.title_label = TitleLabel(title)        # kept for the name, not shown
+        self.title_label.hide()
         self.subtitle_label = muted_caption("")
-        titles.addWidget(self.title_label)
-        titles.addWidget(self.subtitle_label)
+        self.subtitle_label.hide()
         self.doc_bar = None
         if not self.files:
             from . import docui
             self.doc_bar = docui.DocBar(window, self)
-            titles.addWidget(self.doc_bar)
-        head.addLayout(titles)
+            self.doc_bar.layout().setContentsMargins(0, 0, 0, 0)
+            head.addWidget(self.doc_bar, 0, Qt.AlignVCenter)
+        else:
+            head.addWidget(SubtitleLabel("Files"), 0, Qt.AlignVCenter)
         head.addStretch(1)
         self.action_slot = QStackedWidget()
         self.action_slot.addWidget(QWidget())
-        head.addWidget(self.action_slot, 0, Qt.AlignTop)
+        head.addWidget(self.action_slot, 0, Qt.AlignVCenter)
         v.addLayout(head)
         v.addSpacing(12)
 
@@ -211,27 +268,41 @@ class StructureHost(QWidget):
         self.options_stack.addWidget(QWidget())
         if not self.ribbon:
             self.pane = QStackedWidget()
-            self.pane.setFixedWidth(PANE_W)
+            self.pane.setFixedWidth(FILES_LIST_W if self.files else PANE_W)
             self.list_page = QWidget()
             lv = QVBoxLayout(self.list_page)
             lv.setContentsMargins(0, 0, 0, 0)
             lv.setSpacing(2)
-            lv.addWidget(SubtitleLabel("Files" if self.files else "All tools"))
-            lv.addSpacing(8)
+            if not self.files:
+                lv.addWidget(SubtitleLabel("All tools"))
+                lv.addSpacing(8)
             self.tool_list = self._tool_list(groups)
             lv.addWidget(self.tool_list, 1)
             self.pane.addWidget(self.list_page)
+            # A tool chosen: "All tools", its group's tools (the chosen one
+            # highlighted, a click switches: no back step), then its options.
             self.tool_page = QWidget()
             tv = QVBoxLayout(self.tool_page)
             tv.setContentsMargins(0, 0, 0, 0)
-            top = QHBoxLayout()
-            self.back_btn = icon_button(theme.glyph_icon(0xE72B, 14))
-            self.back_btn.setToolTip("All tools")
+            tv.setSpacing(4)
+            self.back_btn = TransparentPushButton(theme.glyph_icon(0xE72B, 12), "All tools")
             self.back_btn.clicked.connect(self.back)
+            top = QHBoxLayout()
             top.addWidget(self.back_btn)
-            self.pane_title = SubtitleLabel("")
-            top.addWidget(self.pane_title, 1)
+            top.addStretch(1)
             tv.addLayout(top)
+            self.pane_title = StrongBodyLabel("")       # the group's name
+            tv.addWidget(self.pane_title)
+            self.group_lists = QStackedWidget()
+            self._group_list = {}
+            for gname, gtools in groups:
+                gl = self._tool_list([("", gtools)])
+                gl.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+                gl.setFixedHeight(sum(gl.sizeHintForRow(i) for i in range(gl.count()))
+                                  + 2 * gl.frameWidth() + 4)
+                self._group_list[gname] = gl
+                self.group_lists.addWidget(gl)
+            tv.addWidget(self.group_lists)
             tv.addSpacing(8)
             tv.addWidget(self.options_stack, 1)
             self.pane.addWidget(self.tool_page)
@@ -298,6 +369,7 @@ class StructureHost(QWidget):
                 it = QListWidgetItem(theme.glyph_icon(NAV_GLYPH.get(t, DEFAULT_GLYPH), 16),
                                      plain_label(e.label) if e else t)
                 it.setData(Qt.UserRole, t)
+                it.setSizeHint(QSize(0, ROW_H))
                 lst.addItem(it)
         lst.itemClicked.connect(lambda it: it.data(Qt.UserRole) and self.pick(it.data(Qt.UserRole)))
         return lst
@@ -317,10 +389,7 @@ class StructureHost(QWidget):
         if isinstance(page, WorkspacePage):
             centre = page                               # an editor: the page
             if self.pane is not None and not self.files:
-                # Its rail (the tool's own commands) goes into the pane.
-                rail = page.rail.parentWidget()
-                rail.setParent(None)
-                options = rail
+                options = self._editor_options(page)
         elif isinstance(page, MasterDetailPage):
             centre = page                               # an outline: the page
         elif isinstance(page, (OrganiserPage, CollectionPage)):
@@ -329,6 +398,8 @@ class StructureHost(QWidget):
             if sa is not None and not self.files:     # Files keeps each tool whole
                 sa.setParent(None)
                 sa.setFixedWidth(PANE_W)
+                _narrow_rows(sa)
+                _trim_top(sa)
                 options = sa
             elif (sa is None and not self.files and getattr(page, "_actions", None)
                     and not hasattr(page, "all_btn")):
@@ -340,6 +411,7 @@ class StructureHost(QWidget):
                 bv.setSpacing(4)
                 for b in list(page._actions):
                     b.setParent(box)
+                    _pane_row(b)
                     bv.addWidget(b)
                 bv.addStretch(1)
                 box.setFixedWidth(PANE_W)
@@ -355,6 +427,7 @@ class StructureHost(QWidget):
                 area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             area.setFixedWidth(PANE_W)
             _narrow_rows(area)
+            _trim_top(area)
             options = area
         if centre is not None:
             self.centre.addWidget(centre)
@@ -364,6 +437,7 @@ class StructureHost(QWidget):
         ah = QHBoxLayout(actions)
         ah.setContentsMargins(0, 0, 0, 0)
         ah.setSpacing(8)
+        ah.addStretch(1)            # the buttons keep their size, at the right
         for b in list(page._buttons):
             b.setParent(actions)
             ah.addWidget(b)
@@ -371,6 +445,57 @@ class StructureHost(QWidget):
         view = _View(page, options, centre, actions)
         self._views[key] = view
         return view
+
+    def _editor_options(self, page):
+        """An editor's one options place, in the pane (PdfCraft's Edit, measured
+        2026-10-19): its rail's tools as labelled rows, then its context panel
+        (moved out of its splitter; an empty, shut placeholder keeps the
+        splitter's shape for the page's own code)."""
+        box = QWidget()
+        bv = QVBoxLayout(box)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(2)
+        rail = page.rail
+        for i in range(rail.count()):
+            w = rail.itemAt(i).widget()
+            if w is None or not hasattr(w, "pk_key"):
+                continue
+            icon = theme.glyph_icon(w.pk_glyph, 16)
+            text = w.toolTip().replace("&", "&&")
+            if w.isCheckable():
+                row = _row_button(True)(icon, text)
+                row.setChecked(w.isChecked())
+                w.toggled.connect(row.setChecked)
+                row.clicked.connect(lambda _=False, b=w, r=row: (b.click(), r.setChecked(b.isChecked())))
+            else:
+                row = _row_button(False)(icon, text)
+                row.clicked.connect(lambda _=False, b=w: b.click())
+            _pane_row(row)
+            bv.addWidget(row)
+        rail.parentWidget().hide()
+        page.panel_hosted = True                    # always shown: no hide / reopen
+        holder = QWidget()
+        holder.setMaximumWidth(0)
+        panel = page.split.replaceWidget(1, holder)
+        page.split.setSizes([1, 0])
+        page.reopen_btn.hide()
+        bv.addSpacing(8)
+        bv.addWidget(panel, 1)
+        panel.setMinimumWidth(0)
+        panel.setMaximumWidth(PANE_W)
+        panel.layout().setContentsMargins(0, 0, 0, 0)
+        # The rows and the panel scroll together when the window is short
+        # (Annotate: ten tools and a panel in an 820 px window).
+        from qfluentwidgets import SingleDirectionScrollArea
+        area = SingleDirectionScrollArea(orient=Qt.Vertical)
+        area.setWidgetResizable(True)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.enableTransparentBackground()
+        box.setObjectName("paneEditor")
+        box.setStyleSheet("QWidget#paneEditor { background: transparent; }")
+        area.setWidget(box)
+        area.setFixedWidth(PANE_W)
+        return area
 
     def pick(self, key: str):
         """Choose a tool: its options, centre and action show."""
@@ -388,7 +513,14 @@ class StructureHost(QWidget):
         name = plain_label(t.label) if t else key
         self.title_label.setText(name)
         if self.pane is not None and not self.files:     # Files' list stays shown
-            self.pane_title.setText(name)
+            gname = next(g for g, ts in self.groups if key in ts)
+            self.pane_title.setText(gname)
+            gl = self._group_list[gname]
+            self.group_lists.setCurrentWidget(gl)
+            self.group_lists.setFixedHeight(gl.height())   # this group's rows, not the tallest
+            for i in range(gl.count()):
+                if gl.item(i).data(Qt.UserRole) == key:
+                    gl.setCurrentRow(i)
             self.pane.setCurrentWidget(self.tool_page)
         if self.pane is not None and self.files:
             for i in range(self.tool_list.count()):
