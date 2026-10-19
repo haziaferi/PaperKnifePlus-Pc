@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (Pivot, SubtitleLabel, TitleLabel,
                             TransparentPushButton)
 
@@ -117,6 +117,25 @@ def _registry():
     return {t.name: t for t in TOOL_REGISTRY}
 
 
+def _narrow_rows(widget):
+    """A form's setting rows, made for a page's width (a fixed name column),
+    fitted to the pane as a settings column's rows are (column_setting_row):
+    the name takes the room the control leaves and wraps."""
+    from PySide6.QtWidgets import QLabel, QSpacerItem
+    for row in widget.findChildren(QWidget, "settingRow"):
+        lay = row.layout()
+        texts = lay.itemAt(0).widget() if lay.count() else None
+        if texts is None:
+            continue
+        texts.setMinimumWidth(0)
+        texts.setMaximumWidth(16777215)
+        lay.setStretchFactor(texts, 1)
+        if lay.count() > 1 and isinstance(lay.itemAt(1), QSpacerItem):
+            lay.takeAt(1)
+        for lbl in texts.findChildren(QLabel):
+            lbl.setWordWrap(True)
+
+
 class _View:
     """A tool page re-hosted: its options, centre and actions."""
 
@@ -177,7 +196,8 @@ class StructureHost(QWidget):
                     rh.addWidget(self._tool_button(t))
                 rh.addStretch(1)
                 self.tab_rows.addWidget(row)
-                self.tab_bar.addItem(name, name, lambda _=False, r=row: self.tab_rows.setCurrentWidget(r))
+                self.tab_bar.addItem(name, name.replace("&", "&&"),
+                                     lambda _=False, r=row: self.tab_rows.setCurrentWidget(r))
             if groups:
                 self.tab_bar.setCurrentItem(groups[0][0])
             v.addWidget(self.tab_bar)
@@ -218,6 +238,8 @@ class StructureHost(QWidget):
             self.pane.addWidget(self.tool_page)
             body.addWidget(self.pane)
         self.centre = QStackedWidget()
+        # The centre gives way: the pane and the options keep their width.
+        self.centre.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         body.addWidget(self.centre, 1)
         if self.ribbon:
             self.options_panel = QWidget()
@@ -247,7 +269,8 @@ class StructureHost(QWidget):
         from .shell import DEFAULT_GLYPH, NAV_GLYPH
         t = _registry().get(key)
         label = plain_label(t.label) if t else key
-        b = TransparentPushButton(theme.Glyph(NAV_GLYPH.get(key, DEFAULT_GLYPH)), label)
+        b = TransparentPushButton(theme.Glyph(NAV_GLYPH.get(key, DEFAULT_GLYPH)),
+                                  label.replace("&", "&&"))     # '&' shown, not a mnemonic
         b.setMinimumHeight(36)
         b.clicked.connect(lambda _=False, k=key: self.pick(k))
         self._buttons[key] = b
@@ -308,6 +331,20 @@ class StructureHost(QWidget):
                 sa.setParent(None)
                 sa.setFixedWidth(PANE_W)
                 options = sa
+            elif (sa is None and not self.files and getattr(page, "_actions", None)
+                    and not hasattr(page, "all_btn")):
+                # A page organiser's commands (Rotate & Reorder) go into the pane
+                # as full-width buttons, one per row (PdfCraft's Organize pages).
+                box = QWidget()
+                bv = QVBoxLayout(box)
+                bv.setContentsMargins(0, 0, 0, 0)
+                bv.setSpacing(4)
+                for b in list(page._actions):
+                    b.setParent(box)
+                    bv.addWidget(b)
+                bv.addStretch(1)
+                box.setFixedWidth(PANE_W)
+                options = box
         elif isinstance(page, ToolPage):
             # A form: its cards are the options; the document shows in the viewer.
             if page.drop_target is not None:
@@ -318,6 +355,7 @@ class StructureHost(QWidget):
             if hasattr(area, "setHorizontalScrollBarPolicy"):
                 area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             area.setFixedWidth(PANE_W)
+            _narrow_rows(area)
             options = area
         if centre is not None:
             self.centre.addWidget(centre)
@@ -353,8 +391,16 @@ class StructureHost(QWidget):
         if self.pane is not None and not self.files:     # Files' list stays shown
             self.pane_title.setText(name)
             self.pane.setCurrentWidget(self.tool_page)
+        if self.pane is not None and self.files:
+            for i in range(self.tool_list.count()):
+                if self.tool_list.item(i).data(Qt.UserRole) == key:
+                    self.tool_list.setCurrentRow(i)
         if self.ribbon:
             self.options_panel.setVisible(view.options is not None)
+            for gname, gtools in self.groups:          # the tab the tool is on
+                if key in gtools:
+                    self.tab_bar.setCurrentItem(gname)
+                    self.tab_rows.setCurrentIndex([g for g, _t in self.groups].index(gname))
         if self.window_ is not None and getattr(view.page, "follows_document", False):
             self.window_._follow(view.page)
         self._show_doc()
@@ -465,6 +511,39 @@ class StructureHost(QWidget):
 
     def delete(self):
         return self._hook("delete")
+
+
+# ── PDF X's separate windows (PK_WINDOWS=separate) ──
+_windows: dict = {}
+
+
+def separate(key: str) -> bool:
+    return (struct() == "pdfx" and windows_mode() == "separate"
+            and key in ("DocWorkspace", "FilesWorkspace"))
+
+
+def show_separate(window, key: str, page):
+    """The Editor or Files in a window of its own (PDF X opens them so)."""
+    from PySide6.QtCore import QPoint
+    w = _windows.get(key)
+    if w is None:
+        w = QWidget(None, Qt.Window)
+        w.setWindowTitle(f"PaperKnife+ PC — {'Editor' if key == 'DocWorkspace' else 'Files'}")
+        w.setObjectName("separateWindow")
+        w.setStyleSheet(f"QWidget#separateWindow {{ background: {theme.hex_color('layer')}; }}")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        page.setParent(w)
+        lay.addWidget(page)
+        page.show()
+        if window.testAttribute(Qt.WA_ShowWithoutActivating):
+            w.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        w.resize(window.size())
+        w.move(window.pos() + QPoint(40, 40))
+        _windows[key] = w
+    w.show()
+    w.raise_()
+    return w
 
 
 @register_page("DocWorkspace")

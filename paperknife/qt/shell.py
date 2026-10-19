@@ -571,6 +571,14 @@ class MainWindow(FluentWindow):
             if hasattr(old, "park_document"):
                 old.park_document()
         page = self._ensure_page(key)
+        from . import structure
+        if structure.separate(key):
+            # PDF X's split: the Editor and Files open in windows of their own.
+            structure.show_separate(self, key, page)
+            self._current_key = key
+            if follow:
+                self._follow(page)
+            return True
         changed = key != self._current_key
         self._current_key = key
         self._ctx_revealed = False
