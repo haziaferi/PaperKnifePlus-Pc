@@ -243,6 +243,10 @@ class MainWindow(FluentWindow):
             # Prototype B: the four tools take a folder; no Batch screen.
             tools = [t for t in TOOL_REGISTRY
                      if not (t.name == "BatchTool" and batch_prototype() == "B")]
+            from . import structure
+            if structure.active():
+                # Workspaces hold the tools (structure prototypes, owner 2026-10-18).
+                tools = structure.nav_tools(TOOL_REGISTRY)
         self.tools = list(tools)
 
         # State
@@ -540,6 +544,15 @@ class MainWindow(FluentWindow):
         unknown.  A page left with unsaved edits asks first; one left with
         the after-job question open counts it as Continue with it.  follow:
         a single-input page shown takes the current document."""
+        if key not in self._hosts and not self._locked:
+            # A structure prototype: the tool lives in a workspace host.
+            from . import structure
+            host = structure.host_for(key)
+            if host in self._hosts:
+                if not self.show_page(host, follow):
+                    return False
+                self.current_page().pick(key)
+                return True
         if self._locked or key not in self._hosts:
             if self._current_key:          # keep the selection on the shown page
                 self.navigationInterface.setCurrentItem(self._current_key)
@@ -569,6 +582,10 @@ class MainWindow(FluentWindow):
             if hasattr(page, "activate"):
                 page.activate()
             if follow:
+                from . import structure
+                if structure.struct() == "pdf24":
+                    # The control: no document is kept from screen to screen.
+                    self.current_document = None
                 self._follow(page)
         return True
 

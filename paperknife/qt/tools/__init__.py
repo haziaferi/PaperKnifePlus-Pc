@@ -21,3 +21,4 @@ from . import edit_text  # noqa: F401
 from . import find_replace  # noqa: F401
 from . import redact  # noqa: F401
 from . import reader  # noqa: F401
+from .. import structure  # noqa: F401,E402  (the structure prototypes' hosts)
