@@ -144,7 +144,7 @@ The OCR tool requires the Tesseract OCR engine to be installed separately. Paper
 
 ## 5. Tools Reference
 
-The navigation pane lists 25 tools in five groups, with Preferences at the bottom.
+The navigation pane lists 23 tools in five groups, with Preferences at the bottom.
 
 | Group | Tool | What it does | § |
 |---|---|---|---|
@@ -160,12 +160,10 @@ The navigation pane lists 25 tools in five groups, with Preferences at the botto
 | | Normalise Pages | Resize the selected pages to a standard paper size | 5.10 |
 | | Header / Footer | Stamp page numbers, text, or the date in a margin | 5.13 |
 | | Crop / Trim | Cut margins from the crop box | 5.12 |
-| | PDF Tools | Repair a damaged PDF | 5.14 |
-| Convert | Image → PDF | Images to a PDF, one page per image | 5.21 |
-| | PDF → Images | The selected pages as PNGs, in a ZIP | 5.22 |
+| | PDF Tools | Repair, sanitise or flatten a PDF; remove its blank pages | 5.14 |
+| Convert | Other → PDF | Images and documents, in order, into one PDF | 5.21 |
 | | Extract Images | Save the embedded images of the selected pages to a folder | 5.23 |
-| | PDF → Doc / Text | Export to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX, PNG, or JPEG | 5.24 |
-| | Doc / Text → PDF | Convert TXT, HTML, XML, RTF, DOCX, PPTX, XLSX, PNG, or JPEG to PDF | 5.25 |
+| | PDF → Other | The selected pages to TXT, HTML, XML, RTF, DOCX, PPTX, XLSX, or PNG / JPEG in a ZIP | 5.24 |
 | Content | Edit Text | Edit a text block in place | 5.16 |
 | | Find & Replace | Replace text across all pages | 5.17 |
 | | Annotate | Highlights, shapes, notes, and text boxes | 5.18 |
@@ -176,15 +174,15 @@ The navigation pane lists 25 tools in five groups, with Preferences at the botto
 
 A tool that works on one PDF uses the current document (Section 4.1): open one with the document bar's **Open** (`Ctrl+O`) or its list of recent files, click the empty page's target, or drop a PDF on the window. Moving to another tool keeps the document: the tool you leave closes the file, so other tools can overwrite it, and opens it again when you come back. A tool with unsaved edits keeps its own file. Doc / Text → PDF, whose input is not a PDF, keeps its file card: drop a file on it or click **Choose file** (`Ctrl+O`), and **Change** to pick another. Dropping a file the tool does not take leaves it unchanged and the status line says so.
 
-Merge, Image → PDF and Batch keep their lists (Batch its folders) while you move around; adding files to them does not change the current document, and a finished job empties them.
+Merge, Other → PDF and Batch keep their lists (Batch its folders) while you move around; adding files to them does not change the current document, and a finished job empties them.
 
-After a job that writes one PDF, or a save to a new file in an editor, a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Extract Images, Batch) or a file that is not a PDF (PDF → Images, PDF → Doc / Text) ask nothing, and the current document stays.
+After a job that writes one PDF, or a save to a new file in an editor, a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Extract Images, Batch) or a file that is not a PDF (PDF → Other) ask nothing, and the current document stays.
 
 Unsaved edits in Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact are never dropped silently: leaving the tool, opening another document, **✕**, **Start over** and closing the window ask "Save changes to *name*?" with **Save** (the step goes on once the file is saved), **Discard** and **Cancel**.
 
 Page ranges, where a tool accepts them, are written like `1-3, 5, 8-end`. A range that names a page the document does not have, or runs backwards, is refused with a message before anything is written.
 
-Crop / Trim, Header / Footer, Watermark, Normalise Pages, PDF → Images, PDF → Doc / Text, Extract Images and OCR show the document's pages as thumbnails in the centre, with the tool's settings in the column at the right. Every page starts selected. Click pages to choose them (`Ctrl` / `Shift` for several, **All pages** for every one); a page left out is veiled. The **Apply to** field in the **Pages** card follows the selection (`all`, or its ranges), and a range typed there selects its pages. With no page selected the main action is off and the bar says "Select at least one page." The tool works on the selected pages only; the others are written unchanged (PDF → Images, PDF → Doc / Text and Extract Images write only the selected pages, under their own page numbers).
+Crop / Trim, Header / Footer, Watermark, Normalise Pages, PDF → Other, Extract Images and OCR show the document's pages as thumbnails in the centre, with the tool's settings in the column at the right. Every page starts selected. Click pages to choose them (`Ctrl` / `Shift` for several, **All pages** for every one); a page left out is veiled. The **Apply to** field in the **Pages** card follows the selection (`all`, or its ranges), and a range typed there selects its pages. With no page selected the main action is off and the bar says "Select at least one page." The tool works on the selected pages only; the others are written unchanged (PDF → Other and Extract Images write only the selected pages, under their own page numbers).
 
 A password-protected PDF asks for its open password when it is opened. The password stays with the open document only: it is forgotten when the document is closed, and asked again the next time. When a new PDF is written from a document opened with a password, the app asks whether the new file keeps it; Merge asks only when every protected input has the same open password.
 
@@ -281,7 +279,12 @@ Choose one of six positions on the page outline (top or bottom; left, centre, or
 
 ### 5.14 PDF Tools
 
-**Repair** opens the file (MuPDF rebuilds a damaged cross-reference table while opening) and saves a cleaned copy. The message says whether damage was found. Pages that cannot be recovered are lost.
+Choose a tool under **Tool**; the main button takes its name. Each writes a new file whole, so what it removed does not stay inside it.
+
+- **Repair** opens the file (MuPDF rebuilds a damaged cross-reference table while opening) and saves a cleaned copy, without compressing its images. The message says whether damage was found. Pages that cannot be recovered are lost.
+- **Sanitise** removes, as its switches choose (all on): **JavaScript** (the document's scripts and those of its links and fields), **Embedded files** (attachments and file-attachment comments), **XMP metadata**, and **Links that run actions** (launch a program or a file). Web links and what the pages show are kept. The message lists what was removed.
+- **Flatten** draws **Comments** and **Form fields** (switches, both on) into the pages, so they can no longer be edited; a field's value becomes page content.
+- **Remove blank pages** finds the pages with no text, no image, no drawing that shows, no comment and no form field, names them in a question, and writes the file without them once you confirm. It says so when no page is blank, and keeps at least one page.
 
 ### 5.15 OCR
 
@@ -312,25 +315,25 @@ Choose **Draw box** on the rail and drag boxes over content, or choose **Find & 
 
 Shows Title, Author, Subject, Keywords, Creator, Producer, Creation date, and Modified date. Dates are entered as `YYYY-MM-DD` (optionally with `HH:MM[:SS]`) or as a PDF date (`D:…`). **Clear all fields** empties them; **Save** (or `Ctrl+S`) writes a copy and drops the old XMP metadata when anything changed.
 
-### 5.21 Image → PDF
+### 5.21 Other → PDF
 
-Add JPG, PNG, WEBP, BMP, TIFF, or GIF images with **Add Images** (or drop them on the list), order them with **Up / Down** (or `Alt+Up` / `Alt+Down`), and click **Convert to PDF**. Each image becomes one page of its own size, upright according to its EXIF orientation; transparency is flattened onto white. The list stays while you visit other tools and empties after a finished conversion.
+Add images (JPG, PNG, WEBP, BMP, TIFF, GIF) and documents (TXT, HTML, XML, RTF, DOCX, PPTX, XLSX) with **Add Files** (or drop them on the list), order them with **Up / Down** (or `Alt+Up` / `Alt+Down`), and click **Convert to PDF**: they become one PDF, in that order. Each image is one page of its own size, upright according to its EXIF orientation, with transparency flattened onto white. Each document adds its pages: text formats are typeset on A4 pages; DOCX keeps headings and tables (needs python-docx); PPTX gives one page per slide's text (needs python-pptx); XLSX is laid out as plain-text tables on landscape A4 (needs openpyxl). A file's format comes from its extension. The list stays while you visit other tools and empties after a finished conversion. (Image → PDF and Doc / Text → PDF until 4.0.0.)
 
-### 5.22 PDF → Images
+### 5.22 (PDF → Images)
 
-Each selected page is rendered as a PNG at the chosen DPI (72–300, starting at the Preferences DPI) and saved into one ZIP file with **Export as ZIP**.
+PDF → Images is now part of PDF → Other (Section 5.24): choose PNG or JPEG.
 
 ### 5.23 Extract Images
 
 Saves every embedded image of the selected pages of at least the **Minimum dimension** (default 50 px) to a folder, in its original format (**Keep original**) or converted to PNG or JPEG.
 
-### 5.24 PDF → Doc / Text
+### 5.24 PDF → Other
 
-Choose the output format: TXT, HTML, XML, RTF, DOCX (needs python-docx), PPTX (page pictures on slides; needs python-pptx), XLSX (one sheet per page; needs openpyxl), or PNG / JPEG (pages in a ZIP, with DPI and, for JPEG, quality). Click **Convert PDF**.
+Choose the output format for the selected pages: TXT, HTML, XML, RTF, DOCX (needs python-docx), PPTX (page pictures on slides; needs python-pptx), XLSX (one sheet per page; needs openpyxl), or PNG / JPEG (pages in a ZIP, with DPI and, for JPEG, quality). Click **Convert PDF**.
 
-### 5.25 Doc / Text → PDF
+### 5.25 (Doc / Text → PDF)
 
-Choose the input format (it is set automatically from the file extension when you pick or drop a file): TXT, HTML, XML, RTF, DOCX, PPTX, XLSX, PNG, or JPEG. Text formats are typeset on A4 pages; DOCX keeps headings and tables; PPTX gives one page per slide's text; XLSX is laid out as plain-text tables on landscape A4. Click **Convert to PDF**.
+Doc / Text → PDF is now part of Other → PDF (Section 5.21).
 
 ### 5.26 Preferences
 
@@ -339,7 +342,7 @@ Choose the input format (it is set automatically from the file extension when yo
 | Default output folder | The starting folder of every save and output-folder dialog |
 | Max recent files shown | Number of cards on the Home screen (1–50) |
 | Colour mode | light, dark, or system (Section 4.2) |
-| Default DPI (OCR / export) | Starting DPI of OCR, Batch → OCR, PDF → Images, and the PNG/JPEG/PPTX exports (72–600; each slider clamps it to its own range) |
+| Default DPI (OCR / export) | Starting DPI of OCR, Batch → OCR, and PDF → Other's PNG/JPEG/PPTX exports (72–600; each slider clamps it to its own range) |
 | Default compress level | Starting level of Compress and Batch → Compress |
 | OCR language code | Starting language of OCR and Batch → OCR |
 
@@ -351,11 +354,11 @@ Click **Save Preferences** (or `Ctrl+S`) to keep changes; **Restore defaults** r
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl + O` | Open: the file dialog for the current document, as the document bar's **Open** (Section 4.1); add files in Merge and Image → PDF; choose the input folder in Batch; choose the file in Doc / Text → PDF |
+| `Ctrl + O` | Open: the file dialog for the current document, as the document bar's **Open** (Section 4.1); add files in Merge and Other → PDF; choose the input folder in Batch |
 | `Ctrl + S` | Save in Rotate & Reorder, Bookmarks / TOC, Edit Text, Find & Replace, Annotate, Redact (**Apply and save**, after confirmation), Metadata, and Preferences; other tools ignore it |
 | `Ctrl + Z` | Undo in Rotate & Reorder, Edit Text, Find & Replace, Annotate, and Redact (edits and page changes, last first) |
-| `Delete` | Remove the selected file (Merge, Image → PDF), annotation (Annotate), pending box (Redact), or bookmark (Bookmarks / TOC); ignored while typing in a field |
-| `Alt + Up` / `Alt + Down` | Move the selected file up / down in Merge and Image → PDF |
+| `Delete` | Remove the selected file (Merge, Other → PDF), annotation (Annotate), pending box (Redact), or bookmark (Bookmarks / TOC); ignored while typing in a field |
+| `Alt + Up` / `Alt + Down` | Move the selected file up / down in Merge and Other → PDF |
 | `Ctrl + K` | Focus the navigation search box |
 | `Ctrl + F` | Focus the navigation search box |
 | `Enter` (in the search box) | Open the first matching tool |
@@ -387,7 +390,7 @@ To fully remove all application data after uninstalling, delete `%USERPROFILE%\.
 
 | Symptom | Resolution |
 |---|---|
-| Dropping a file does nothing, or the status line says "This tool does not open …" | Each tool takes only its own kind of input: PDFs in most tools, images in Image → PDF, the formats of Section 5.25 in Doc / Text → PDF, and a folder (not files) in Batch. Drops are ignored while a job holds the page. |
+| Dropping a file does nothing, or the status line says "This tool does not open …" | Each tool takes only its own kind of input: PDFs in most tools, images and documents in Other → PDF (Section 5.21), and a folder (not files) in Batch. Drops are ignored while a job holds the page. |
 | OCR says Tesseract was not found | Install it in its default folder, or add its folder to PATH and check with `tesseract --version` in Command Prompt. See Section 4.3. |
 | Dark mode not applying on restart | Save preferences via the Preferences panel after changing the colour mode. |
 | A password-protected PDF will not open | Every single-file tool asks for the open password. Batch cannot stop to ask, so it skips protected files with an error: remove the password first with the Password tool (Section 5.11). |
@@ -473,6 +476,7 @@ Apart from the operation you invoke, the only file content read is the first pag
 
 ### v4.0.0 — current
 
+- **Changed:** PDF → Images is part of PDF → Other (PDF → Doc / Text renamed), and Image → PDF and Doc / Text → PDF are one screen, Other → PDF, that puts images and documents into one PDF in list order. PDF Tools gains **Sanitise**, **Flatten** and **Remove blank pages** beside **Repair**.
 - **New:** the pages are on screen. Merge shows the merged pages in one strip (leave pages out, put them back, drag them between files); Split cuts at page ranges or bookmarks on a thumbnail grid (Split by Bookmarks is now part of it, and `;` separates files in a range); the page-range tools pick their pages on a grid kept in step with the range field (Watermark, Normalise Pages, PDF → Images, PDF → Doc / Text, Extract Images and OCR gain a page choice); Rotate & Reorder gains **Delete**, **Extract to a new PDF** and **Undo**; Edit Text, Find & Replace, Annotate and Redact gain a page strip to go to, move, turn and delete pages, with one Undo for edits and page changes.
 - **Changed:** the interface moves from CustomTkinter to PySide6 (Qt 6) with QFluentWidgets, in the Windows 11 Fluent style: a navigation pane with the tools in groups and a search box; document workspaces (tool rail, page, context panel) for Read / Preview, Edit Text, Find & Replace, Annotate and Redact; settings-style cards for the single-file tools; the main action at the top right of every page.
 - **Changed:** Windows neutrals with an Oxford blue accent as the colour scheme; its text colours meet WCAG AA contrast (4.5:1) in light and dark mode.
