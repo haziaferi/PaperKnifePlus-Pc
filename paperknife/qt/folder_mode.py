@@ -95,6 +95,9 @@ class FolderPanel(QWidget):
         self.out_label = self._folder_row(group, row, "Output folder", "Choose output folder",
                                           self.set_out_dir)
         self.list_card = plain_card()
+        # Room for three files where the page gives it no height of its own
+        # (Compress's body); the page grid's place gives it more.
+        self.list_card.setMinimumHeight(3 * 52 + 24)
         lv = QVBoxLayout(self.list_card)
         lv.setContentsMargins(8, 8, 8, 8)
         area = SingleDirectionScrollArea(self.list_card, Qt.Vertical)
