@@ -15,16 +15,120 @@ def _truncated(tmp_path):
     return truncated_pdf(make_pdf(tmp_path / "good.pdf", pages=2), tmp_path / "bad.pdf")
 
 
-def test_the_page_builds_and_offers_only_repair(window):
+def test_the_page_offers_four_tools_and_the_action_names_the_one_chosen(window):
     from PySide6.QtWidgets import QLabel
-    from qfluentwidgets import RadioButton
     page = _page(window)
     assert type(page).__name__ == "PdfToolsPage"
     assert page.title_label.text() == "PDF Tools"
-    assert page.findChildren(RadioButton) == [], "a single operation needs no radio button"
+    assert list(page.radios) == ["repair", "sanitise", "flatten", "blank"]
+    assert page.tool_choice == "repair" and page.action_btn.text() == "Repair"
     texts = [lbl.text() for lbl in page.findChildren(QLabel)]
-    assert any(t.startswith("Repair") for t in texts), texts
     assert not any("Linear" in t or "PDF/A" in t for t in texts), texts
+    for key, action, shown in (("sanitise", "Sanitise", "sanitise"),
+                               ("flatten", "Flatten", "flatten"),
+                               ("blank", "Remove blank pages", None),
+                               ("repair", "Repair", None)):
+        page.radios[key].click()
+        assert page.action_btn.text() == action
+        for k, (heading, box) in page.option_boxes.items():
+            assert box.isVisibleTo(page) == (k == shown) and heading.isVisibleTo(page) == (k == shown)
+    assert [b.text() for b in page._buttons if b.pk_primary] == ["Repair"]   # one main action
+
+
+def _risky(path):
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "Visible", fontsize=12)
+    doc.xref_set_key(doc.pdf_catalog(), "OpenAction", "<</S/JavaScript/JS(app.alert(1))>>")
+    doc.embfile_add("a.txt", b"x")
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_sanitise_end_to_end_says_what_it_removed(window, dialogs, tmp_path):
+    page = _page(window)
+    page.radios["sanitise"].click()
+    page.switches["embedded"].setChecked(False)
+    page.file.set_path(_risky(tmp_path / "in.pdf"))
+    out = tmp_path / "out.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+    assert dialogs.msgs[-1] == ("info", "Done", f"Sanitised PDF saved:\n{out}\n\nRemoved: 1 script")
+    assert window.status_text() == "✓  Sanitised PDF saved → out.pdf"
+    with fitz.open(out) as d:
+        assert d.embfile_count() == 1 and "Visible" in d[0].get_text()
+
+
+def test_flatten_end_to_end(window, dialogs, tmp_path):
+    src = tmp_path / "in.pdf"
+    doc = fitz.open()
+    doc.new_page().add_text_annot((100, 100), "note")
+    doc.save(str(src))
+    doc.close()
+    page = _page(window)
+    page.radios["flatten"].click()
+    page.file.set_path(str(src))
+    out = tmp_path / "out.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert dialogs.msgs[-1] == ("info", "Done", f"Flattened PDF saved:\n{out}\n\nFlattened: 1 comment")
+    with fitz.open(out) as d:
+        assert list(d[0].annots()) == []
+
+
+def _with_blanks(path, kinds):
+    doc = fitz.open()
+    for k in kinds:
+        p = doc.new_page()
+        if k:
+            p.insert_text((72, 100), k, fontsize=12)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_remove_blank_pages_asks_naming_them_and_writes_the_rest(window, dialogs, tmp_path):
+    page = _page(window)
+    page.radios["blank"].click()
+    page.file.set_path(_with_blanks(tmp_path / "in.pdf", ["one", "", "two", ""]))
+    out = tmp_path / "out.pdf"
+    dialogs.asks.append(True)
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert ("ask_yes_no", "Remove blank pages",
+            "Remove pages 2 and 4? They have no text or drawing.") in dialogs.msgs
+    with fitz.open(out) as d:
+        assert [p.get_text().strip() for p in d] == ["one", "two"]
+    assert window.status_text() == "✓  Removed 2 blank page(s) → out.pdf"
+
+
+def test_remove_blank_pages_said_no_or_none_found_writes_nothing(window, dialogs, tmp_path):
+    page = _page(window)
+    page.radios["blank"].click()
+    page.file.set_path(_with_blanks(tmp_path / "in.pdf", ["one", ""]))
+    dialogs.asks.append(False)
+    page.run()
+    assert ("ask_yes_no", "Remove blank pages",
+            "Remove page 2? It has no text or drawing.") in dialogs.msgs
+    assert window._current_job is None
+    page.file.set_path(_with_blanks(tmp_path / "full.pdf", ["one", "two"]))
+    page.run()
+    assert dialogs.msgs[-1] == ("info", "Remove blank pages", "No blank page was found.")
+    assert window._current_job is None and not list(tmp_path.glob("out*.pdf"))
+
+
+def test_a_file_of_blank_pages_keeps_one(window, dialogs, tmp_path):
+    page = _page(window)
+    page.radios["blank"].click()
+    page.file.set_path(_with_blanks(tmp_path / "in.pdf", ["", ""]))
+    page.run()
+    assert dialogs.msgs[-1] == ("error", "PDF Tools",
+                                "A PDF needs at least one page: keep one or more.")
 
 
 def test_without_a_file_it_asks_for_one(window, dialogs):

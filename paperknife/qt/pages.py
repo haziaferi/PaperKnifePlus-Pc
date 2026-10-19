@@ -1137,7 +1137,8 @@ class ToolPage(QWidget):
         save: (default name, extension, filters) asks for a file; None asks
         for a folder.  label: the job's label, or a callable giving it after
         prepare.  prepare(doc): a ValueError's message is shown as an error,
-        a Refusal's as a warning; either closes doc and stops.  open_doc(src)
+        a Refusal's as a warning; either closes doc and stops, as does a
+        return of False (prepare has said why, or asked and been told no).  open_doc(src)
         -> doc | None replaces window.open_pdf_safe.  ended(kind) runs however
         the job ended, before report.
 
@@ -1159,7 +1160,10 @@ class ToolPage(QWidget):
             return None
         if prepare is not None:
             try:
-                prepare(doc)
+                go_on = prepare(doc)
+                if go_on is False:          # prepare said why (or the user said no)
+                    doc.close()
+                    return None
             except Refusal as e:
                 doc.close()
                 dialogs.warning(title, str(e))
