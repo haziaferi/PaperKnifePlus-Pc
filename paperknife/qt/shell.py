@@ -1331,7 +1331,9 @@ class MainWindow(FluentWindow):
         if self._first_show:
             self._first_show = False
             nav = self.navigationInterface
-            if self.width() >= NAV_MIN_EXPAND_WINDOW and not self.compact:
+            # (a structure prototype's icon strip, PK_LEFT=rail, stays one)
+            if (self.width() >= NAV_MIN_EXPAND_WINDOW and not self.compact
+                    and not getattr(self, "_rail", False)):
                 nav.expand(useAni=False)
                 self._apply_nav()       # expand(useAni=False) says nothing of its new mode
             # Once the window is up, so the question sits over it.

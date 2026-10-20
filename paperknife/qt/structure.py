@@ -883,6 +883,8 @@ def install_left(win):
     if mode == "rail":
         nav.setMinimumExpandWidth(10 ** 6)          # never expands: the icon strip
         nav.panel.collapse()
+        win.search.setCompacted(True)               # its icon, not a clipped field
+        win._rail = True                            # the shell's first show leaves it so
         return
     win.hBoxLayout.removeWidget(nav)                # merged / tabs: no navigation column
     nav.hide()
