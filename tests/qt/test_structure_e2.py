@@ -175,3 +175,65 @@ def test_zoom_is_a_percentage_in_the_centre(e2win):
     box = pct.parentWidget()
     mid = box.mapTo(viewer, box.rect().center()).x()
     assert abs(mid - viewer.width() / 2) < viewer.width() * 0.1  # near the centre
+
+
+def test_two_actions_stack_at_the_card_top_unsqueezed(e2win):
+    host = host_of(e2win)
+    host.pick("PasswordTool")
+    pump(0.1)
+    buttons = host.current_tool()._buttons
+    assert len(buttons) == 2
+    ys = sorted(b.mapTo(e2win, b.rect().topLeft()).y() for b in buttons)
+    assert ys[1] > ys[0]                                     # one over the other
+    for b in buttons:
+        assert b.width() >= b.sizeHint().width()             # text not clipped
+
+
+def test_files_list_starts_under_the_card(e2win):
+    assert e2win.open_tool("MergeTool")
+    pump(0.3)
+    host = e2win.current_page()
+    assert host.card is not None and host.card.isVisible()
+    page = host.current_tool()
+    card_bottom = host.card.mapTo(e2win, host.card.rect().bottomLeft()).y()
+    add = page.add_btn
+    assert add.isVisible()
+    assert add.mapTo(e2win, add.rect().topLeft()).y() > card_bottom   # Add PDFs not covered
+
+
+def test_card_fits_its_options_when_there_is_room(e2win):
+    e2win.resize(1280, 1000)
+    pump(0.2)
+    host = host_of(e2win)
+    host.pick("SplitTool")                                   # its parts list fills late
+    pump(0.4)
+    room = host.height() - host.centre.y() - 40
+    assert host.card.height() < room
+    sb = host.options_stack.currentWidget().verticalScrollBar()
+    assert sb.maximum() == 0                                 # nothing hidden below
+
+
+def test_title_bar_waits_over_an_empty_strip(e2win):
+    """Revealed at the top edge, the bar stays while the pointer crosses an empty stretch
+    of it towards its buttons (the walk, 2026-10-21: it vanished before they were reached);
+    over a control under it, it still makes way at once."""
+    from paperknife.qt import shell
+    w = e2win
+
+    def at(x, y):
+        w.pointer_at = shell.QPoint(x, y)
+        w._poll_edges()
+
+    rail = rail_of(w)
+    gap = rail.mapTo(w, rail.rect().topRight()).x() + 4  # just right of the rail, top row
+    tabs_x = [x for x in range(gap, w.width() // 2, 6) if not w._control_under(shell.QPoint(x, 16))]
+    assert tabs_x, "no empty stretch on the top row"
+    at(w.width() // 2, 2)
+    pump(shell.TOP_SLIDE_MS / 1000 + 0.1)
+    assert w.title_bar_shown()
+    at(tabs_x[0], 16)
+    assert w.title_bar_shown()                               # waits (the hide timer runs)
+    btn = next(x for x in range(gap, w.width(), 4) if w._control_under(shell.QPoint(x, 16))
+               and not w._over_title_buttons(x, 16))
+    at(btn, 16)
+    assert not w.title_bar_shown()

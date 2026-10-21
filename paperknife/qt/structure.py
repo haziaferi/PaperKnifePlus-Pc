@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (Pivot, StrongBodyLabel, SubtitleLabel, TitleLabel,
                             TransparentPushButton, TransparentTogglePushButton)
@@ -297,6 +297,7 @@ class StructureHost(QWidget):
         # PK_DETAILS=float: the details float over the page's right edge as a card,
         # sized like the right column's (DETAILS_W), the action fixed at its top.
         self.float_ = details() == "float" and not self.ribbon
+        self._replace_due = False
         self.right = details() in ("right", "float") and not self.ribbon
         self._views: dict[str, _View] = {}
         self._current: str | None = None
@@ -466,6 +467,7 @@ class StructureHost(QWidget):
         top.addStretch(1)
         top.addWidget(self.action_slot, 0, Qt.AlignVCenter)       # fixed at the top
         cv.addLayout(top)
+        self.card_top = top
         self.card_rule = Divider()
         cv.addWidget(self.card_rule)
         cv.addWidget(self.options_stack, 1)
@@ -495,8 +497,10 @@ class StructureHost(QWidget):
         top_h = max(self.action_slot.sizeHint().height(), self.card_toggle.sizeHint().height())
         right = self.width() - PAGE_MARGINS[2]
         y = self.centre.y() + 4
+        action_w = self.card_top.sizeHint().width() + m.left() + m.right() + 2 * c.frameWidth()
         if self.options_stack.isVisible():
-            w = DETAILS_W + m.left() + m.right() + 8
+            # the action row's own width wins over the column (a long label is never cut)
+            w = max(DETAILS_W + m.left() + m.right() + 8, action_w)
             cur = self.options_stack.currentWidget()
             inner = cur.widget() if hasattr(cur, "widget") and cur.widget() is not None else cur
             lay = inner.layout()
@@ -507,8 +511,7 @@ class StructureHost(QWidget):
             want = m.top() + top_h + 9 + body_h + m.bottom() + 12
             h = min(want, self.height() - y - PAGE_MARGINS[3] - 8)
         else:
-            w = self.action_slot.sizeHint().width() + self.card_toggle.sizeHint().width() \
-                + m.left() + m.right() + 8
+            w = action_w
             h = m.top() + top_h + m.bottom()
         c.setGeometry(right - w, y, w, h)
         c.raise_()
@@ -519,6 +522,10 @@ class StructureHost(QWidget):
         if grid is not None:
             grid.setViewportMargins(0, 0, w + 12, 0)
             grid.doItemsLayout()
+        if self.files and tool is not None and tool.layout() is not None:
+            # A Files tool keeps its own list at the right (Merge's file list, Batch's
+            # settings): it starts under the card, which would cover its Add / Up / Down.
+            tool.layout().setContentsMargins(0, h + 12, 0, 0)
         rail = (getattr(self.window_, "_left", None) or {}).get("rail") if self.window_ else None
         if rail is not None:
             rail.refresh()
@@ -530,6 +537,16 @@ class StructureHost(QWidget):
     def showEvent(self, e):
         super().showEvent(e)
         self._place_card()
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.LayoutRequest and not self._replace_due:
+            self._replace_due = True
+
+            def again():
+                self._replace_due = False
+                self._place_card()
+            QTimer.singleShot(0, again)
+        return super().eventFilter(obj, e)
 
     # ── the tools ──
     def _tool_button(self, key: str):
@@ -658,14 +675,23 @@ class StructureHost(QWidget):
             self.centre.addWidget(centre)
         if options is not None:
             self.options_stack.addWidget(options)
+            if self.float_:
+                # The options grow after the card is placed (Split's parts list fills
+                # once the document loads): the card measures again when they do.
+                inner = options.widget() if hasattr(options, "widget") and options.widget() else options
+                inner.installEventFilter(self)
         actions = QWidget()
-        ah = QHBoxLayout(actions)
+        stacked = self.float_ and len(page._buttons) > 1
+        # On the floating card a tool with two actions (Password: Remove, Protect) stacks
+        # them, each at its own size, instead of squeezing a row (same place, same size).
+        ah = QVBoxLayout(actions) if stacked else QHBoxLayout(actions)
         ah.setContentsMargins(0, 0, 0, 0)
         ah.setSpacing(8)
-        ah.addStretch(1)            # the buttons keep their size, at the right
-        for b in list(page._buttons):
+        if not stacked:
+            ah.addStretch(1)            # the buttons keep their size, at the right
+        for b in reversed(list(page._buttons)) if stacked else list(page._buttons):
             b.setParent(actions)
-            ah.addWidget(b)
+            ah.addWidget(b, 0, Qt.AlignRight) if stacked else ah.addWidget(b)
         self.action_slot.addWidget(actions)
         view = _View(page, options, centre, actions)
         self._views[key] = view

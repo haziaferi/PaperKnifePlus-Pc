@@ -1183,6 +1183,21 @@ class MainWindow(FluentWindow):
         left = tb.mapTo(self, first.pos()).x()
         return left <= x <= self.width() and 0 <= y <= tb.height()
 
+    def _control_under(self, p: QPoint) -> bool:
+        """A clickable control of the page lies under window point *p* (the bar ignored)."""
+        from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QAbstractSlider
+        kinds = (QAbstractButton, QLineEdit, QComboBox, QAbstractSpinBox, QAbstractSlider,
+                 QAbstractItemView)
+        for child in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+            if child is self.titleBar or not child.isVisible() or not child.geometry().contains(p):
+                continue
+            hit = child.childAt(child.mapFrom(self, p))
+            while hit is not None and hit is not child:
+                if isinstance(hit, kinds) and hit.isEnabled():
+                    return True
+                hit = hit.parentWidget()
+        return False
+
     # ── the watcher ──
     def _update_edge_watch(self):
         want = ((self.compact or self._autohide_title) and self._alive
@@ -1214,9 +1229,10 @@ class MainWindow(FluentWindow):
                 if self._over_title_buttons(x, y) or \
                         (self.compact and 0 <= x <= w and 0 <= y <= tb_h):
                     self._hide_top_timer.stop()          # over its buttons (or the header): keep it
-                elif 0 <= x <= w and 0 <= y <= tb_h:
-                    # Over the bar but not its buttons: the page's own controls lie under it
-                    # (the main action at the top right, 2026-10-21) - make way at once.
+                elif 0 <= x <= w and 0 <= y <= tb_h and self._control_under(p):
+                    # Over one of the page's own controls lying under the bar (the main
+                    # action at the top right, 2026-10-21): make way at once.  Over an empty
+                    # stretch the bar waits as usual, so the pointer can reach its buttons.
                     self._hide_top_timer.stop()
                     self._hide_top()
                 elif not self._hide_top_timer.isActive():

@@ -190,13 +190,18 @@ def test_title_bar_hidden_by_default_and_top_edge_reveals(window):
 
 def test_title_bar_makes_way_for_controls_under_it(window):
     """Revealed, the floating bar must not stay over the page's own controls (it caught
-    the clicks on the main action at the top right of a maximized window, 2026-10-21)."""
+    the clicks on the main action at the top right of a maximized window, 2026-10-21) -
+    but over an empty stretch it waits, so the pointer can reach its buttons (the E2
+    walk, same day).  The make-way half is in test_structure_e2, where controls lie
+    under the bar."""
     at(window, 400, 2)
     pump(shell.TOP_SLIDE_MS / 1000 + 0.1)
     assert window.title_bar_shown()
-    at(window, window.width() - 260, 20)                 # on the bar, left of its buttons
-    assert not window.title_bar_shown()
-    assert not window._hide_top_timer.isActive()
+    x, y = window.width() - 260, 20                      # on the bar, left of its buttons
+    assert not window._control_under(shell.QPoint(x, y))  # Home: nothing under it there
+    at(window, x, y)
+    assert window.title_bar_shown()
+    assert window._hide_top_timer.isActive()             # leaves after the usual delay
 
 
 def test_compact_top_edge_brings_header_below_bar(window):
