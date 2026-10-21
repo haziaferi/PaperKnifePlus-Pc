@@ -175,15 +175,28 @@ def test_title_bar_hidden_by_default_and_top_edge_reveals(window):
     assert window.title_bar_shown()
     pump(shell.TOP_SLIDE_MS / 1000 + 0.1)
     assert tb.y() == 0
-    at(window, 400, 20)                                  # over the bar: stays
+    bx = window.width() - 30                             # over its buttons: stays
+    at(window, bx, 15)
+    assert window.title_bar_shown()
     assert not window._hide_top_timer.isActive()
-    at(window, 400, 400)
+    at(window, bx, 400)
     assert window._hide_top_timer.isActive()
     assert window._hide_top_timer.interval() == shell.TOP_HIDE_MS
     window._hide_top_timer.setInterval(100)              # the real 1 s is checked above
     pump(0.1 + shell.TOP_SLIDE_MS / 1000 + 0.15)
     assert not window.title_bar_shown()
     assert tb.y() == -tb.height()
+
+
+def test_title_bar_makes_way_for_controls_under_it(window):
+    """Revealed, the floating bar must not stay over the page's own controls (it caught
+    the clicks on the main action at the top right of a maximized window, 2026-10-21)."""
+    at(window, 400, 2)
+    pump(shell.TOP_SLIDE_MS / 1000 + 0.1)
+    assert window.title_bar_shown()
+    at(window, window.width() - 260, 20)                 # on the bar, left of its buttons
+    assert not window.title_bar_shown()
+    assert not window._hide_top_timer.isActive()
 
 
 def test_compact_top_edge_brings_header_below_bar(window):

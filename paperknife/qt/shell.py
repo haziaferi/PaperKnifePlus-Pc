@@ -1174,6 +1174,15 @@ class MainWindow(FluentWindow):
     def title_bar_shown(self) -> bool:
         return self._top_shown or not self._autohide_title
 
+    def _over_title_buttons(self, x: int, y: int) -> bool:
+        """Window point (x, y) over the title bar's own buttons (minimize to close)."""
+        tb = self.titleBar
+        first = getattr(tb, "minBtn", None)
+        if first is None:
+            return False
+        left = tb.mapTo(self, first.pos()).x()
+        return left <= x <= self.width() and 0 <= y <= tb.height()
+
     # ── the watcher ──
     def _update_edge_watch(self):
         want = ((self.compact or self._autohide_title) and self._alive
@@ -1202,8 +1211,14 @@ class MainWindow(FluentWindow):
                 self._show_top()
                 self._hide_top_timer.stop()
             elif self._top_shown:
-                if 0 <= x <= w and 0 <= y <= tb_h:
-                    self._hide_top_timer.stop()          # over the bar: keep it
+                if self._over_title_buttons(x, y) or \
+                        (self.compact and 0 <= x <= w and 0 <= y <= tb_h):
+                    self._hide_top_timer.stop()          # over its buttons (or the header): keep it
+                elif 0 <= x <= w and 0 <= y <= tb_h:
+                    # Over the bar but not its buttons: the page's own controls lie under it
+                    # (the main action at the top right, 2026-10-21) - make way at once.
+                    self._hide_top_timer.stop()
+                    self._hide_top()
                 elif not self._hide_top_timer.isActive():
                     self._hide_top_timer.start()
 
