@@ -1,0 +1,177 @@
+"""E2 layout prototype (PK_LEFT=grouprail, PK_DETAILS=float; owner, 2026-10-21): the tool
+groups on a rail, a group's tools in a column that closes once a tool is chosen or in a
+right-click pop-up, the tool's options floating over the page's right edge with the main
+action fixed at the card's top, the card collapsing to an edge card that keeps the action at
+the same spot, page grids clear of the card with a toolbar on the selected page, and the
+zoom as  -  100 %  +  in the centre."""
+import pytest
+from conftest import close_test_window
+from qt_harness import make_pdf, pump
+
+E2_ENV = {"PK_STRUCT": "workspace", "PK_PICKER": "pane", "PK_FILES": "window",
+          "PK_DETAILS": "float", "PK_LEFT": "grouprail"}
+
+
+@pytest.fixture
+def e2win(qapp, dialogs, monkeypatch, tmp_path):
+    for k, v in E2_ENV.items():
+        monkeypatch.setenv(k, v)
+    from PySide6.QtCore import QPoint
+    from paperknife.qt.shell import MainWindow
+    w = MainWindow()
+    w.resize(1280, 820)
+    w.move(0, 0)
+    w.pointer_at = QPoint(w.width() // 2, w.height() // 2)
+    w._pointer = lambda: w.mapToGlobal(w.pointer_at)
+    w.show()
+    pump(0.05)
+    w.open_document(make_pdf(tmp_path / "doc.pdf", pages=12))
+    w.show_page("DocWorkspace")
+    pump(0.3)
+    yield w
+    close_test_window(w)
+
+
+def rail_of(w):
+    return w._left["rail"]
+
+
+def host_of(w):
+    return w.current_page()
+
+
+def test_rail_shows_the_groups_with_their_own_icons(e2win):
+    rail = rail_of(e2win)
+    assert list(rail.buttons) == ["Pages", "Content", "Protect & optimise", "Convert"]
+    from paperknife.qt import structure
+    glyphs = {structure.GROUP_GLYPH[g] for g in rail.buttons}
+    assert len(glyphs) == 4                                  # four different icons
+    assert not e2win.navigationInterface.isVisible()        # no navigation column
+    host = host_of(e2win)
+    assert host.pane.isHidden() and not host.pane.isVisibleTo(host)
+
+
+def test_left_click_column_closes_once_a_tool_is_chosen(e2win):
+    rail, host = rail_of(e2win), host_of(e2win)
+    rail.toggle_column(rail.buttons["Protect & optimise"])
+    pump(0.05)
+    assert rail.column_shown()
+    lst = rail.column_slot.currentWidget()
+    keys = [lst.item(i).data(0x0100) for i in range(lst.count())]
+    assert "CompressTool" in keys and "RotateTool" not in keys
+    rail._choose("CompressTool")
+    pump(0.1)
+    assert not rail.column_shown()
+    assert host._current == "CompressTool"
+    assert rail.buttons["Protect & optimise"].isChecked()
+    assert not rail.buttons["Pages"].isChecked()
+
+
+def test_the_column_floats_over_the_page_without_resizing_it(e2win):
+    rail, host = rail_of(e2win), host_of(e2win)
+    before = host.centre.geometry()
+    rail.toggle_column(rail.buttons["Pages"])
+    pump(0.05)
+    assert host.centre.geometry() == before
+    rail.toggle_column(rail.buttons["Pages"])               # the same icon again closes it
+    assert not rail.column_shown()
+
+
+def test_right_click_popup_lists_the_groups_tools(e2win, monkeypatch):
+    rail = rail_of(e2win)
+    from qfluentwidgets import RoundMenu
+    shown = []
+    monkeypatch.setattr(RoundMenu, "exec", lambda self, *a, **k: shown.append(self))
+    rail.popup(rail.buttons["Pages"])
+    assert shown, "no pop-up"
+    texts = [a.text().replace("&&", "&") for a in shown[0].actions()]
+    assert texts[:2] == ["Rotate & Reorder", "Split"]
+    shown[0].actions()[1].trigger()                          # choosing closes it and picks
+    pump(0.1)
+    assert host_of(e2win)._current == "SplitTool"
+    assert not rail.column_shown()
+
+
+def test_action_fixed_at_the_card_top_for_every_tool(e2win):
+    host = host_of(e2win)
+    tops = set()
+    for tool in ("CompressTool", "WatermarkTool", "RotateTool", "PasswordTool"):
+        host.pick(tool)
+        pump(0.1)
+        assert host.card.isVisible()
+        a = host.action_slot.currentWidget()
+        tops.add(a.mapTo(e2win, a.rect().topLeft()).y())
+        assert host.action_slot.parentWidget() is host.card
+    assert len(tops) == 1, tops                              # same height whatever the options
+
+
+def test_collapsed_card_keeps_the_action_at_the_same_spot(e2win):
+    host = host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.1)
+    a = host.action_slot.currentWidget()
+    open_at = a.mapTo(e2win, a.rect().topRight())
+    open_w = host.card.width()
+    host.set_card_open(False)
+    pump(0.1)
+    assert not host.options_stack.isVisible()
+    assert host.card.width() < open_w
+    assert a.mapTo(e2win, a.rect().topRight()) == open_at
+    assert a.isVisible()
+    host.set_card_open(True)
+    assert host.options_stack.isVisible()
+
+
+def test_page_grid_keeps_clear_of_the_card(e2win):
+    host = host_of(e2win)
+    host.pick("RotateTool")
+    pump(0.4)
+    grid = host.current_tool().grid
+    card_left = host.card.mapTo(e2win, host.card.rect().topLeft()).x()
+    vp = grid.viewport()
+    vp_right = vp.mapTo(e2win, vp.rect().topRight()).x()
+    assert vp_right < card_left
+
+
+def test_page_toolbar_on_the_selected_page_acts_on_it(e2win):
+    host = host_of(e2win)
+    host.pick("RotateTool")
+    pump(0.4)
+    page = host.current_tool()
+    bar = page.page_toolbar
+    assert bar.isHidden()
+    page.grid.item(5).setSelected(True)
+    pump(0.1)
+    assert bar.isVisible()
+    r = page.grid.visualItemRect(page.grid.item(5))
+    assert bar.y() >= r.bottom() or bar.y() + bar.height() <= r.top()   # beside the page, not over it
+    names = [b.text() for b, _src in bar.buttons]
+    assert [n.endswith(k) for n, k in zip(names, ("90° CCW", "90° CW", "Delete"), strict=True)] \
+        == [True, True, True]
+    assert names == [src.text() for _b, src in bar.buttons]      # the page's own commands
+    before = page.rotations() if hasattr(page, "rotations") else None
+    bar.buttons[1][0].click()                                # 90 CW on page 6
+    pump(0.2)
+    assert page.is_dirty()
+    if before is not None:
+        assert page.rotations() != before
+
+
+def test_zoom_is_a_percentage_in_the_centre(e2win):
+    host = host_of(e2win)
+    viewer = host.viewer
+    minus, pct, plus = viewer.zoom_box
+    assert not viewer.zoom_slider.isVisible()
+    assert pct.text().endswith(" %")
+    v0 = viewer.zoom_slider.value()
+    plus.click()
+    pump(0.1)
+    assert viewer.zoom_slider.value() > v0
+    assert pct.text() == f"{viewer.zoom_slider.value()} %"
+    minus.click()
+    minus.click()
+    pump(0.1)
+    assert viewer.zoom_slider.value() < v0
+    box = pct.parentWidget()
+    mid = box.mapTo(viewer, box.rect().center()).x()
+    assert abs(mid - viewer.width() / 2) < viewer.width() * 0.1  # near the centre

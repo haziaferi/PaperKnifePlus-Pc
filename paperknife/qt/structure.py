@@ -21,10 +21,10 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 from qfluentwidgets import (Pivot, StrongBodyLabel, SubtitleLabel, TitleLabel,
-                            TransparentPushButton)
+                            TransparentPushButton, TransparentTogglePushButton)
 
 from . import theme
 from .pages import (PAGE_MARGINS, SETTINGS_W, CollectionPage, MasterDetailPage, OrganiserPage,
@@ -61,13 +61,13 @@ def windows_mode() -> str:
 
 def details() -> str:
     """Where a chosen tool's details sit: the left pane, or a column at the right."""
-    return _env("PK_DETAILS", ("left", "right"), "left")
+    return _env("PK_DETAILS", ("left", "right", "float"), "left")
 
 
 def left_mode() -> str:
     """The navigation: its column (nav), its icon strip (rail), merged into the left
     column (merged), or a row across the top (tabs)."""
-    return _env("PK_LEFT", ("nav", "rail", "merged", "tabs"), "nav")
+    return _env("PK_LEFT", ("nav", "rail", "merged", "tabs", "grouprail"), "nav")
 
 
 # The details column at the right (owner, 2026-10-19: 200 px), and the tool list
@@ -294,7 +294,10 @@ class StructureHost(QWidget):
         self.groups = groups
         self.ribbon = picker() == "ribbon" and not self.files
         # The details at the right (PK_DETAILS=right): the pane is only the list.
-        self.right = details() == "right" and not self.ribbon
+        # PK_DETAILS=float: the details float over the page's right edge as a card,
+        # sized like the right column's (DETAILS_W), the action fixed at its top.
+        self.float_ = details() == "float" and not self.ribbon
+        self.right = details() in ("right", "float") and not self.ribbon
         self._views: dict[str, _View] = {}
         self._current: str | None = None
         self._title = title
@@ -321,7 +324,8 @@ class StructureHost(QWidget):
         head.addStretch(1)
         self.action_slot = QStackedWidget()
         self.action_slot.addWidget(QWidget())
-        head.addWidget(self.action_slot, 0, Qt.AlignVCenter)
+        if not self.float_:                         # float: the action lives on the card
+            head.addWidget(self.action_slot, 0, Qt.AlignVCenter)
         v.addLayout(head)
         v.addSpacing(12)
 
@@ -396,12 +400,21 @@ class StructureHost(QWidget):
             if not self.right:
                 tv.addWidget(self.options_stack, 1)
             self.pane.addWidget(self.tool_page)
-            body.addWidget(self.pane)
+            if self.float_:
+                # The tools are picked from the group rail (PK_LEFT=grouprail): the
+                # list stays as the host's record of the tools, off screen.
+                self.pane.setParent(self)
+                self.pane.hide()
+            else:
+                body.addWidget(self.pane)
         self.centre = QStackedWidget()
         # The centre gives way: the pane and the options keep their width.
         self.centre.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         body.addWidget(self.centre, 1)
-        if self.ribbon or self.right:
+        self.card = None
+        if self.float_:
+            self._build_card()
+        elif self.ribbon or self.right:
             self.options_panel = QWidget()
             self.options_panel.setFixedWidth(DETAILS_W if self.right else PANE_W)
             ov = QVBoxLayout(self.options_panel)
@@ -423,6 +436,100 @@ class StructureHost(QWidget):
             window.current_document_changed.connect(self._doc_changed)
         if self.files and groups and groups[0][1]:
             self.pick(groups[0][1][0])
+
+    # ── the floating card (PK_DETAILS=float) ──
+    def _build_card(self):
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect
+        from qfluentwidgets import TransparentToolButton
+
+        from .pages import Divider
+        self.card = QFrame(self)
+        self.card.setObjectName("toolCard")
+        theme.keep_styled(self.card, lambda c: c.setStyleSheet(
+            f"QFrame#toolCard {{ background: {theme.hex_color('surface')}; "
+            f"border: 1px solid {theme.hex_color('divider')}; border-radius: 8px; }}"))
+        sh = QGraphicsDropShadowEffect(self.card)
+        sh.setBlurRadius(18)
+        sh.setOffset(0, 3)
+        sh.setColor(QColor(0, 0, 0, 60))
+        self.card.setGraphicsEffect(sh)
+        cv = QVBoxLayout(self.card)
+        cv.setContentsMargins(12, 12, 12, 12)
+        cv.setSpacing(8)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        self.card_toggle = TransparentToolButton(theme.glyph_icon(0xE76C, 14))
+        self.card_toggle.setToolTip("Hide options")
+        self.card_toggle.clicked.connect(lambda: self.set_card_open(not self._card_open))
+        top.addWidget(self.card_toggle, 0, Qt.AlignVCenter)
+        top.addStretch(1)
+        top.addWidget(self.action_slot, 0, Qt.AlignVCenter)       # fixed at the top
+        cv.addLayout(top)
+        self.card_rule = Divider()
+        cv.addWidget(self.card_rule)
+        cv.addWidget(self.options_stack, 1)
+        self._card_open = True
+        self.card.hide()
+
+    def card_open(self) -> bool:
+        return bool(self.card is not None and self._card_open)
+
+    def set_card_open(self, on: bool):
+        """Collapse the card to its edge (the action stays at the same spot) or open it."""
+        if self.card is None:
+            return
+        self._card_open = on
+        has_opts = self.options_stack.currentIndex() > 0
+        self.card_rule.setVisible(on and has_opts)
+        self.options_stack.setVisible(on and has_opts)
+        self.card_toggle.setIcon(theme.glyph_icon(0xE76C if on else 0xE76B, 14))
+        self.card_toggle.setToolTip("Hide options" if on else "Show options")
+        self._place_card()
+
+    def _place_card(self):
+        c = self.card
+        if c is None or not c.isVisible():
+            return
+        m = c.layout().contentsMargins()
+        top_h = max(self.action_slot.sizeHint().height(), self.card_toggle.sizeHint().height())
+        right = self.width() - PAGE_MARGINS[2]
+        y = self.centre.y() + 4
+        if self.options_stack.isVisible():
+            w = DETAILS_W + m.left() + m.right() + 8
+            cur = self.options_stack.currentWidget()
+            inner = cur.widget() if hasattr(cur, "widget") and cur.widget() is not None else cur
+            lay = inner.layout()
+            # wrapped text in a 200 px column: the height for that width, not the hint
+            body_h = (lay.totalHeightForWidth(DETAILS_W) if lay is not None and lay.hasHeightForWidth()
+                      else inner.sizeHint().height())
+            body_h = max(body_h, inner.minimumSizeHint().height())
+            want = m.top() + top_h + 9 + body_h + m.bottom() + 12
+            h = min(want, self.height() - y - PAGE_MARGINS[3] - 8)
+        else:
+            w = self.action_slot.sizeHint().width() + self.card_toggle.sizeHint().width() \
+                + m.left() + m.right() + 8
+            h = m.top() + top_h + m.bottom()
+        c.setGeometry(right - w, y, w, h)
+        c.raise_()
+        # A page grid keeps its thumbnails clear of the card (a covered page could not
+        # be reached); a single page stays put under it (owner: cover, not resize).
+        tool = self.current_tool()
+        grid = getattr(tool, "grid", None) if tool is not None else None
+        if grid is not None:
+            grid.setViewportMargins(0, 0, w + 12, 0)
+            grid.doItemsLayout()
+        rail = (getattr(self.window_, "_left", None) or {}).get("rail") if self.window_ else None
+        if rail is not None:
+            rail.refresh()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._place_card()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._place_card()
 
     # ── the tools ──
     def _tool_button(self, key: str):
@@ -482,6 +589,8 @@ class StructureHost(QWidget):
         page = self.window_.page_for(_registry()[key])
         page.header.hide()
         page.layout().setContentsMargins(0, 0, 0, 0)
+        if self.float_ and hasattr(page, "zoom_slider"):
+            percent_zoom(page)
         return page
 
     def _make_view(self, key: str) -> _View:
@@ -531,6 +640,8 @@ class StructureHost(QWidget):
                 bv.addStretch(1)
                 box.setFixedWidth(self._opt_w())
                 options = box
+                if self.float_ and getattr(page, "grid", None) is not None:
+                    page.page_toolbar = PageToolbar(page)
         elif isinstance(page, ToolPage):
             # A form: its cards are the options; the document shows in the viewer.
             if page.drop_target is not None:
@@ -640,7 +751,10 @@ class StructureHost(QWidget):
             for i in range(self.tool_list.count()):
                 if self.tool_list.item(i).data(Qt.UserRole) == key:
                     self.tool_list.setCurrentRow(i)
-        if self.right:
+        if self.float_:
+            self.card.show()
+            self.set_card_open(self._card_open)
+        elif self.right:
             self.options_panel.setVisible(view.options is not None)
         if self.ribbon:
             self.options_panel.setVisible(view.options is not None)
@@ -661,7 +775,9 @@ class StructureHost(QWidget):
         self.centre.setCurrentWidget(self.viewer or self.centre.widget(0))
         self.action_slot.setCurrentIndex(0)
         self.title_label.setText(self._title)
-        if self.ribbon or self.right:
+        if self.float_:
+            self.card.hide()
+        elif self.ribbon or self.right:
             self.options_panel.hide()
 
     def current_tool(self):
@@ -886,7 +1002,7 @@ def install_left(win):
         win.search.setCompacted(True)               # its icon, not a clipped field
         win._rail = True                            # the shell's first show leaves it so
         return
-    win.hBoxLayout.removeWidget(nav)                # merged / tabs: no navigation column
+    win.hBoxLayout.removeWidget(nav)                # merged / tabs / grouprail: no column
     nav.hide()
     win._nav_gone = True
     keys = [k for k in PLACE_KEYS if k in win._labels]
@@ -911,7 +1027,7 @@ def install_left(win):
         cv.addWidget(prefs)
         win.hBoxLayout.insertWidget(0, col)
         win._left = {"mode": mode, "column": col, "places": places, "slot": slot}
-    else:                                           # tabs: one row across the top
+    else:                                           # tabs, grouprail: places across the top
         bar = QWidget()
         bar.setObjectName("placeBar")
         h = QHBoxLayout(bar)
@@ -926,9 +1042,14 @@ def install_left(win):
         win.search.setCompacted(False)
         win.search.setFixedSize(240, 36)
         h.addWidget(win.search)
-        h.addWidget(_prefs_button(win))
+        if mode == "tabs":                          # grouprail: Preferences at the rail's foot
+            h.addWidget(_prefs_button(win))
         win.body.layout().insertWidget(0, bar)
         win._left = {"mode": mode, "bar": bar, "tabs": tabs}
+        if mode == "grouprail":
+            rail = GroupRail(win)
+            win.hBoxLayout.insertWidget(0, rail)
+            win._left["rail"] = rail
     # The search filters the tools where they are listed (the pane), as it does
     # the navigation's entries.
     win.search.edit.textChanged.connect(lambda q: _filter_lists(win, q))
@@ -976,8 +1097,318 @@ def follow_left(win, key, page):
             slot.setCurrentWidget(pane)
         else:
             slot.setCurrentIndex(0)
-    elif key in PLACE_KEYS:
-        left["tabs"].setCurrentItem(key)
+    else:
+        if key in PLACE_KEYS:
+            left["tabs"].setCurrentItem(key)
+        if "rail" in left:
+            left["rail"].set_host(page if isinstance(page, StructureHost) else None)
+
+
+# ── E2 (owner, 2026-10-21): group rail, its column and pop-up, page toolbar, zoom % ──
+GROUP_GLYPH = {"Pages": 0xE8A9, "Content": 0xE8D2, "Protect & optimise": 0xEA18,
+               "Convert": 0xE8AB, "": 0xE8B7}
+GROUP_SHORT = {"Protect & optimise": "Protect", "": "Files"}
+RAIL_W = 64
+COLUMN_W = 220
+
+
+def _overlay_style(w, name):
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect
+    w.setObjectName(name)
+    theme.keep_styled(w, lambda x: x.setStyleSheet(
+        f"QFrame#{name} {{ background: {theme.hex_color('surface')}; "
+        f"border: 1px solid {theme.hex_color('divider')}; border-radius: 8px; }}"))
+    sh = QGraphicsDropShadowEffect(w)
+    sh.setBlurRadius(18)
+    sh.setOffset(0, 3)
+    sh.setColor(QColor(0, 0, 0, 60))
+    w.setGraphicsEffect(sh)
+
+
+class GroupButton(TransparentTogglePushButton):
+    """A group of tools on the rail: its own icon over its short name."""
+
+    def __init__(self, group: str, rail):
+        super().__init__()
+        self.group, self.rail = group, rail
+        self.setCheckable(True)
+        self.setFixedSize(RAIL_W - 8, 60)
+        self.setText("")
+        self.setToolTip(group or "Files")
+        # the icon above the name (two labels: the button draws only its ground)
+        gl = QVBoxLayout(self)
+        gl.setContentsMargins(0, 8, 0, 6)
+        gl.setSpacing(2)
+        from PySide6.QtWidgets import QLabel
+        self.icon_label = QLabel(self)
+        self.icon_label.setAlignment(Qt.AlignHCenter)
+        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.label = muted_caption(GROUP_SHORT.get(group, group), self)
+        self.label.setAlignment(Qt.AlignHCenter)
+        self.label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        gl.addWidget(self.icon_label)
+        gl.addWidget(self.label)
+        self.toggled.connect(self._ink)
+        self._ink(False)
+
+    def _ink(self, on: bool):
+        """Name and icon in the accent's own ink while checked, else muted / text."""
+        code = GROUP_GLYPH.get(self.group, 0xE8B7)
+        ink = theme.color("on_accent") if on else theme.color("text")
+        self.icon_label.setPixmap(theme.glyph_icon(code, 20, ink).pixmap(20, 20))
+        theme.label_role(self.label, "on_accent" if on else "muted")
+
+    def contextMenuEvent(self, e):
+        self.rail.popup(self)
+
+
+class GroupRail(QWidget):
+    """PK_LEFT=grouprail: the current place's tool groups (owner, 2026-10-21)."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        from PySide6.QtWidgets import QFrame
+        self.win = win
+        self.host = None
+        self.setFixedWidth(RAIL_W)
+        self.setObjectName("groupRail")
+        theme.keep_styled(self, lambda x: x.setStyleSheet(
+            f"QWidget#groupRail {{ background: {theme.hex_color('surface')}; }}"))
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(4, 56, 4, 8)
+        v.setSpacing(8)
+        self.box = QVBoxLayout()
+        self.box.setSpacing(8)
+        v.addLayout(self.box)
+        v.addStretch(1)
+        prefs = TransparentPushButton(theme.glyph_icon(0xE713, 18), "")
+        prefs.setToolTip(win._labels.get(PREFS_KEY, "Preferences"))
+        prefs.setFixedSize(RAIL_W - 8, 40)
+        prefs.clicked.connect(lambda: win.show_page(PREFS_KEY))
+        v.addWidget(prefs)
+        self.buttons: dict[str, GroupButton] = {}
+        # the column of a group's tools, over the page, beside the rail
+        self.column = QFrame(win)
+        _overlay_style(self.column, "groupColumn")
+        cv = QVBoxLayout(self.column)
+        cv.setContentsMargins(10, 12, 10, 12)
+        cv.setSpacing(6)
+        self.column_title = StrongBodyLabel("")
+        cv.addWidget(self.column_title)
+        self.column_slot = QStackedWidget()
+        cv.addWidget(self.column_slot, 1)
+        self.column.hide()
+        self._column_group = None
+        self._lists = {}
+
+    # the host whose groups the rail shows
+    def set_host(self, host):
+        if host is self.host:
+            self.refresh()
+            return
+        self.close_column()
+        self.host = host
+        while self.box.count():
+            it = self.box.takeAt(0)
+            if it.widget() is not None:
+                it.widget().deleteLater()
+        self.buttons = {}
+        for g, _tools in (host.groups if host is not None else []):
+            b = GroupButton(g, self)
+            b.clicked.connect(lambda _=False, b=b: self.toggle_column(b))
+            self.box.addWidget(b, 0, Qt.AlignHCenter)
+            self.buttons[g] = b
+        self.refresh()
+
+    def group_of(self, key):
+        if self.host is None:
+            return None
+        return next((g for g, ts in self.host.groups if key in ts), None)
+
+    def refresh(self):
+        cur = self.group_of(self.host._current) if self.host is not None else None
+        mark = self._column_group if self._column_group is not None else cur
+        for g, b in self.buttons.items():      # one group marked: the open column's, else the tool's
+            b.setChecked(g == mark)
+
+    def _tools(self, group):
+        return next(ts for g, ts in self.host.groups if g == group)
+
+    def _choose(self, key):
+        self.close_column()
+        self.host.pick(key)
+        self.refresh()
+
+    # left click: the column (closes once a tool is chosen)
+    def toggle_column(self, btn):
+        if self.host is None:
+            return
+        if self._column_group == btn.group and self.column.isVisible():
+            self.close_column()
+            return
+        lst = self._lists.get((id(self.host), btn.group))
+        if lst is None:
+            lst = self.host._tool_list([("", self._tools(btn.group))])
+            lst.itemClicked.connect(lambda it: it.data(Qt.UserRole) and self._choose(it.data(Qt.UserRole)))
+            lst.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            self._lists[(id(self.host), btn.group)] = lst
+            self.column_slot.addWidget(lst)
+        self.column_slot.setCurrentWidget(lst)
+        for i in range(lst.count()):
+            lst.item(i).setSelected(lst.item(i).data(Qt.UserRole) == self.host._current)
+        self.column_title.setText(btn.group or "Files")
+        rows = sum(lst.sizeHintForRow(i) for i in range(lst.count())) + 8
+        tl = self.mapTo(self.win, self.rect().topLeft())
+        # under the top row (places, document bar): where the working space starts
+        work = self.host.centre.mapTo(self.win, self.host.centre.rect().topLeft()).y()
+        h = min(self.win.height() - work - 16, 12 + 28 + rows + 12)
+        self.column.setGeometry(tl.x() + RAIL_W + 4, work, COLUMN_W, h)
+        self._column_group = btn.group
+        self.column.show()
+        self.column.raise_()
+        self.refresh()
+
+    def close_column(self):
+        self.column.hide()
+        self._column_group = None
+        self.refresh()
+
+    def column_shown(self) -> bool:
+        return self.column.isVisible()
+
+    # right click: the same tools as a pop-up, gone once a tool is chosen
+    def popup(self, btn):
+        if self.host is None:
+            return
+        from qfluentwidgets import Action, RoundMenu
+
+        from .shell import DEFAULT_GLYPH, NAV_GLYPH
+        self.close_column()
+        menu = RoundMenu(parent=self.win)
+        reg = _registry()
+        for t in self._tools(btn.group):
+            e = reg.get(t)
+            act = Action(theme.glyph_icon(NAV_GLYPH.get(t, DEFAULT_GLYPH), 16),
+                         (plain_label(e.label) if e else t).replace("&", "&&"))
+            act.triggered.connect(lambda _=False, k=t: self._choose(k))
+            menu.addAction(act)
+        self.last_menu = menu
+        menu.exec(btn.mapToGlobal(btn.rect().topRight()) + QPoint(6, 0))
+
+
+class PageToolbar(QWidget):
+    """The organiser's main page commands on the selected page itself (PK_DETAILS=float):
+    90 CCW, 90 CW, Delete, just under the last selected thumbnail."""
+
+    KEEP = ("90\u00b0 CCW", "90\u00b0 CW", "Delete")
+
+    def __init__(self, page):
+        grid = page.grid
+        super().__init__(grid.viewport())
+        from PySide6.QtWidgets import QFrame
+        self.page, self.grid = page, grid
+        frame = QFrame(self)
+        _overlay_style(frame, "pageToolbar")
+        h = QHBoxLayout(frame)
+        h.setContentsMargins(6, 4, 6, 4)
+        h.setSpacing(4)
+        self.buttons = []
+        acts = {b.text().replace("&&", "&"): b for b in page._actions}
+        for name in self.KEEP:
+            src = next((b for t, b in acts.items() if t.endswith(name) or t == name), None)
+            if src is None:
+                continue
+            b = TransparentPushButton(src.icon(), src.text())
+            b.setMinimumHeight(src.minimumHeight())
+            b.clicked.connect(src.click)
+            h.addWidget(b)
+            self.buttons.append((b, src))
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(frame)
+        grid.itemSelectionChanged.connect(self.place)
+        grid.verticalScrollBar().valueChanged.connect(self.place)
+        self.hide()
+
+    def place(self, *_):
+        items = self.grid.selectedItems()
+        if not items or not self.buttons:
+            self.hide()
+            return
+        for b, src in self.buttons:
+            b.setEnabled(src.isEnabled())
+        it = max(items, key=lambda i: self.grid.row(i))
+        r = self.grid.visualItemRect(it)
+        self.adjustSize()
+        vp = self.grid.viewport().rect()
+        x = max(4, min(r.center().x() - self.width() // 2, vp.width() - self.width() - 4))
+        y = r.bottom() + 4
+        if y + self.height() > vp.height() - 4:
+            y = max(4, r.top() - self.height() - 4)
+        self.move(x, y)
+        self.show()
+        self.raise_()
+
+
+ZOOM_STEPS = (50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300)
+
+
+def percent_zoom(page):
+    """The zoom as  -  100 %  +  in the centre of the page's bottom strip, in place of its
+    slider (PK_DETAILS=float; owner 2026-10-21).  The slider stays, hidden, as the value."""
+    from qfluentwidgets import Action, RoundMenu, TransparentToolButton
+    sl = page.zoom_slider
+    lay = next((lo for lo in page.findChildren(QHBoxLayout) if lo.indexOf(sl) >= 0), None)
+    if lay is None:
+        return
+    i = lay.indexOf(sl)
+    prev = lay.itemAt(i - 1).widget() if i > 0 else None
+    if prev is not None and getattr(prev, "text", lambda: "")() == "Zoom":
+        prev.hide()
+    sl.hide()
+    box = QWidget()
+    bh = QHBoxLayout(box)
+    bh.setContentsMargins(0, 0, 0, 0)
+    bh.setSpacing(2)
+    minus = TransparentToolButton(theme.glyph_icon(0xE738, 12))
+    plus = TransparentToolButton(theme.glyph_icon(0xE710, 12))
+    minus.setToolTip("Zoom out")
+    plus.setToolTip("Zoom in")
+    pct = TransparentPushButton(f"{sl.value()} %")
+    pct.setMinimumWidth(72)
+    pct.setToolTip("Choose a zoom")
+    lo_, hi_ = sl.minimum(), sl.maximum()
+
+    def step(d):
+        v = sl.value()
+        nxt = [s for s in ZOOM_STEPS if lo_ <= s <= hi_ and (s > v if d > 0 else s < v)]
+        if nxt:
+            sl.setValue(min(nxt) if d > 0 else max(nxt))
+    minus.clicked.connect(lambda: step(-1))
+    plus.clicked.connect(lambda: step(1))
+    sl.valueChanged.connect(lambda v: pct.setText(f"{v} %"))
+
+    def menu():
+        m = RoundMenu(parent=pct)
+        for s in ZOOM_STEPS:
+            if lo_ <= s <= hi_:
+                a = Action(f"{s} %")
+                a.triggered.connect(lambda _=False, s=s: sl.setValue(s))
+                m.addAction(a)
+        page.zoom_menu = m
+        m.exec(pct.mapToGlobal(pct.rect().topLeft()) - QPoint(0, m.sizeHint().height()))
+    pct.clicked.connect(menu)
+    bh.addWidget(minus)
+    bh.addWidget(pct)
+    bh.addWidget(plus)
+    # centre it: the strip's own stretch, then the box, then a stretch of the same weight
+    first = next((k for k in range(lay.count()) if lay.itemAt(k).spacerItem() is not None), None)
+    at = (first + 1) if first is not None else i
+    lay.insertWidget(at, box)
+    lay.insertStretch(at + 1, 1)
+    page.zoom_box = (minus, pct, plus)
 
 
 def matching_tools(q: str) -> list[str]:
