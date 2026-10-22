@@ -14,16 +14,16 @@ from ..pages import (KEEP_ONE, ToolPage, card, group_title, pages_phrase, radio_
 
 SUBTITLE = "Repair, sanitise or flatten a PDF · remove its blank pages"
 TOOLS = [
+    # Two lines each in the 200 px card (owner, 2026-10-22: they ran to 22 lines and
+    # pushed the card past a maximized window)
     ("repair", "Repair",
-     "Attempt to recover a corrupt or truncated PDF. Re-parses the file's cross-reference "
-     "table. Can rescue files that other tools refuse to open. May not recover all pages."),
+     "Rebuild a damaged PDF so it opens again. Some pages may be lost."),
     ("sanitise", "Sanitise",
-     "Remove JavaScript, embedded files, hidden metadata (XMP) and links that run actions, "
-     "keeping what is seen on the page."),
+     "Remove scripts, attachments, hidden metadata and action links."),
     ("flatten", "Flatten",
-     "Bake comments and form fields into the page so they can no longer be edited."),
+     "Fix comments and form fields into the page."),
     ("blank", "Remove blank pages",
-     "Find pages with no text and no drawing, list them, and remove the ones confirmed."),
+     "Find empty pages and remove the ones you confirm."),
 ]
 ACTION = {"repair": "Repair", "sanitise": "Sanitise", "flatten": "Flatten",
           "blank": "Remove blank pages"}

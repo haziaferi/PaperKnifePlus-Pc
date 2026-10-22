@@ -331,3 +331,15 @@ def test_redact_card_shows_its_warning_without_scrolling(e2win):
     assert redact.BOX_ROWS == 5
     page._pending = []
     page._refresh_boxes()
+
+
+def test_pdf_tools_card_fits_a_maximized_window(e2win):
+    """Its four descriptions ran to 22 lines and hid 73 px below the fold in a maximized
+    window (1920 x 1032 logical px on the owner's screen); two lines each (owner,
+    2026-10-22) and nothing is hidden."""
+    e2win.resize(1920, 1032)
+    pump(0.3)
+    host = host_of(e2win)
+    host.pick("PdfToolsTool")
+    pump(0.4)
+    assert host.options_stack.currentWidget().vScrollBar.maximum() == 0
