@@ -131,6 +131,9 @@ def test_page_grid_keeps_clear_of_the_card(e2win):
     vp = grid.viewport()
     vp_right = vp.mapTo(e2win, vp.rect().topRight()).x()
     assert vp_right < card_left
+    page = host.current_tool()                 # the row above it too (its hint was cut)
+    for wdg in (page.context_bar_widget, page.hint_label):
+        assert wdg.mapTo(e2win, wdg.rect().topRight()).x() < card_left, wdg.objectName()
 
 
 def test_page_toolbar_on_the_selected_page_acts_on_it(e2win):
@@ -236,4 +239,66 @@ def test_title_bar_waits_over_an_empty_strip(e2win):
     btn = next(x for x in range(gap, w.width(), 4) if w._control_under(shell.QPoint(x, 16))
                and not w._over_title_buttons(x, 16))
     at(btn, 16)
+    assert w.title_bar_shown()                               # still on its way: it stays
+    at(btn, w.titleBar.height() + 40)                        # back to the page...
+    at(btn, 16)                                              # ...then onto a control under it
     assert not w.title_bar_shown()
+
+
+def test_home_quick_actions_open_their_tools_in_a_structure(e2win):
+    """Home listed no quick actions in a structure (it looked for tools among the places
+    the navigation lists, 2026-10-21 walk)."""
+    from paperknife.qt import home
+    assert e2win.show_page("home")
+    pump(0.1)
+    page = e2win.current_page()
+    assert list(page.quick_buttons) == list(home.QUICK_ACTIONS)
+    page.quick_buttons["CompressTool"].click()
+    pump(0.2)
+    assert e2win.current_page()._current == "CompressTool"
+    assert e2win.show_page("home")
+    page.quick_buttons["MergeTool"].click()
+    pump(0.2)
+    assert e2win.current_page().current_tool() is not None
+    assert type(e2win.current_page().current_tool()).__name__ == "MergePage"
+
+
+def test_the_way_along_the_bar_to_its_buttons_stays_clear(e2win):
+    """Crossing the revealed bar towards its buttons passes over the search field, and
+    the bar made way there (the live check, 2026-10-22): brought by the top edge and
+    never left, it stays all the way."""
+    from paperknife.qt import shell
+    w = e2win
+    tb = w.titleBar
+    buttons_left = tb.mapTo(w, tb.minBtn.pos()).x()
+    s = w.search
+    left, right = s.mapTo(w, s.rect().topLeft()).x(), s.mapTo(w, s.rect().topRight()).x()
+    assert left < buttons_left and w.width() // 2 < right       # the field lies on the way
+
+    def at(x, y):
+        w.pointer_at = shell.QPoint(x, y)
+        w._poll_edges()
+
+    at(w.width() // 2, 2)
+    pump(shell.TOP_SLIDE_MS / 1000 + 0.1)
+    y = tb.height() // 2
+    for x in range(w.width() // 2, buttons_left + 10, 6):
+        at(x, y)
+        assert w.title_bar_shown(), f"bar left at x={x}"
+
+
+def test_the_first_action_sits_at_one_height_whatever_the_stack(e2win):
+    """Find & Replace's three stacked actions put its Save 30 px above Edit Text's
+    single Save (the live walk, 2026-10-22): the actions start at the card top, and the
+    slot is only as tall as the current tool's actions."""
+    host = host_of(e2win)
+    tops = {}
+    for tool in ("EditTextTool", "FindReplaceTool", "PasswordTool", "CompressTool"):
+        host.pick(tool)
+        pump(0.15)
+        buttons = [b for b in host.current_tool()._buttons if b.isVisible()]
+        tops[tool] = min(b.mapTo(e2win, b.rect().topLeft()).y() for b in buttons)
+        slot = host.action_slot
+        lowest = max(b.mapTo(e2win, b.rect().bottomLeft()).y() for b in buttons)
+        assert slot.mapTo(e2win, slot.rect().bottomLeft()).y() - lowest < 8, tool
+    assert len(set(tops.values())) == 1, tops

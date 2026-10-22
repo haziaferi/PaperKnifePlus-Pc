@@ -281,3 +281,76 @@ def test_ctrl_sideways_wheel_does_not_zoom_the_reader(window):
                      Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
     page.view.wheelEvent(ev)
     assert zooms == []
+
+
+def _landscape(path, w=1190, h=842):
+    doc = fitz.open()
+    doc.new_page(width=w, height=h).insert_text((72, 100), "Wide", fontsize=14)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_a_wide_page_opens_fitted_to_the_view(window, tmp_path):
+    """A landscape page opened at 125 % overflowed the view (2026-10-21 walk): a new
+    file whose widest page does not fit opens at the width; a portrait file keeps the
+    zoom, and the zoom is never raised."""
+    page, _src = _open(window, tmp_path)                    # portrait A4-ish: fits
+    z_portrait = page._zoom
+    assert z_portrait == pytest.approx(1.25)
+    assert window.open_tool("ReaderTool", _landscape(tmp_path / "wide.pdf"))
+    _settle(page)
+    room = page.view.viewport().width()
+    assert page._max_w + 2 * core_reader.GAP <= room           # no sideways scroll
+    assert page._zoom < z_portrait
+    assert page.zoom_slider.value() == int(round(page._zoom * 100))
+
+
+def _picture_pdf(path, pages=2):
+    """Pages that are only a picture (a scan with no text layer)."""
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 60, 80), False)
+    pix.clear_with(200)
+    doc = fitz.open()
+    for _ in range(pages):
+        doc.new_page().insert_image(fitz.Rect(36, 36, 300, 400), pixmap=pix)
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_core_tells_a_scan_from_a_text_pdf(tmp_path):
+    with fitz.open(_picture_pdf(tmp_path / "scan.pdf")) as d:
+        assert core_reader.looks_scanned(d)
+    with fitz.open(make_pdf(tmp_path / "text.pdf")) as d:
+        assert not core_reader.looks_scanned(d)
+    blank = fitz.open()
+    blank.new_page()
+    assert not core_reader.looks_scanned(blank)            # nothing at all: not a scan
+
+
+def test_a_scanned_pdf_gets_the_ocr_hint_once(window, tmp_path):
+    from paperknife.qt.tools import reader
+    scan = _picture_pdf(tmp_path / "scan.pdf")
+    assert window.open_tool("ReaderTool", scan)
+    page = window.current_page()
+    _settle(page)
+    bar = page.scan_bar
+    assert bar is not None and bar.isVisible()
+    assert (bar.titleLabel.text(), bar.contentLabel.text(), bar.run_button.text()) == \
+        (reader.SCAN_TITLE, reader.SCAN_TEXT, reader.SCAN_BUTTON)
+    page, _ = _open(window, tmp_path)                       # a text PDF: no bar
+    assert page.scan_bar is None
+    assert window.open_tool("ReaderTool", scan)             # the same scan again: once only
+    _settle(page)
+    assert page.scan_bar is None
+
+
+def test_the_hint_opens_ocr_on_the_file(window, tmp_path):
+    scan = _picture_pdf(tmp_path / "scan.pdf")
+    assert window.open_tool("ReaderTool", scan)
+    page = window.current_page()
+    _settle(page)
+    page.scan_bar.run_button.click()
+    pump(0.3)
+    assert type(window.current_page()).__name__ == "OCRPage"
+    assert window.current_document == scan

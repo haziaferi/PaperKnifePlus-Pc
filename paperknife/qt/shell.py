@@ -237,17 +237,20 @@ class MainWindow(FluentWindow):
         self.resize(1380, 900)
         self.setAcceptDrops(True)
 
+        quick_tools = tools
         if tools is None:
             from ..tool_registry import TOOL_REGISTRY
             from .pages import batch_prototype
             # Prototype B: the four tools take a folder; no Batch screen.
-            tools = [t for t in TOOL_REGISTRY
-                     if not (t.name == "BatchTool" and batch_prototype() == "B")]
+            tools = quick_tools = [t for t in TOOL_REGISTRY
+                                   if not (t.name == "BatchTool" and batch_prototype() == "B")]
             from . import structure
             if structure.active():
                 # Workspaces hold the tools (structure prototypes, owner 2026-10-18).
                 tools = structure.nav_tools(TOOL_REGISTRY)
         self.tools = list(tools)
+        # Home's quick actions name tools, not the places a structure lists.
+        self._quick_tools = list(quick_tools)
 
         # State
         self._current_job: CancellableJob | None = None
@@ -260,6 +263,7 @@ class MainWindow(FluentWindow):
         self._autohide_title = os.environ.get("PK_TITLEBAR", "").strip().lower() != "always"
         # Hidden from the start: shown, it would float over the page header.
         self._top_shown = not self._autohide_title
+        self._bar_in_use = False        # the pointer stayed on the bar since the top edge
         self._side_shown = False        # Compact Mode: navigation floated in
         self._ctx_revealed = False      # Compact Mode: context panel brought in
         self._first_show = True
@@ -534,7 +538,7 @@ class MainWindow(FluentWindow):
             if key == "home":
                 from .home import HomePage
                 page = HomePage(self)
-                page.build_quick_actions(self.tools)
+                page.build_quick_actions(self._quick_tools)
             else:
                 page = self.page_for(self._tool_by_key[key])
             self._hosts[key].layout().addWidget(page)
@@ -635,6 +639,7 @@ class MainWindow(FluentWindow):
         if path == self.current_document:
             return
         self.current_document = path
+        dialogs.note_document(path)
         self.current_document_changed.emit(path)
 
     def open_document(self, path: str) -> bool:
@@ -1222,17 +1227,23 @@ class MainWindow(FluentWindow):
             page = self.current_page()
             if self.compact and page is not None and page.header.isVisible():
                 tb_h = max(tb_h, page.mapTo(self, page.header.geometry().bottomLeft()).y())
+            on_bar = 0 <= x <= w and 0 <= y <= tb_h
             if 0 <= x <= w and -OUTSIDE_Y <= y <= EDGE:
                 self._show_top()
                 self._hide_top_timer.stop()
+                self._bar_in_use = True                  # brought by the top edge
             elif self._top_shown:
-                if self._over_title_buttons(x, y) or \
-                        (self.compact and 0 <= x <= w and 0 <= y <= tb_h):
+                if not on_bar:
+                    self._bar_in_use = False             # the pointer went back to the page
+                if self._over_title_buttons(x, y) or (self.compact and on_bar):
                     self._hide_top_timer.stop()          # over its buttons (or the header): keep it
-                elif 0 <= x <= w and 0 <= y <= tb_h and self._control_under(p):
-                    # Over one of the page's own controls lying under the bar (the main
-                    # action at the top right, 2026-10-21): make way at once.  Over an empty
-                    # stretch the bar waits as usual, so the pointer can reach its buttons.
+                elif on_bar and self._bar_in_use:
+                    # Still on the bar since the top edge brought it: on the way to its
+                    # buttons, over whatever lies under it (the search field, 2026-10-22).
+                    self._hide_top_timer.stop()
+                elif on_bar and self._control_under(p):
+                    # Back from the page onto one of its controls while the bar lingers
+                    # (the main action at the top right, 2026-10-21): make way at once.
                     self._hide_top_timer.stop()
                     self._hide_top()
                 elif not self._hide_top_timer.isActive():

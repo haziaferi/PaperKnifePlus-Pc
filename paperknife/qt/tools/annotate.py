@@ -152,6 +152,10 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
                                     self.opacity / 100.0, self.note_text)
         except Exception as ex:
             self.window_.set_status(f"Annotation error: {ex}", "danger")
+        else:
+            if ann is None and self.kind in core_annotate.MARKUP_KINDS:
+                self.window_.set_status("No text under the drag: drag across words to mark them.",
+                                        "warning")
         if ann is not None:
             self._undo_stack.append((self._pg, ann.xref))
             self._dirty = True

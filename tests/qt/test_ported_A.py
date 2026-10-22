@@ -73,8 +73,12 @@ def test_annotate_failed_add_then_undo_keeps_existing(window, tmp_path):
     # test_content.py::test_annotate_failed_add_then_undo_keeps_existing
     page = _open(window, "AnnotateTool", _annot_pdf(tmp_path / "a.pdf", note=True))
     page.set_kind("highlight")
-    _drag(page, (100, 300), (250, 300))     # zero height: add_highlight_annot fails
-    assert window.status_role == "danger"
+    # A drag along blank paper adds nothing (it used to fail inside add_highlight_annot;
+    # since 2026-10-22 it is refused with a warning): Undo must not take the old note.
+    n = len(list(page._doc[0].annots()))
+    _drag(page, (100, 300), (250, 300))
+    assert window.status_role == "warning"
+    assert len(list(page._doc[0].annots())) == n
     page.undo()
     pg = page._doc[0]
     contents = [a.info["content"] for a in pg.annots()]

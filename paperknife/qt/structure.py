@@ -463,16 +463,30 @@ class StructureHost(QWidget):
         self.card_toggle = TransparentToolButton(theme.glyph_icon(0xE76C, 14))
         self.card_toggle.setToolTip("Hide options")
         self.card_toggle.clicked.connect(lambda: self.set_card_open(not self._card_open))
-        top.addWidget(self.card_toggle, 0, Qt.AlignVCenter)
+        # Both at the top of the row: the first action stays at one height on every
+        # tool, one button or a stack of three (Find & Replace's Save sat 30 px above
+        # Edit Text's, the walk, 2026-10-22).
+        top.addWidget(self.card_toggle, 0, Qt.AlignTop)
         top.addStretch(1)
-        top.addWidget(self.action_slot, 0, Qt.AlignVCenter)       # fixed at the top
+        top.addWidget(self.action_slot, 0, Qt.AlignTop)            # fixed at the top
         cv.addLayout(top)
         self.card_top = top
+        # The slot is as tall as its current tool's actions, not the tallest stack:
+        # no empty band under a single action.
+        self.action_slot.currentChanged.connect(self._fit_action_slot)
         self.card_rule = Divider()
         cv.addWidget(self.card_rule)
         cv.addWidget(self.options_stack, 1)
         self._card_open = True
         self.card.hide()
+
+    def _fit_action_slot(self, _index=None):
+        cur = self.action_slot.currentWidget()
+        for i in range(self.action_slot.count()):
+            w = self.action_slot.widget(i)
+            w.setSizePolicy(QSizePolicy.Preferred if w is cur else QSizePolicy.Ignored,
+                            QSizePolicy.Preferred if w is cur else QSizePolicy.Ignored)
+        self.action_slot.updateGeometry()
 
     def card_open(self) -> bool:
         return bool(self.card is not None and self._card_open)
@@ -515,14 +529,15 @@ class StructureHost(QWidget):
             h = m.top() + top_h + m.bottom()
         c.setGeometry(right - w, y, w, h)
         c.raise_()
-        # A page grid keeps its thumbnails clear of the card (a covered page could not
-        # be reached); a single page stays put under it (owner: cover, not resize).
+        # A page grid keeps clear of the card (a covered page could not be reached),
+        # and with it the row above it and the empty-state target (their hint was cut
+        # under the card, 2026-10-22); a single page stays put under it (owner: cover,
+        # not resize).
         tool = self.current_tool()
         grid = getattr(tool, "grid", None) if tool is not None else None
-        if grid is not None:
-            grid.setViewportMargins(0, 0, w + 12, 0)
-            grid.doItemsLayout()
-        if self.files and tool is not None and tool.layout() is not None:
+        if grid is not None and not self.files and tool.layout() is not None:
+            tool.layout().setContentsMargins(0, 0, w + 12, 0)
+        elif self.files and tool is not None and tool.layout() is not None:
             # A Files tool keeps its own list at the right (Merge's file list, Batch's
             # settings): it starts under the card, which would cover its Add / Up / Down.
             tool.layout().setContentsMargins(0, h + 12, 0, 0)

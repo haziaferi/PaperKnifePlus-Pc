@@ -164,3 +164,27 @@ def test_leaving_the_tool_closes_the_document(window, tmp_path):
     doc = page._doc
     window.show_page("home")
     assert doc.is_closed and page._doc is None
+
+
+@pytest.mark.parametrize("kind", ["highlight", "underline", "strikeout"])
+def test_a_drag_along_a_line_marks_that_line(window, tmp_path, kind):
+    """Dragging straight along a line spans no height: PyMuPDF refused it as "bad
+    quads entry" and the status showed an error (the live walk, 2026-10-22).  The
+    mark keeps the drag's width and takes the line's height; along empty paper a
+    drag adds nothing and says why."""
+    page, _ = _open(window, tmp_path)
+    page.set_kind(kind)
+    pg = page._doc[0]
+    word = pg.search_for("Page 1")[0]
+    y = (word.y0 + word.y1) / 2
+    _drag(page, (60, y), (140, y))
+    annots = list(pg.annots())
+    assert len(annots) == 1, window.status_text()
+    flat = [c for v in annots[0].vertices for c in v]
+    xs, ys = flat[0::2], flat[1::2]
+    assert (min(xs), max(xs)) == (pytest.approx(60, abs=0.5), pytest.approx(140, abs=0.5))
+    assert min(ys) == pytest.approx(word.y0, abs=1) and max(ys) == pytest.approx(word.y1, abs=1)
+    assert "error" not in window.status_text().lower()
+    _drag(page, (300, 600), (400, 600))                    # empty paper: nothing added
+    assert len(list(pg.annots())) == 1
+    assert "No text under the drag" in window.status_text()

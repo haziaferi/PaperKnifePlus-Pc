@@ -201,7 +201,9 @@ def test_title_bar_makes_way_for_controls_under_it(window):
     assert not window._control_under(shell.QPoint(x, y))  # Home: nothing under it there
     at(window, x, y)
     assert window.title_bar_shown()
-    assert window._hide_top_timer.isActive()             # leaves after the usual delay
+    assert not window._hide_top_timer.isActive()         # on the bar since the edge: stays
+    at(window, x, y + 300)                               # back on the page: the usual delay
+    assert window._hide_top_timer.isActive()
 
 
 def test_compact_top_edge_brings_header_below_bar(window):

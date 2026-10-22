@@ -26,6 +26,8 @@ SUBTITLE = "Continuous smooth-scroll viewer — view-only"
 ZOOM_DEFAULT = 1.25
 ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
 WORKER_IDLE_S = 2.0      # the render worker ends after this long with nothing to do
+# A file with pictures and no text (owner's wording, 2026-10-22, after PDF X's banner)
+SCAN_TITLE, SCAN_TEXT, SCAN_BUTTON = "Scanned PDF", "No searchable text.", "Run OCR"
 
 
 class ContinuousView(GroundView):
@@ -72,6 +74,8 @@ class ReaderPage(WorkspacePage):
         self._doc_lock = None
         self._path = ""
         self._zoom = ZOOM_DEFAULT
+        self.scan_bar = None                        # the "Scanned PDF" hint, while shown
+        self._hinted: set[str] = set()              # files the hint was shown for
         self._pg = 0
         self._page_rects: list = []
         self._tops: list[int] = []
@@ -118,16 +122,56 @@ class ReaderPage(WorkspacePage):
         # layout never walks the Document while a render holds it.
         self._page_rects = [page.rect for page in doc]
         self._gen += 1
+        new_file = path != self._path
         self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
         self._pg = 0
         self.path_label.setText(path)
         self.refresh_document(announce=True)
+        if new_file:
+            self._fit_wide_pages()
+            self._hint_scan(core_reader.looks_scanned(doc))
         self._relayout()
         self.view.verticalScrollBar().setValue(0)
         self._update_viewport()
         if old_doc is not None:
             core_reader.close_when_idle(old_doc, old_lock)
         return True
+
+    def _hint_scan(self, scanned: bool):
+        """A closable bar over the pages for a file with no text layer, with a button
+        that opens OCR on it; once per file (closing it, or another file, ends it)."""
+        from qfluentwidgets import InfoBar, InfoBarIcon, InfoBarPosition, PushButton
+        if self.scan_bar is not None:
+            self.scan_bar.close()
+            self.scan_bar = None
+        if not scanned or self._path in self._hinted:
+            return
+        self._hinted.add(self._path)
+        bar = InfoBar(InfoBarIcon.INFORMATION, SCAN_TITLE, SCAN_TEXT, Qt.Horizontal,
+                      isClosable=True, duration=-1, position=InfoBarPosition.NONE, parent=self)
+        bar.setObjectName("scanBar")
+        run = PushButton(SCAN_BUTTON, bar)
+        path = self._path
+        run.clicked.connect(lambda: self.window_.open_tool("OCRTool", path))
+        bar.addWidget(run)
+        bar.run_button = run
+        bar.closedSignal.connect(lambda: setattr(self, "scan_bar", None))
+        self.layout().insertWidget(0, bar, 0, Qt.AlignLeft)
+        self.scan_bar = bar
+
+    def _fit_wide_pages(self):
+        """A new file whose widest page would overflow the view at the current zoom (a
+        landscape page at 125 %) opens fitted to the width; the zoom never grows here."""
+        room = self.view.viewport().width() - 2 * core_reader.GAP - 8
+        widest = max((r.width for r in self._page_rects), default=0)
+        if room < 200 or widest <= 0 or widest * self._zoom <= room:
+            return
+        # A whole percent (rounded down, so it still fits): the slider's own echo of
+        # the new value then finds the zoom already set, and its labels follow.
+        z = max(ZOOM_MIN, int(room / widest * 100) / 100)
+        self._zoom = z
+        self.view.zoom = z
+        self.zoom_slider.setValue(int(round(z * 100)))
 
     def activate(self):
         # Re-entering the tool: reopen the document closed on leaving it, once
@@ -169,6 +213,7 @@ class ReaderPage(WorkspacePage):
     def clear_document(self):
         self.deactivate()
         self._path, self._scroll_frac = "", 0.0
+        self._hint_scan(False)
         self.path_label.setText("Open a PDF…")
         self.refresh_document()
 
