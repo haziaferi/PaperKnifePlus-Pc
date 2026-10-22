@@ -92,7 +92,7 @@ def _run(window, dialogs, page, src, out):
 def test_the_page_builds_with_the_ctk_defaults(window):
     page = _page(window)
     assert page.title_label.text() == "OCR"
-    assert page.lang.text() == "eng" and page.lang.placeholderText() == "eng"
+    assert page.lang.text() == "eng"                # nothing chosen yet, no Windows language
     assert page.dpi.minimum() == 72 and page.dpi.maximum() == 400
     assert page.dpi_label.text() == f"{page.dpi.value()} DPI"
     page.dpi.setValue(123)
@@ -159,9 +159,9 @@ def test_language_and_dpi_reach_tesseract(window, dialogs, tmp_path, tess):
     page.dpi.setValue(144)
     _run(window, dialogs, page, _source_pdf(tmp_path / "p.pdf"), tmp_path / "o.pdf")
     assert tess["lang"] == "deu+fra" and tess["sizes"] == [(1190, 1684)]
-    page.lang.setText("  ")                 # blank falls back to eng
+    page.lang.setText("  ")                 # blank falls back to the last one used
     _run(window, dialogs, page, _source_pdf(tmp_path / "q.pdf"), tmp_path / "o2.pdf")
-    assert tess["lang"] == "eng"
+    assert tess["lang"] == "deu+fra"
 
 
 def test_text_only_mode_writes_a4_text_pages(window, dialogs, tmp_path, tess):
@@ -245,3 +245,55 @@ def test_ocr_with_real_tesseract_makes_an_image_only_page_searchable(window, dia
     with fitz.open(out) as doc:
         for word in ("Invoice", "quarterly", "statement"):
             assert doc[0].search_for(word), (word, doc[0].get_text())
+
+
+def test_the_language_starts_from_windows_then_the_last_one_used(window, dialogs, tmp_path,
+                                                                 tess, ocr_languages):
+    """Owner, 2026-10-22: Windows' display language the first time (when installed),
+    the last one used after that."""
+    from paperknife.prefs import PREFS
+    PREFS._data["ocr_lang"] = ""
+    ocr_languages["windows"] = "ita"
+    page = _page(window)
+    assert page.lang.text() == "ita"
+    assert page.lang.button.text() == "Italian"
+    page.lang.setText("fra+eng")
+    _run(window, dialogs, page, _source_pdf(tmp_path / "p.pdf"), tmp_path / "o.pdf")
+    assert tess["lang"] == "fra+eng"
+    assert PREFS.ocr_lang == "fra+eng"                       # remembered
+    from paperknife.qt.pages import LanguagePicker
+    assert LanguagePicker().text() == "fra+eng"              # the next picker starts there
+
+
+def test_windows_language_not_installed_starts_in_english(window, ocr_languages):
+    from paperknife.prefs import PREFS
+    PREFS._data["ocr_lang"] = ""
+    ocr_languages["windows"] = "jpn"
+    assert _page(window).lang.text() == "eng"
+
+
+def test_the_picker_ticks_in_order_and_keeps_one(window):
+    from paperknife.qt.pages import LanguagePicker
+    from qt_harness import pump
+    p = LanguagePicker("ita")
+    acts = p.actions_by_code
+    assert set(acts) == {"deu", "eng", "fra", "ita"}         # the installed ones
+    assert list(acts)[0] == "ita"                            # the chosen first
+    acts["eng"].setChecked(True)
+    pump(0.05)
+    assert p.text() == "ita+eng" and p.button.toolTip() == "Italian + English"
+    # shortened at the end when it does not fit (the offscreen font is wider)
+    assert "Italian + English".startswith(p.button.text().rstrip("…"))
+    assert p.chosen()
+    p.actions_by_code["ita"].setChecked(False)
+    pump(0.05)
+    assert p.text() == "eng"
+    p.actions_by_code["eng"].setChecked(False)                # the last one stays
+    pump(0.05)
+    assert p.text() == "eng" and p.actions_by_code["eng"].isChecked()
+
+
+def test_a_saved_language_not_installed_stays_listed(window):
+    from paperknife.qt.pages import LanguagePicker
+    p = LanguagePicker("lat+eng")
+    assert p.text() == "lat+eng" and "lat" in p.actions_by_code

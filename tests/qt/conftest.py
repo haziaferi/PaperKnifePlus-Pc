@@ -85,6 +85,17 @@ def isolated_store(tmp_path_factory, monkeypatch):
     recent.RECENT._entries = saved_recent
 
 
+@pytest.fixture(autouse=True)
+def ocr_languages(monkeypatch):
+    """The same OCR languages on every machine: a fixed installed list and no Windows
+    display language (so the first-time default is English); tests change either."""
+    from paperknife.core import ocr
+    langs = {"installed": ["deu", "eng", "fra", "ita"], "windows": ""}
+    monkeypatch.setattr(ocr, "installed_languages", lambda: list(langs["installed"]))
+    monkeypatch.setattr(ocr, "windows_language", lambda: langs["windows"])
+    return langs
+
+
 @pytest.fixture(scope="session")
 def qapp():
     from PySide6.QtWidgets import QApplication

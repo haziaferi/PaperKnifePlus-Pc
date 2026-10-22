@@ -12,11 +12,12 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 
 from ...core import batch as core
+from ...core import ocr as core_ocr
 from ...prefs import DPI_RANGE, PREFS, pref_dpi
 from .. import dialogs
 from ..folder_mode import run_over_folder
-from ..pages import (CollectionPage, batch_prototype, card, group_title, labelled_slider,
-                     radio_rows, register_page, spin_box)
+from ..pages import (CollectionPage, LanguagePicker, batch_prototype, card, group_title,
+                     labelled_slider, radio_rows, register_page, spin_box)
 from ..tool_options import PANELS
 from .compress import LEVELS
 
@@ -159,10 +160,7 @@ class BatchPage(CollectionPage):
             self.controls["opacity"] = opacity
         elif op == "OCR":
             row = self.setting_row(group, "Language")
-            lang = LineEdit()
-            lang.setPlaceholderText("eng")
-            lang.setText(PREFS.ocr_lang or "eng")
-            lang.setFixedWidth(120)
+            lang = LanguagePicker()
             row.layout().addWidget(lang)
             self.controls["lang"] = lang
             row = self.setting_row(group, "DPI")
@@ -179,8 +177,10 @@ class BatchPage(CollectionPage):
                 opts[key] = w.value()
             elif key == "opacity":
                 opts[key] = w.value() / 100.0
+            elif key == "lang":
+                opts[key] = w.text().strip()
             elif isinstance(w, LineEdit):
-                opts[key] = w.text().strip() if key == "lang" else w.text()
+                opts[key] = w.text()
             else:
                 opts[key] = int(w.value())
         if opts.get("lang") == "":
@@ -240,6 +240,8 @@ class BatchPage(CollectionPage):
             opts = core.validate_options(raw)
         except ValueError as e:
             return dialogs.warning("Batch", str(e))
+        if opts.get("lang"):
+            core_ocr.remember_lang(opts["lang"])     # the next default (owner, 2026-10-22)
         run_over_folder(self.window_, files, list(self.rows), self._note, fn, out_dir, opts,
                         f"Batch {op}", self.clear_document)
 

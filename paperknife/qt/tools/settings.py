@@ -7,7 +7,8 @@ from qfluentwidgets import ComboBox, LineEdit, PushButton
 from ...core import settings as core
 from ...prefs import PREFS
 from .. import dialogs, theme
-from ..pages import ToolPage, card, group_title, register_page, setting_row, spin_box
+from ..pages import (LanguagePicker, ToolPage, card, group_title, register_page,
+                     setting_row, spin_box)
 
 APPEARANCES = ["light", "dark", "system"]
 COMPRESS_LEVELS = ["light", "medium", "aggressive"]
@@ -56,9 +57,8 @@ class SettingsPage(ToolPage):
         self.compress_level.addItems(COMPRESS_LEVELS)
         self.compress_level.setMinimumWidth(160)
         row.layout().addWidget(self.compress_level)
-        row = setting_row(ops, "OCR language code")
-        self.ocr_lang = LineEdit()
-        self.ocr_lang.setMinimumWidth(160)
+        row = setting_row(ops, "OCR language")
+        self.ocr_lang = LanguagePicker()
         row.layout().addWidget(self.ocr_lang)
 
         self.body.addStretch(1)
@@ -74,7 +74,7 @@ class SettingsPage(ToolPage):
         self.appearance.setCurrentText(str(PREFS.get("appearance", APPEARANCES[0])))
         self.default_dpi.setValue(int(PREFS.default_dpi))
         self.compress_level.setCurrentText(str(PREFS.get("compress_level", COMPRESS_LEVELS[0])))
-        self.ocr_lang.setText(str(PREFS.get("ocr_lang", "")))
+        self.ocr_lang.setText(str(PREFS.get("ocr_lang", "")))   # "" -> the starting default
 
     def values(self) -> dict:
         return {
@@ -83,7 +83,8 @@ class SettingsPage(ToolPage):
             "appearance": self.appearance.currentText(),
             "default_dpi": self.default_dpi.value(),
             "compress_level": self.compress_level.currentText(),
-            "ocr_lang": self.ocr_lang.text(),
+            # untouched, it stays "not chosen yet" (Windows' language, else English)
+            "ocr_lang": self.ocr_lang.text() if self.ocr_lang.chosen() else "",
         }
 
     def activate(self):

@@ -1,6 +1,7 @@
 """OCR: find Tesseract, read the words of rendered pages, and add them to the
 PDF as an invisible text layer (or typeset them as a text-only PDF)."""
 from __future__ import annotations
+import functools
 import html
 import importlib.util as _ilu
 import os
@@ -30,6 +31,83 @@ def tesseract():
                 pt.tesseract_cmd = exe
                 break
     return pytesseract
+
+
+# ── Languages (owner, 2026-10-22: pick from the installed ones; Windows' display
+# language the first time, the last one used after that) ─────────────────────────
+NOT_TEXT = {"osd", "equ"}          # page orientation and maths, not text languages
+LANG_NAMES = {
+    "eng": "English", "ita": "Italian", "deu": "German", "fra": "French", "spa": "Spanish",
+    "por": "Portuguese", "nld": "Dutch", "ell": "Greek", "grc": "Ancient Greek",
+    "lat": "Latin", "pol": "Polish", "ces": "Czech", "slk": "Slovak", "slv": "Slovenian",
+    "hrv": "Croatian", "srp": "Serbian", "ron": "Romanian", "hun": "Hungarian",
+    "fin": "Finnish", "swe": "Swedish", "nor": "Norwegian", "dan": "Danish",
+    "tur": "Turkish", "rus": "Russian", "ukr": "Ukrainian", "bul": "Bulgarian",
+    "ara": "Arabic", "heb": "Hebrew", "hin": "Hindi", "jpn": "Japanese",
+    "chi_sim": "Chinese (simplified)", "chi_tra": "Chinese (traditional)", "kor": "Korean",
+    "cat": "Catalan", "eus": "Basque", "glg": "Galician",
+    "ita_old": "Italian (old)", "spa_old": "Spanish (old)", "enm": "Middle English",
+    "frm": "Middle French", "frk": "German (Fraktur)",
+}
+# ISO 639-1 (what Windows' locale names start with) -> Tesseract's code
+_ISO_TO_TESS = {"en": "eng", "it": "ita", "de": "deu", "fr": "fra", "es": "spa", "pt": "por",
+                "nl": "nld", "el": "ell", "pl": "pol", "cs": "ces", "sk": "slk", "sl": "slv",
+                "hr": "hrv", "sr": "srp", "ro": "ron", "hu": "hun", "fi": "fin", "sv": "swe",
+                "nb": "nor", "no": "nor", "da": "dan", "tr": "tur", "ru": "rus", "uk": "ukr",
+                "bg": "bul", "ar": "ara", "he": "heb", "hi": "hin", "ja": "jpn", "ko": "kor",
+                "ca": "cat", "eu": "eus", "gl": "glg"}
+
+
+def lang_name(code: str) -> str:
+    return LANG_NAMES.get(code, code)
+
+
+@functools.lru_cache(maxsize=1)
+def _languages() -> tuple[str, ...]:
+    try:
+        langs = tesseract().get_languages(config="")
+    except Exception:
+        return ()
+    return tuple(c for c in langs if c not in NOT_TEXT)
+
+
+def installed_languages() -> list[str]:
+    """Tesseract's installed text languages (codes), [] when it cannot be asked.  Asked
+    once per run (it starts a Tesseract process)."""
+    return list(_languages())
+
+
+def windows_language() -> str:
+    """Windows' display language as a Tesseract code ("ita"), or "" when unknown."""
+    try:
+        import ctypes
+        import locale
+        lcid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+        name = locale.windows_locale.get(lcid, "")
+    except Exception:
+        return ""
+    return _ISO_TO_TESS.get(name.split("_")[0].lower(), "")
+
+
+def default_lang(installed: list[str] | None = None) -> str:
+    """The language a picker starts with: the one last used (saved in the preferences),
+    else Windows' display language when installed, else English."""
+    from ..prefs import PREFS
+    saved = str(PREFS.get("ocr_lang", "") or "").strip()
+    if saved:
+        return saved
+    installed = installed_languages() if installed is None else installed
+    win = windows_language()
+    return win if win and win in installed else "eng"
+
+
+def remember_lang(lang: str) -> None:
+    """A run used *lang*: it becomes the next default."""
+    from ..prefs import PREFS
+    lang = (lang or "").strip()
+    if lang and PREFS.get("ocr_lang", "") != lang:
+        PREFS.ocr_lang = lang
+        PREFS.save()
 
 
 def ocr_words(img, lang: str, scale: float) -> list[tuple[fitz.Rect, str]]:

@@ -184,7 +184,7 @@ def test_prefs_load_validates_shape(monkeypatch, tmp_path):
     assert p.ocr_lang == "ita"
     path.write_text("[1, 2]")
     p = prefs.Prefs()
-    assert p.ocr_lang == "eng"
+    assert p.ocr_lang == ""             # the default: not chosen yet (owner, 2026-10-22)
     assert (tmp_path / "prefs.json.bad").exists()
 
 

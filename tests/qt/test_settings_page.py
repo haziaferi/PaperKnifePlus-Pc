@@ -130,7 +130,8 @@ def test_restore_defaults_asks_then_resets_and_refills(window, dialogs, isolated
     assert PREFS.window_geometry == "800x600+0+0"
     assert window.status_text() == "✓  Preferences restored to defaults"
     assert not [m for m in dialogs.msgs if m[0] == "info"]
-    assert json.loads(isolated_prefs.read_text(encoding="utf-8"))["ocr_lang"] == "eng"
+    # restored, the language is "not chosen yet" again (the picker shows the default)
+    assert json.loads(isolated_prefs.read_text(encoding="utf-8"))["ocr_lang"] == ""
 
 
 def test_declining_restore_changes_nothing(window, dialogs, isolated_prefs):
@@ -157,5 +158,5 @@ def test_leaving_the_tool_drops_unsaved_changes(window, isolated_prefs):
     page.ocr_lang.setText("fra")
     assert window.open_tool("CompressTool")
     assert _page(window) is page
-    assert page.ocr_lang.text() == PREFS.ocr_lang != "fra"
+    assert page.ocr_lang.text() == (PREFS.ocr_lang or "eng") != "fra"
     assert not isolated_prefs.exists()

@@ -15,7 +15,8 @@ _DEFAULTS: dict = {
     "output_dir":      "",        # default save-as directory (empty = last used)
     "default_dpi":     150,       # OCR / PDF→image default DPI
     "compress_level":  "medium",  # light / medium / aggressive
-    "ocr_lang":        "eng",     # Tesseract language code
+    "ocr_lang":        "",        # Tesseract code(s), "ita+eng"; "" = not chosen yet:
+                                  # Windows' display language, else English
     "max_recent":      12,        # max recent-file cards on home screen
     "window_geometry": "",        # last window geometry string (WxH+X+Y)
     "qt_window_geometry": "",     # the Qt window's saveGeometry(), base64

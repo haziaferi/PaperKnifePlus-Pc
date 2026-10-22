@@ -15,7 +15,7 @@ from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 from ..core import convert as core_convert
 from ..prefs import PREFS, pref_dpi
 from . import dialogs, theme
-from .pages import card, group_title, labelled_slider, radio_rows
+from .pages import LanguagePicker, card, group_title, labelled_slider, radio_rows
 
 
 class Panel:
@@ -139,11 +139,8 @@ class OcrOptions(Panel):
         group = card(padding=0)
         self.v.addWidget(group)
 
-        row = self.row(group, "Language code", "e.g.  eng  ·  ita  ·  deu  ·  fra  ·  eng+ita")
-        self.lang = LineEdit()
-        self.lang.setPlaceholderText("eng")
-        self.lang.setText(PREFS.ocr_lang or "eng")
-        self.lang.setFixedWidth(120)
+        row = self.row(group, "Language", "the text's language · add one if mixed")
+        self.lang = LanguagePicker()
         row.layout().addWidget(self.lang)
 
         row = self.row(group, "Render DPI")

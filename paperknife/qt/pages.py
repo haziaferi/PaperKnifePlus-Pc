@@ -422,6 +422,88 @@ def spin_box(lo: int, hi: int, value: int, width: int = 160):
     return sb
 
 
+class LanguagePicker(QWidget):
+    """The OCR language(s) (owner, 2026-10-22: one button reading "Italian + English",
+    opening a ticked list of the languages Tesseract has installed).  text() / setText()
+    carry Tesseract's form, "ita+eng", in the order ticked: the first leads.  At least
+    one stays ticked.  A language saved but not installed stays listed, so a choice
+    made elsewhere is not lost."""
+    changed = Signal(str)
+
+    def __init__(self, value: str = "", width: int = 160, installed=None, parent=None):
+        from qfluentwidgets import CheckableMenu, DropDownPushButton, MenuIndicatorType
+        from ..core import ocr as core_ocr
+        super().__init__(parent)
+        self._installed = list(core_ocr.installed_languages() if installed is None else installed)
+        self._chosen: list[str] = []
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.button = DropDownPushButton(self)
+        self.button.setFixedWidth(width)
+        lay.addWidget(self.button)
+        self.menu = CheckableMenu(parent=self.button, indicatorType=MenuIndicatorType.CHECK)
+        self.button.setMenu(self.menu)
+        self.setText(value)
+
+    def chosen(self) -> bool:
+        """A language was given or ticked, not only the starting default shown."""
+        return self._chosen_explicitly
+
+    def _order(self) -> list[str]:
+        """The chosen first (in their order), then Windows' language, English, the rest
+        by name."""
+        from ..core import ocr as core_ocr
+        win = core_ocr.windows_language()
+        rest = [c for c in self._installed if c not in self._chosen]
+        rest.sort(key=lambda c: (c != win, c != "eng", core_ocr.lang_name(c)))
+        return self._chosen + rest
+
+    def _rebuild(self):
+        from qfluentwidgets import Action
+        from ..core import ocr as core_ocr
+        self.menu.clear()
+        self.actions_by_code = {}
+        for code in self._order():
+            a = Action(core_ocr.lang_name(code), checkable=True)
+            a.setChecked(code in self._chosen)
+            a.toggled.connect(lambda on, c=code: self._toggle(c, on))
+            self.menu.addAction(a)
+            self.actions_by_code[code] = a
+        full = " + ".join(core_ocr.lang_name(c) for c in self._chosen)
+        fm = self.button.fontMetrics()
+        room = self.button.width() - 44                  # the arrow and the padding
+        self.button.setText(fm.elidedText(full, Qt.ElideRight, max(40, room)))
+        self.button.setToolTip(full)
+
+    def _toggle(self, code: str, on: bool):
+        self._chosen_explicitly = True
+        if on and code not in self._chosen:
+            self._chosen.append(code)
+        elif not on and code in self._chosen:
+            if len(self._chosen) == 1:                   # the last one stays
+                QTimer.singleShot(0, self._rebuild)
+                return
+            self._chosen.remove(code)
+        QTimer.singleShot(0, self._rebuild)              # not while the menu emits
+        self.changed.emit(self.text())
+
+    def text(self) -> str:
+        return "+".join(self._chosen)
+
+    def setText(self, value: str):
+        """Tesseract's form ("ita+eng"); "" shows the starting default (core.ocr.default_lang)."""
+        from ..core import ocr as core_ocr
+        codes = [c for c in (value or "").replace(" ", "").split("+") if c]
+        self._chosen_explicitly = bool(codes)
+        if not codes:
+            codes = core_ocr.default_lang(self._installed).split("+")
+        self._chosen = list(dict.fromkeys(codes)) or ["eng"]
+        for c in self._chosen:
+            if c not in self._installed:
+                self._installed.append(c)
+        self._rebuild()
+
+
 def _fmt_size(n: int) -> str:
     if n < 1024:
         return f"{n} B"

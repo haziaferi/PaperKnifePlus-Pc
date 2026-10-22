@@ -97,6 +97,7 @@ class OCRPage(PagePickPage):
         if not src or self._doc is None:
             return
         lang = self.lang.text().strip() or "eng"
+        core_ocr.remember_lang(lang)                # the next default (owner, 2026-10-22)
         dpi = int(self.dpi.value())
         text_only = self.text_only
         log = self.log
