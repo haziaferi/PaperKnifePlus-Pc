@@ -170,7 +170,7 @@ The navigation pane lists 23 tools in five groups, with Preferences at the botto
 | | Redact | Permanently remove content under boxes or matching text | 5.19 |
 | | OCR | Make scanned PDFs searchable with Tesseract | 5.15 |
 | | Metadata | View and edit document properties | 5.20 |
-| (bottom) | Preferences | Output folder, recent files, colour mode, DPI, compress level, OCR language | 5.26 |
+| (bottom) | Preferences | Output folder, recent files, colour mode, OCR and export DPI, compress level, OCR language | 5.26 |
 
 A tool that works on one PDF uses the current document (Section 4.1): open one with the document bar's **Open** (`Ctrl+O`) or its list of recent files, click the empty page's target, or drop a PDF on the window. Moving to another tool keeps the document: the tool you leave closes the file, so other tools can overwrite it, and opens it again when you come back. A tool with unsaved edits keeps its own file. Dropping a file the tool does not take leaves it unchanged and the status line says so.
 
@@ -291,7 +291,7 @@ Choose a tool under **Tool**; the main button takes its name. Each writes a new 
 Runs Tesseract on each selected page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract (see Section 4.3).
 
 - **Language code:** must match the document language. It starts with the code from Preferences; change it per run.
-- **Render DPI:** higher values give better accuracy at the cost of time; it starts at the Preferences DPI (limited to 72–400). 300 DPI is recommended for standard documents.
+- **Render DPI:** it starts at the Preferences OCR DPI, 200 by default (limited to 72–400). Measured on simulated scans (2026-10-22), 200 read best: at 150 Tesseract skipped rows of small text, and at 300 text grew too big for it and fewer words were read.
 - **Overlay** (invisible text layer): the original page is kept unchanged and the recognised words are added on top as invisible text. Words Tesseract recognises with low confidence are left out.
 - **Text-only PDF:** a new PDF with the recognised plain text on A4 pages, without the page images.
 
@@ -342,7 +342,8 @@ Doc / Text → PDF is now part of Other → PDF (Section 5.21).
 | Default output folder | The starting folder of every save and output-folder dialog |
 | Max recent files shown | Number of cards on the Home screen (1–50) |
 | Colour mode | light, dark, or system (Section 4.2) |
-| Default DPI (OCR / export) | Starting DPI of OCR, Batch → OCR, and PDF → Other's PNG/JPEG/PPTX exports (72–600; each slider clamps it to its own range) |
+| OCR DPI | Starting DPI of OCR and Batch → OCR, 200 by default (72–600; each slider clamps it to its own range) |
+| Export DPI | Starting DPI of PDF → Other's PNG/JPEG/PPTX exports, 200 by default (72–600) |
 | Default compress level | Starting level of Compress and Batch → Compress |
 | OCR language code | Starting language of OCR and Batch → OCR |
 

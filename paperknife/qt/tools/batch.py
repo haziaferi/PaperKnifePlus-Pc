@@ -165,7 +165,7 @@ class BatchPage(CollectionPage):
             self.controls["lang"] = lang
             row = self.setting_row(group, "DPI")
             lo, hi = DPI_RANGE
-            dpi = spin_box(lo, hi, pref_dpi(lo, hi), width=120)
+            dpi = spin_box(lo, hi, pref_dpi(lo, hi, "ocr_dpi"), width=120)
             row.layout().addWidget(dpi)
             self.controls["dpi"] = dpi
 

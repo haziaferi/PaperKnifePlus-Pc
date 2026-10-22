@@ -12,27 +12,27 @@ def prefs(tmp_path, monkeypatch):
 
 
 def test_check_values_turns_the_numbers_into_ints():
-    values = {"max_recent": " 7 ", "default_dpi": "300", "ocr_lang": "ita"}
+    values = {"max_recent": " 7 ", "ocr_dpi": "300", "ocr_lang": "ita"}
     assert core.check_values(values) is None
-    assert values == {"max_recent": 7, "default_dpi": 300, "ocr_lang": "ita"}
+    assert values == {"max_recent": 7, "ocr_dpi": 300, "ocr_lang": "ita"}
 
 
 @pytest.mark.parametrize("key,val,name,lo,hi", [
     ("max_recent", "0", "Max recent files shown", 1, 50),
     ("max_recent", "51", "Max recent files shown", 1, 50),
     ("max_recent", "many", "Max recent files shown", 1, 50),
-    ("default_dpi", "71", "Default DPI", 72, 600),
-    ("default_dpi", "1.5", "Default DPI", 72, 600),
-    ("default_dpi", True, "Default DPI", 72, 600),
+    ("ocr_dpi", "71", "OCR DPI", 72, 600),
+    ("export_dpi", "1.5", "Export DPI", 72, 600),
+    ("ocr_dpi", True, "OCR DPI", 72, 600),
 ])
 def test_check_values_names_the_first_bad_number(key, val, name, lo, hi):
-    values = {"max_recent": 12, "default_dpi": 150, key: val}
+    values = {"max_recent": 12, "ocr_dpi": 200, key: val}
     assert core.check_values(values) == f"{name} must be a whole number from {lo} to {hi}."
 
 
 def test_apply_values_sets_every_key(prefs):
-    core.apply_values(prefs, {"ocr_lang": "deu", "default_dpi": 200})
-    assert prefs.ocr_lang == "deu" and prefs.default_dpi == 200
+    core.apply_values(prefs, {"ocr_lang": "deu", "ocr_dpi": 250})
+    assert prefs.ocr_lang == "deu" and prefs.ocr_dpi == 250
 
 
 def test_restore_defaults_keeps_the_tk_window_geometry(prefs):

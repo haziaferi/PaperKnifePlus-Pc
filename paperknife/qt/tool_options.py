@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 
 from ..core import convert as core_convert
-from ..prefs import PREFS, pref_dpi
+from ..prefs import _DEFAULTS, PREFS, pref_dpi
 from . import dialogs, theme
 from .pages import LanguagePicker, card, group_title, labelled_slider, radio_rows
 
@@ -144,7 +144,7 @@ class OcrOptions(Panel):
         row.layout().addWidget(self.lang)
 
         row = self.row(group, "Render DPI")
-        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400), " DPI", width=120,
+        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400, "ocr_dpi"), " DPI", width=120,
                                    fixed=False)
         self.dpi_label = self.dpi.value_label
 
@@ -205,7 +205,7 @@ class OtherOptions(Panel):
         self.image_card = card(padding=0)
         self.v.addWidget(self.image_card)
         row = self.row(self.image_card, "Resolution")
-        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE), " DPI",
+        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE, "export_dpi"), " DPI",
                                           width=120, fixed=False)
         row = self.row(self.image_card, "JPEG quality")
         self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%",
@@ -232,9 +232,10 @@ class OtherOptions(Panel):
         return self.fmt.currentText()
 
     def dpi_quality(self) -> tuple[int, int]:
-        """(dpi, quality): the slider values when the format shows them, else 150 and 92."""
+        """(dpi, quality): the slider values when the format shows them, else the export
+        default (200) and 92."""
         fmt = self.format
-        dpi = int(self.dpi_slider.value()) if fmt in DPI_FORMATS else 150
+        dpi = int(self.dpi_slider.value()) if fmt in DPI_FORMATS else _DEFAULTS["export_dpi"]
         quality = int(self.quality_slider.value()) if fmt == "JPEG" else QUALITY_DEFAULT
         return dpi, quality
 

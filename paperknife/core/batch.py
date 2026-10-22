@@ -39,7 +39,7 @@ def _do_watermark(src, out_dir, opts, stop):
 def _do_ocr(src, out_dir, opts, stop):
     if stop.is_set(): return None
     out = os.path.join(out_dir, Path(src).stem + "_ocr.pdf")
-    n = ocr_pdf(open_input(src), out, opts.get("lang", "eng"), opts.get("dpi", 150),
+    n = ocr_pdf(open_input(src), out, opts.get("lang", "eng"), opts.get("dpi", 200),
                 bool(opts.get("text_only", False)), stop, lambda v: None)
     return out if n is not None else None
 
@@ -69,7 +69,7 @@ def _do_pdf2other(src, out_dir, opts, stop):
     ext, suffix = OTHER_OUT[fmt]
     out = os.path.join(out_dir, Path(src).stem + suffix + ext)
     if not pdf_to_doc(open_input(src), fmt, out, stop, lambda v: None,
-                      dpi=opts.get("dpi", 150), quality=opts.get("quality", 92)):
+                      dpi=opts.get("dpi", 200), quality=opts.get("quality", 92)):
         return None
     return out
 

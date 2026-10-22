@@ -36,7 +36,7 @@ def test_prefs_file_that_is_not_utf8_is_renamed(tmp_path, monkeypatch):
     path.write_bytes(b"\xff\xfe{\x00}\x00")
     monkeypatch.setattr(prefs, "PREFS_PATH", path)
     p = prefs.Prefs()
-    assert p.default_dpi == 150
+    assert p.ocr_dpi == 200 and p.export_dpi == 200
     assert (tmp_path / "prefs.json.bad").exists()
 
 
@@ -51,3 +51,21 @@ def test_render_refuses_or_shrinks_a_huge_page():
     assert pix.width * pix.height <= MAX_PIXELS
 
 
+
+
+# ── 2026-10-22: the shared default_dpi became ocr_dpi + export_dpi (both 200) ─────
+@pytest.mark.parametrize("stored,want", [
+    ({"default_dpi": 150}, (200, 200)),          # the old default, never touched
+    ({"default_dpi": 300}, (300, 300)),          # chosen: both keep it
+    ({"default_dpi": 300, "ocr_dpi": 220}, (220, 300)),   # a new key already saved wins
+    ({"default_dpi": 9999}, (200, 200)),         # out of range: ignored
+    ({}, (200, 200)),
+])
+def test_the_old_shared_dpi_moves_to_the_two_new_keys(tmp_path, monkeypatch, stored, want):
+    import json
+    from paperknife import prefs
+    path = tmp_path / "prefs.json"
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.setattr(prefs, "PREFS_PATH", path)
+    p = prefs.Prefs()
+    assert (p.ocr_dpi, p.export_dpi) == want

@@ -61,7 +61,7 @@ def tess(monkeypatch):
 def prefs(monkeypatch):
     from paperknife.prefs import PREFS
     monkeypatch.setitem(PREFS._data, "ocr_lang", "ita")
-    monkeypatch.setitem(PREFS._data, "default_dpi", 200)
+    monkeypatch.setitem(PREFS._data, "ocr_dpi", 250)
     return PREFS
 
 
@@ -147,10 +147,10 @@ def test_ocr_overlay_places_words_on_rotated_page(window, dialogs, tmp_path, tes
 def test_ocr_uses_preferences_language_and_dpi(window, dialogs, tmp_path, tess, prefs):
     page = _page(window)
     assert page.lang.text() == "ita"
-    assert page.dpi.value() == 200 and page.dpi_label.text() == "200 DPI"
+    assert page.dpi.value() == 250 and page.dpi_label.text() == "250 DPI"
     _run(window, dialogs, page, _source_pdf(tmp_path / "p.pdf"), tmp_path / "p_ocr.pdf")
     assert tess["lang"] == "ita"
-    assert tess["sizes"] == [(round(595 * 200 / 72), round(842 * 200 / 72))]
+    assert tess["sizes"] == [(round(595 * 250 / 72), round(842 * 250 / 72))]
 
 
 def test_language_and_dpi_reach_tesseract(window, dialogs, tmp_path, tess):

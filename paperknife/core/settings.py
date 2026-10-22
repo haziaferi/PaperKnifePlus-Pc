@@ -7,7 +7,8 @@ from ..recent import RECENT_STORE_MAX
 # (label, min, max) for the integer settings.
 INT_RANGES = {
     "max_recent":  ("Max recent files shown", 1, RECENT_STORE_MAX),
-    "default_dpi": ("Default DPI", *DPI_RANGE),
+    "ocr_dpi":     ("OCR DPI", *DPI_RANGE),
+    "export_dpi":  ("Export DPI", *DPI_RANGE),
 }
 # What "Restore defaults" leaves alone.
 KEEP_ON_RESTORE = ("window_geometry", "qt_window_geometry")

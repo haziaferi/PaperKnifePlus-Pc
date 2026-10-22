@@ -219,7 +219,7 @@ def test_options_fall_back_when_the_format_has_none(window):
     page.dpi_slider.setValue(200)
     page.quality_slider.setValue(60)
     page.fmt.setCurrentText("TXT")
-    assert page.options() == (150, 92)
+    assert page.options() == (200, 92)
     page.fmt.setCurrentText("PPTX")
     assert page.options() == (200, 92)
 
@@ -284,9 +284,9 @@ def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path, monkeypat
 def test_named_pdf_to_other_and_the_dpi_defaults_from_preferences(window, monkeypatch):
     # PDF → Images's own checks, folded in with its screen (owner, 2026-10-18).
     from paperknife.prefs import PREFS
-    monkeypatch.setitem(PREFS._data, "default_dpi", 200)
+    monkeypatch.setitem(PREFS._data, "export_dpi", 250)
     assert window.open_tool("Pdf2DocTool")
     page = window.current_page()
     assert page.title_label.text() == "PDF → Other"
     assert window._labels["Pdf2DocTool"] == "PDF → Other"
-    assert int(page.dpi_slider.value()) == 200
+    assert int(page.dpi_slider.value()) == 250

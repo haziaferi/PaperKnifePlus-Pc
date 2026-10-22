@@ -49,9 +49,12 @@ class SettingsPage(ToolPage):
         self.body.addWidget(group_title("PDF operations"))
         ops = card(padding=0)
         self.body.addWidget(ops)
-        row = setting_row(ops, "Default DPI (OCR / export)")
-        self.default_dpi = spin_box(*core.INT_RANGES["default_dpi"][1:], PREFS.default_dpi)
-        row.layout().addWidget(self.default_dpi)
+        row = setting_row(ops, "OCR DPI")
+        self.ocr_dpi = spin_box(*core.INT_RANGES["ocr_dpi"][1:], PREFS.ocr_dpi)
+        row.layout().addWidget(self.ocr_dpi)
+        row = setting_row(ops, "Export DPI (images, slides)")
+        self.export_dpi = spin_box(*core.INT_RANGES["export_dpi"][1:], PREFS.export_dpi)
+        row.layout().addWidget(self.export_dpi)
         row = setting_row(ops, "Default compress level")
         self.compress_level = ComboBox()
         self.compress_level.addItems(COMPRESS_LEVELS)
@@ -72,7 +75,8 @@ class SettingsPage(ToolPage):
         self.output_dir.setText(str(PREFS.get("output_dir", "")))
         self.max_recent.setValue(int(PREFS.max_recent))
         self.appearance.setCurrentText(str(PREFS.get("appearance", APPEARANCES[0])))
-        self.default_dpi.setValue(int(PREFS.default_dpi))
+        self.ocr_dpi.setValue(int(PREFS.ocr_dpi))
+        self.export_dpi.setValue(int(PREFS.export_dpi))
         self.compress_level.setCurrentText(str(PREFS.get("compress_level", COMPRESS_LEVELS[0])))
         self.ocr_lang.setText(str(PREFS.get("ocr_lang", "")))   # "" -> the starting default
 
@@ -81,7 +85,8 @@ class SettingsPage(ToolPage):
             "output_dir": self.output_dir.text(),
             "max_recent": self.max_recent.value(),
             "appearance": self.appearance.currentText(),
-            "default_dpi": self.default_dpi.value(),
+            "ocr_dpi": self.ocr_dpi.value(),
+            "export_dpi": self.export_dpi.value(),
             "compress_level": self.compress_level.currentText(),
             # untouched, it stays "not chosen yet" (Windows' language, else English)
             "ocr_lang": self.ocr_lang.text() if self.ocr_lang.chosen() else "",
