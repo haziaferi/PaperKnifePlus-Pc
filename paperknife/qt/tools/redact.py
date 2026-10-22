@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pymupdf as fitz
+from PySide6.QtWidgets import QSizePolicy
 from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
 from ...core import redact as core_redact
@@ -25,6 +26,7 @@ TOOLS = {
     "search": ("Find & redact text", "Mark every occurrence of a phrase on every page."),
 }
 SUBTITLE = "Draw rectangles over sensitive content"
+BOX_ROWS = 5            # pending boxes listed before the list scrolls
 WARN_TITLE = "⚠  Redaction is permanent and irreversible once applied."
 WARN_BODY = ("Content under redaction boxes is completely destroyed — "
              "not merely covered. Always work on a copy.")
@@ -86,10 +88,13 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self.panel_body.addSpacing(16)
         self.pending_label = BodyLabel()
         self.panel_body.addWidget(self.pending_label)
+        # As tall as its boxes, up to BOX_ROWS, and gone while there are none: an empty
+        # list grew to fill the column and pushed the permanence warning out of sight
+        # (owner, 2026-10-22).
         self.box_list = ListWidget()
-        self.box_list.setMinimumHeight(140)
+        self.box_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.panel_body.addWidget(self.box_list)
-        rm = PushButton("Remove")
+        rm = self.remove_button = PushButton("Remove")
         rm.clicked.connect(self.delete)
         self.panel_body.addWidget(rm)
         self.panel_body.addSpacing(16)
@@ -112,12 +117,20 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
     def _refresh_boxes(self):
         n = len(self._pending)
         self.pending_label.setText(f"{n} box{'es' if n != 1 else ''} pending")
-        theme.keep_styled(self.pending_label, lambda w: w.setStyleSheet(
-            f"color: {theme.hex_color('danger')};" if len(self._pending) else ""))
+        # A role, not a style sheet: clearing the sheet for "0 boxes" also dropped the
+        # label's own colour, and it painted near-invisible grey (2026-10-22).
+        theme.label_role(self.pending_label, "danger" if n else "text")
         self.box_list.clear()
         for pg, _r, phrase in self._pending:
             self.box_list.addItem(f"Page {pg + 1} · '{phrase}'" if phrase
                                   else f"Page {pg + 1} · box")
+        rows = min(n, BOX_ROWS)
+        self.box_list.setVisible(n > 0)
+        if rows:
+            row_h = max(self.box_list.sizeHintForRow(0), 24)
+            frame = 2 * self.box_list.frameWidth() + 4
+            self.box_list.setFixedHeight(rows * row_h + frame)
+        self.remove_button.setEnabled(n > 0)
 
     # ── document ─────────────────────────────────────────────────────────────
     def open_path(self, path: str):

@@ -302,3 +302,32 @@ def test_the_first_action_sits_at_one_height_whatever_the_stack(e2win):
         lowest = max(b.mapTo(e2win, b.rect().bottomLeft()).y() for b in buttons)
         assert slot.mapTo(e2win, slot.rect().bottomLeft()).y() - lowest < 8, tool
     assert len(set(tops.values())) == 1, tops
+
+
+def test_redact_card_shows_its_warning_without_scrolling(e2win):
+    """The empty pending-boxes list grew to fill the card and pushed the permanence
+    warning below the fold at 1280 x 820 (owner, 2026-10-22): the list is as tall as
+    its boxes, up to five rows, and gone while there are none."""
+    import pymupdf as fitz
+    from paperknife.qt.tools import redact
+    host = host_of(e2win)
+    host.pick("RedactTool")
+    pump(0.4)
+    page = host.current_tool()
+    area = host.options_stack.currentWidget()
+    assert area.vScrollBar.maximum() == 0                    # nothing hidden below
+    assert not page.box_list.isVisible() and not page.remove_button.isEnabled()
+    # "0 boxes pending" in the text colour (clearing its sheet left it near-invisible)
+    assert page.pending_label._pk_role == "text"
+    heights = []
+    for n in (1, 2, 5, 30):
+        page._pending = [(0, fitz.Rect(10, 10, 50, 30), "") for _ in range(n)]
+        page._refresh_boxes()
+        pump(0.2)
+        assert page.box_list.isVisible() and page.remove_button.isEnabled()
+        heights.append(page.box_list.height())
+    assert heights[0] < heights[1] < heights[2] == heights[3]   # grows, capped at BOX_ROWS
+    assert page.pending_label._pk_role == "danger"
+    assert redact.BOX_ROWS == 5
+    page._pending = []
+    page._refresh_boxes()
