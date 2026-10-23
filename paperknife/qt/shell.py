@@ -40,6 +40,7 @@ from qfluentwidgets.components.navigation.navigation_widget import (NavigationIt
 from . import bridge, dialogs, pages, theme
 from ..core import password as core_password
 from ..core import recovery
+from ..core.document import SharedDocument
 from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
@@ -54,6 +55,9 @@ OUTSIDE_X, OUTSIDE_Y = 200, 100   # pointer this far outside still counts
 POLL_MS = 40            # edge watcher interval (runs only when needed)
 CLOSE_WAIT_S = 15       # how long close waits for a cancelled job
 RECOVERY_MS = 10_000    # how often changed unsaved edits are copied for crash recovery
+RECOVERY_KEY = "document"   # the one entry: the shared document and the tools' marks
+UNAPPLIED_QUESTION = ("{n} redaction {boxes} drawn and not applied will be lost. "
+                      "Close anyway?")
 BUSY_MSG = "Another job is still running. Wait for it to finish or cancel it first."
 
 GEOMETRY_KEY = "qt_window_geometry"
@@ -229,7 +233,11 @@ class MainWindow(FluentWindow):
         theme.window_follows_palette(self)
         bridge.install()
         from .._version import __version__
-        self.setWindowTitle(f"PaperKnife+ PC  v{__version__}")
+        self._app_title = f"PaperKnife+ PC  v{__version__}"
+        self.setWindowTitle(self._app_title)
+        # The one open document every tool works on (owner's decision 2026-10-23).
+        self.document = SharedDocument()
+        self.document.listen(self._on_document_event)
         icon = Path(__file__).resolve().parents[2] / "assets" / "icon.ico"
         if icon.is_file():
             self.setWindowIcon(QIcon(str(icon)))
@@ -272,6 +280,8 @@ class MainWindow(FluentWindow):
         self._anims: dict[str, QPropertyAnimation] = {}
         self.status_role = "muted"
         self.current_document: str | None = None
+        self._keep = None               # the password a save in progress keeps (run_job)
+        self._doc_pages: dict = {}      # page key -> the tool pages that showed the document
 
         self._build_body()
         self._build_nav()
@@ -424,8 +434,11 @@ class MainWindow(FluentWindow):
 
         self._shortcuts = [
             sc("Ctrl+O", lambda: self.page_hook("open")),
-            sc("Ctrl+S", lambda: self.page_hook("save")),
-            sc("Ctrl+Z", lambda: self.page_hook("undo")),
+            sc("Ctrl+S", lambda: None if self._locked else self.save()),
+            sc("Ctrl+Shift+S", lambda: None if self._locked else self.save_as()),
+            sc("Ctrl+P", lambda: None if self._locked else self.print_document()),
+            # A tool with marks of its own (Redact's boxes) takes them back first.
+            sc("Ctrl+Z", lambda: self.page_hook("undo") or self.undo()),
             sc(QKeySequence(Qt.Key_Delete), self._on_delete_key),
             sc("Ctrl+K", self.focus_search),
             sc("Ctrl+F", self.focus_search),
@@ -454,44 +467,68 @@ class MainWindow(FluentWindow):
     # ══════════════════════════════════════════════════════════════════════════
     # CRASH RECOVERY (owner's choice 2026-10-12: a dialog at start)
     # ══════════════════════════════════════════════════════════════════════════
+    def _page_marks(self) -> dict:
+        """Each tool's unsaved marks held beside the document (Redact's
+        boxes), by page key: what crash recovery copies with it."""
+        marks = {}
+        for key, page in list(self._doc_pages.items()):
+            fn = getattr(page, "recovery_extra", None)
+            if not callable(fn) or not getattr(page, "shows_document", lambda: False)():
+                continue
+            try:
+                extra = fn()
+            except Exception:
+                extra = None
+            if extra:
+                marks[key] = extra
+        return marks
+
     def snapshot_edits(self):
-        """Copy each page's unsaved edits that changed since the last copy
-        into this app's recovery folder; drop the copy of a page with none.
-        Not while a job holds a document."""
+        """Copy the document's unsaved edits (and the tools' marks), when they
+        changed since the last copy, into this app's recovery folder; drop
+        the copy once there are none.  Not while a job holds the document."""
         rec = self._recovery
         if rec is None or self.job_running():
             return
-        for key, page in list(self._pages.items()):
-            try:
-                token = page.recovery_token()
-            except Exception:
-                token = None
-            if token is None:
-                if self._recovery_tokens.pop(key, None) is not None:
-                    rec.remove(key)
-                continue
-            if self._recovery_tokens.get(key) == token:
-                continue
-            try:
-                state, pdf = page.recovery_snapshot()
-                path = page.document_path()
-                rec.write(key, {"path": path, "name": Path(path).name,
-                                "tool": page.title_label.text(), "state": state}, pdf)
-            except (OSError, RuntimeError, ValueError):
-                continue                    # tried again at the next tick
-            self._recovery_tokens[key] = token
+        sd = self.document
+        marks = self._page_marks() if sd.is_open() else {}
+        if not (sd.is_open() and (sd.dirty or marks)):
+            if self._recovery_tokens.pop(RECOVERY_KEY, None) is not None:
+                rec.remove(RECOVERY_KEY)
+            return
+        token = (sd.edits, json.dumps(marks, sort_keys=True))
+        if self._recovery_tokens.get(RECOVERY_KEY) == token:
+            return
+        try:
+            kept = core_password.open_password_of(sd.doc)
+            if kept is None:
+                data = sd.doc.tobytes()
+            else:       # a protected file is not left readable in the recovery folder
+                data = sd.doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256,
+                                      user_pw=kept.user_pw, owner_pw=kept.user_pw)
+            page = self.current_page()
+            follows = getattr(page, "follows_document", False)
+            tool = page.title_label.text() if follows and hasattr(page, "title_label") else ""
+            rec.write(RECOVERY_KEY, {"path": sd.path, "name": sd.name, "tool": tool,
+                                     "state": {"marks": marks,
+                                               "page": self._current_key if follows else ""}},
+                      data)
+        except (OSError, RuntimeError, ValueError):
+            return                          # tried again at the next tick
+        self._recovery_tokens[RECOVERY_KEY] = token
 
     def offer_recovery(self) -> None:
         """At start: the edits an app that did not close left behind, with
-        Recover / Discard.  Recover opens each in its tool, as unsaved."""
+        Recover / Discard.  Recover opens the document as unsaved, with each
+        tool's marks back in it."""
         try:
             left = recovery.orphaned()
         except OSError:
             return
-        left = [e for e in left if e.key in self._hosts and e.key != "home"]
+        left = [e for e in left if e.key == RECOVERY_KEY]
         if not left:
             return
-        lines = [f"{e.meta.get('name') or 'Untitled'} — {e.meta.get('tool', e.key)}, "
+        lines = [f"{e.meta.get('name') or 'Untitled'} — {e.meta.get('tool') or 'unsaved changes'}, "
                  f"{time.strftime('%H:%M', time.localtime(e.meta.get('saved_at', 0)))}"
                  for e in left]
         answer = dialogs.ask_recover(lines)
@@ -500,26 +537,47 @@ class MainWindow(FluentWindow):
         if not answer:
             recovery.discard(left)
             return
-        shown, failed = None, []
-        for e in left:
-            page = self._ensure_page(e.key)
+        e = left[-1]
+        ok = False
+        try:
+            ok = self._restore_document(e.meta.get("path", ""), e.meta.get("state") or {}, e.pdf)
+        except Exception:
             ok = False
-            try:
-                ok = page.restore_recovery(e.meta.get("path", ""), e.meta.get("state") or {}, e.pdf)
-            except Exception:
-                ok = False
-            if ok:
-                shown = shown or e.key
-            else:
-                failed.append(lines[left.index(e)])
         recovery.discard(left)          # what came back is copied again from this app
-        if shown:
-            self.show_page(shown, follow=False)
         self.snapshot_edits()
-        if failed:
+        if not ok:
             dialogs.warning("Recover unsaved changes",
                             "These could not be recovered (the file is missing or "
-                            "could not be opened):\n" + "\n".join(failed))
+                            "could not be opened):\n" + lines[-1])
+
+    def _restore_document(self, path: str, state: dict, pdf: bytes | None) -> bool:
+        if pdf is None or not path:
+            return False
+        doc = self.open_pdf_data(pdf, Path(path).name)
+        if doc is None:
+            return False
+        self.document.open(path, doc)
+        self.document.changed()             # unsaved, as it was
+        self.set_current_document(path)
+        shown = None
+        marks = state.get("marks") or {}
+        for key, extra in marks.items():
+            if key not in self._hosts or key == "home":
+                continue
+            page = self._ensure_page(key)
+            if getattr(page, "follows_document", False):
+                page.load_document(path)
+            fn = getattr(page, "restore_extra", None)
+            if callable(fn):
+                fn(extra)
+            shown = shown or key
+        where = state.get("page") or ""
+        shown = shown or (where if where in self._hosts and where != "home" else None)
+        if shown:
+            self.show_page(shown)
+        else:
+            self._follow(self.current_page())
+        return True
 
     # ══════════════════════════════════════════════════════════════════════════
     # PAGES AND NAVIGATION
@@ -550,10 +608,11 @@ class MainWindow(FluentWindow):
 
     def show_page(self, key: str, follow: bool = True) -> bool:
         """Switch to the page *key* ("home" or a tool class name); False when
-        refused (a job holds the view, unsaved edits kept by Cancel) or
-        unknown.  A page left with unsaved edits asks first; one left with
-        the after-job question open counts it as Continue with it.  follow:
-        a single-input page shown takes the current document."""
+        refused (a job holds the view) or unknown.  The document's unsaved
+        edits go along to the next tool (one document per window, owner
+        2026-10-23); a page left with the after-job question open counts it
+        as Continue with it.  follow: a single-input page shown takes the
+        current document."""
         if key not in self._hosts and not self._locked:
             # A structure prototype: the tool lives in a workspace host.
             from . import structure
@@ -569,9 +628,6 @@ class MainWindow(FluentWindow):
             return False
         old = self.current_page()
         if key != self._current_key and old is not None:
-            if not self.settle_unsaved(old, lambda: self.show_page(key, follow)):
-                self.navigationInterface.setCurrentItem(self._current_key)
-                return False
             if hasattr(old, "leave_offer"):
                 old.leave_offer()
             if self.compact:
@@ -643,25 +699,39 @@ class MainWindow(FluentWindow):
         self.current_document_changed.emit(path)
 
     def open_document(self, path: str) -> bool:
-        """Open *path* as the current document (the Open control, a recent
-        file, a drop): a single-input page shown loads it, after asking about
-        its unsaved edits; elsewhere it only becomes current.  Whether it did."""
+        """Open *path* as the document (the Open control, a recent file, a
+        drop), after the unsaved-edits question when another one has edits;
+        the page shown follows it.  Whether it did."""
         if not path or self._locked:
             return False
         path = str(path)
-        page = self.current_page()
-        if getattr(page, "follows_document", False):
-            held = page.document_path()
-            if held and pages.same_path(held, path):
-                self.set_current_document(held)
-                page.refresh_document()
-                return True
-            if not self.settle_unsaved(page, lambda: self.open_document(path)):
+        sd = self.document
+        if not (sd.is_open() and pages.same_path(sd.path, path)):
+            if not path.lower().endswith(".pdf"):
+                self.set_status(f"This tool does not open {Path(path).name}", "warning")
                 return False
-            return page.load_document(path)
-        if not (os.path.isfile(path) and path.lower().endswith(".pdf")):
-            self.set_status(f"This tool does not open {Path(path).name}", "warning")
+            if not self.adopt(path, ask=True):
+                return False
+        self.set_current_document(sd.path)
+        self._follow(self.current_page())
+        return True
+
+    def adopt(self, path: str, ask: bool = False) -> bool:
+        """Make *path* the open document, unless it already is.  It is opened
+        first: a file that cannot be (a cancelled password, a broken file)
+        asks nothing and changes nothing.  ask: then the unsaved-edits
+        question about the document before (its Save opens *path* once the
+        save is done).  Whether *path* is the document now."""
+        sd = self.document
+        if sd.is_open() and pages.same_path(sd.path, path):
+            return True
+        doc = self.open_pdf_safe(path)
+        if doc is None:
             return False
+        if ask and not self.settle_unsaved(None, lambda: self.open_document(path)):
+            doc.close()
+            return False
+        sd.open(path, doc)
         self.set_current_document(path)
         return True
 
@@ -673,51 +743,229 @@ class MainWindow(FluentWindow):
         return self.open_document(path) if path else False
 
     def clear_current_document(self) -> bool:
-        """The clear (x) action: the shown page lets its document go (after
-        asking about unsaved edits) and there is no current document."""
+        """The clear (x) action: after the unsaved-edits question, the
+        document is closed and every tool lets it go."""
         if self._locked:
+            return False
+        if not self.settle_unsaved(None, self.clear_current_document):
             return False
         page = self.current_page()
         if getattr(page, "follows_document", False) and page.document_path():
-            if not self.settle_unsaved(page, self.clear_current_document):
-                return False
             page.clear_document()
+        self.document.close()
         self.set_current_document(None)
         return True
 
     def _follow(self, page):
-        """A single-input page shown takes the current document, unless it
-        holds unsaved edits (it keeps its file then); a document it parked
-        on leaving is opened again."""
+        """A single-input page shown takes the current document (a document
+        it parked on leaving is taken again), and shows the edits other
+        tools made to it meanwhile."""
         if not getattr(page, "follows_document", False):
             return
         cur = self.current_document
         held = page.document_path()
-        if not page.is_dirty():
-            if not pages.same_path(cur, held):
-                if cur:
-                    page.load_document(cur)
-                elif held:
-                    page.clear_document()
-            elif page.is_parked():
-                page.load_document(held)
+        if cur:
+            if not pages.same_path(cur, held) or page.is_parked():
+                page.load_document(cur)
+            else:
+                sync = getattr(page, "sync_document", None)
+                if callable(sync):
+                    sync()
+        elif held:
+            page.clear_document()
         page.refresh_document()
 
-    def settle_unsaved(self, page, retry) -> bool:
-        """Before *page*'s document is left, switched or cleared: when it has
-        unsaved edits, "Save changes to <name>?"  True: go on now (none, or
-        Discard).  False: stop (Cancel, or Save, which runs retry() once the
-        save is done)."""
-        if page is None or not callable(getattr(page, "is_dirty", None)) or not page.is_dirty():
+    def settle_unsaved(self, page=None, retry=None) -> bool:
+        """Before the document is closed or replaced (another file opened,
+        the clear action, the window closed): when it has unsaved edits,
+        "Save changes to <name>?"  True: go on now (none, or Discard).
+        False: stop (Cancel, or Save, which runs retry() once the save is
+        done).  *page* is not used any more: the edits are the document's."""
+        sd = self.document
+        if not self.has_unsaved():
             return True
-        choice = dialogs.ask_unsaved(page.document_name())
+        choice = dialogs.ask_unsaved(sd.name)
         if choice == "discard":
-            page.discard_changes()
+            sd.forget_edits()
+            for p in list(self._doc_pages.values()):
+                drop = getattr(p, "drop_marks", None)
+                if callable(drop):
+                    drop()
+            self._update_title()
             self.snapshot_edits()           # the copy of the edits goes too
             return True
         if choice == "save":
-            page.save(after=retry)
+            self.save(after=retry)
         return False
+
+    # ── the document's events, Save, Save as, Print, Undo ──
+    def _pending_pages(self) -> list:
+        return [p for p in list(self._doc_pages.values())
+                if p.shows_document() and p.has_pending()]
+
+    def unapplied_marks(self) -> int:
+        """Marks a tool holds beside the document and has not applied (Redact's boxes)."""
+        return sum(p.unapplied_marks() for p in list(self._doc_pages.values())
+                   if p.shows_document() and callable(getattr(p, "unapplied_marks", None)))
+
+    def has_unsaved(self) -> bool:
+        """The document's unsaved edits, or input typed in a tool and not applied."""
+        return self.document.dirty or bool(self._pending_pages())
+
+    def commit_pending(self) -> bool:
+        """Apply each tool's typed input to the document (before a save);
+        False when one cannot be (it said why)."""
+        return all(p.commit_edits() is not False for p in self._pending_pages())
+
+    def _on_document_event(self, event: str):
+        """SharedDocument's listener; a save on a worker tells from there."""
+        from PySide6.QtCore import QThread
+        if QThread.currentThread() is not QApplication.instance().thread():
+            bridge.post(self._if_alive, lambda: self._on_document_event(event))
+            return
+        self._update_title()
+        if event == "changed" and not self.__dict__.get("_sync_queued"):
+            # After the edit's own page has caught up (it notes the change
+            # right after making it): the page shown redraws only if it did not.
+            self._sync_queued = True
+            QTimer.singleShot(0, self._sync_shown)
+
+    def _sync_shown(self):
+        self._sync_queued = False
+        sync = getattr(self.current_page(), "sync_document", None)
+        if callable(sync) and not self._locked:
+            sync()
+
+    def _update_title(self):
+        """The file's name, with * while it holds unsaved edits (owner
+        2026-10-23: the file name, not the PDF's own Title)."""
+        sd = self.document
+        if sd.is_open() or sd.path:
+            self.setWindowTitle(f"{sd.name}{'*' if sd.dirty else ''} — {self._app_title}")
+        else:
+            self.setWindowTitle(self._app_title)
+
+    def _hold_rendering(self, page):
+        """While a job reads the document no thumbnail may render from it:
+        the page's renderer stops; the function returned restarts it."""
+        timer = getattr(page, "_timer", None)
+        if timer is None or not timer.isActive():
+            return lambda: None
+        timer.stop()
+        return lambda: timer.start() if getattr(page, "_queue", None) else None
+
+    def _write(self, work, name: str, then):
+        page = self.current_page()
+        resume = self._hold_rendering(page)
+
+        def done(kind, value):
+            resume()
+            then(kind, value)
+        job = self.run_job(work, f"Saving {name}…", lock=True, then=done, cancellable=False,
+                           keep_password=self._keep, own_save=True)
+        if job is None:
+            resume()
+        return job
+
+    def save(self, after=None):
+        """Save (Ctrl+S): the document over its own file (owner 2026-10-23);
+        a file opened with a password keeps it.  after(): once it is saved."""
+        sd = self.document
+        if not sd.is_open():
+            return dialogs.warning("Save", "Open a PDF first.")
+        if not self.commit_pending():
+            return None
+        out = sd.path
+        opened_with = core_password.open_password_of(sd.doc)
+        self._keep = (opened_with, [out])
+        # A file with an owner password only (no open password) keeps its
+        # encryption (MuPDF re-applies it; core.doc_state.snapshot keeps it
+        # through the undo steps).
+        opts = {"garbage": 1, "deflate": True}
+        if opened_with is None and (sd.doc.metadata or {}).get("encryption"):
+            opts["encryption"] = fitz.PDF_ENCRYPT_KEEP
+
+        def then(kind, _value):
+            if kind == "done":
+                self.set_status(f"✓  Saved → {Path(out).name}", "success")
+                if callable(after):
+                    after()
+        return self._write(lambda stop: sd.save(**opts), Path(out).name, then)
+
+    def save_as(self, after=None):
+        """Save as (Ctrl+Shift+S): the document to a new file it then belongs
+        to; a file opened with a password asks whether the new one keeps it."""
+        sd = self.document
+        if not sd.is_open():
+            return dialogs.warning("Save as", "Open a PDF first.")
+        if not self.commit_pending():
+            return None
+        out = dialogs.ask_save(sd.name or "document.pdf", ".pdf", [("PDF", "*.pdf")])
+        if not out:
+            return None
+        self._keep = (pages.ask_keep_password(sd.doc), [out])
+
+        def then(kind, _value):
+            if kind != "done":
+                return
+            self.set_current_document(sd.path)
+            told = set()
+            for p in list(self._doc_pages.values()) + list(self._pages.values()):
+                moved = getattr(p, "document_moved", None)
+                if id(p) in told or not callable(moved):
+                    continue
+                told.add(id(p))
+                if getattr(p, "shows_document", None) is None or p.shows_document():
+                    moved(sd.path)
+            cur = self.current_page()
+            if cur is not None and hasattr(cur, "refresh_document"):
+                cur.refresh_document()
+            try:
+                RECENT.push(sd.path, len(sd.doc))
+            except (OSError, ValueError):
+                pass
+            self.set_status(f"✓  Saved → {Path(out).name}", "success")
+            if callable(after):
+                after()
+        return self._write(lambda stop: sd.save_as(out, garbage=1, deflate=True),
+                           Path(out).name, then)
+
+    def print_document(self) -> bool:
+        """Print (Ctrl+P): Windows' print dialog, with a page range; the
+        document as it is now, unsaved edits included."""
+        sd = self.document
+        if not sd.is_open():
+            dialogs.warning("Print", "Open a PDF first.")
+            return False
+        from . import printing
+        return printing.print_document(self, sd.doc, sd.name)
+
+    def undo(self) -> bool:
+        """Undo the document's last edit, whichever tool made it: that tool
+        gets its own state back, every tool showing the document redraws."""
+        if self._locked:
+            return False
+        sd = self.document
+        step = sd.undo()
+        if step is None:
+            self.set_status("Nothing to undo", "muted")
+            return False
+        owner = step.extra.get("page") if isinstance(step.extra, dict) else None
+        shown = self.current_page()
+        for key, p in list(self._doc_pages.items()):
+            if not p.shows_document():
+                continue
+            if key == owner:
+                p.restore_step(step.extra.get("state"))
+            if p is shown or p.isVisible():
+                p.sync_document()
+        self.set_status(f"Undone: {step.label}", "success")
+        return True
+
+    def note_document_page(self, page) -> None:
+        """*page* shows the document (SharedDocPage.borrow): undo, Save as
+        and the unsaved marks reach it, inside a workspace host too."""
+        self._doc_pages[page.page_key()] = page
 
     def _on_current_changed(self, index: int):
         w = self.stackedWidget.widget(index)
@@ -876,7 +1124,7 @@ class MainWindow(FluentWindow):
     # ══════════════════════════════════════════════════════════════════════════
     def run_job(self, worker_fn, label: str = "Working…", *, lock: bool = False,
                 then=None, cancellable: bool = True,
-                keep_password=None) -> CancellableJob | None:
+                keep_password=None, own_save: bool = False) -> CancellableJob | None:
         """Run worker_fn(stop) in a background thread with progress and Cancel;
         stop is a threading.Event the worker checks with is_set().
 
@@ -895,10 +1143,19 @@ class MainWindow(FluentWindow):
         Each of them the job writes gets kept's password before it reaches its
         name (core.password.protecting).
 
+        A job that writes the open document's file (one of keep_password's
+        outputs, own_save=False: a tool's output, not Save) first moves the
+        document onto an in-memory copy, so the file is free to replace.
+
         One job at a time: while one runs this warns and returns None."""
         if self._current_job and self._current_job.is_running:
             dialogs.warning("Busy", BUSY_MSG)
             return None
+        if keep_password is not None and not own_save and isinstance(keep_password[1], list):
+            sd = self.document
+            for out in keep_password[1]:
+                if sd.is_open() and pages.same_path(str(out), sd.path):
+                    sd._release(sd.path)
         if keep_password is not None and keep_password[0] is not None:
             worker_fn = _keeping_password(worker_fn, *keep_password)
 
@@ -1404,10 +1661,15 @@ class MainWindow(FluentWindow):
             return
         job = self._current_job
         if not (job and job.is_running):        # (a running job asks its own question)
-            for page in list(self._pages.values()):
-                if not self.settle_unsaved(page, self.close):
-                    e.ignore()
-                    return
+            if not self.settle_unsaved(None, self.close):
+                e.ignore()
+                return
+            n = self.unapplied_marks()
+            # Redact's boxes are marks, not edits: Save does not keep them (owner, 2026-10-23).
+            if n and not dialogs.ask_yes_no("Close", UNAPPLIED_QUESTION.format(
+                    n=n, boxes="box" if n == 1 else "boxes")):
+                e.ignore()
+                return
         if job and job.is_running:
             if not dialogs.ask_yes_no("Job running",
                                       "A job is still running. Cancel it and quit?"):

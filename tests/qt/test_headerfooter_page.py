@@ -169,4 +169,7 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     opened = spy_open(window, monkeypatch)
     _stamp(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), tmp_path / "o.pdf")
     assert window.show_page("home")
-    assert opened and all(d.is_closed for d in opened)
+    # the jobs' copies are closed; the window keeps the one document (2026-10-23)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert shared is not None and not shared.is_closed

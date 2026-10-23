@@ -19,7 +19,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap
 from ...core import reader as core_reader
 from .. import bridge
 from ..pageview import GroundView
-from ..pages import ElidedLabel, WorkspacePage, register_page
+from ..pages import ElidedLabel, WorkspacePage, register_page, same_path, shared_copy
 
 TITLE = "Read / Preview"
 SUBTITLE = "Continuous smooth-scroll viewer — view-only"
@@ -114,9 +114,17 @@ class ReaderPage(WorkspacePage):
         self._load(path)
 
     def _load(self, path: str) -> bool:
-        doc = self.window_.open_pdf_safe(path)
+        """Read *path*: the window's document (made *path* first, after the
+        unsaved-edits question, when it is another file), in a copy of its
+        own for the render thread, so unsaved edits show."""
+        win = self.window_
+        sd = win.document
+        if not win.adopt(path, ask=True):
+            return False
+        doc = shared_copy(win, path)
         if doc is None:
             return False
+        self._seen_edits = sd.edits
         old_doc, old_lock = self._doc, self._doc_lock
         # Sizes are read once here, before the worker can see this document, so
         # layout never walks the Document while a render holds it.
@@ -187,6 +195,25 @@ class ReaderPage(WorkspacePage):
         if self._load(self._path):
             self.view.verticalScrollBar().setValue(int(frac * self._total_h))
             QTimer.singleShot(30, self._update_viewport)
+
+    _seen_edits = -1
+
+    def sync_document(self):
+        """The window's document changed (an edit in another tool, an undo):
+        read it again, at the same place."""
+        sd = self.window_.document
+        if (self._doc is None or not sd.is_open() or not same_path(sd.path, self._path)
+                or self._seen_edits == sd.edits):
+            return
+        frac = self._scroll_frac
+        if self._load(self._path):
+            self.view.verticalScrollBar().setValue(int(frac * self._total_h))
+            QTimer.singleShot(30, self._update_viewport)
+
+    def document_moved(self, path: str):
+        """Save as: the document belongs to *path* now."""
+        self._path = str(path)
+        self.path_label.setText(self._path)
 
     def deactivate(self):
         # Keep the path and scroll position for re-entry, but not the file open.

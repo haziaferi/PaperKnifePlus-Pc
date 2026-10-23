@@ -49,7 +49,7 @@ from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, LineEdit, Prima
 
 from . import dialogs
 from . import theme
-from ..core.doc_state import UNDO_DEPTH, DocHolder
+from ..core.doc_state import DocHolder
 from ..core.password import OpenPassword, open_password_of, shared_open_password
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -702,24 +702,202 @@ def ask_keep_password(*docs) -> OpenPassword | None:
     return None
 
 
-class HeldDoc(DocHolder):
-    """A page that keeps its input's (self.file) document open in
-    self._doc; self._src is the file it was read from."""
+def shared_copy(win, path: str):
+    """A job's own copy of the window's document when *path* is its file
+    (unsaved edits and the open password go with it), else None."""
+    sd = getattr(win, "document", None)
+    if sd is None or not sd.is_open() or not same_path(sd.path, path):
+        return None
+    from ..core.password import carry_open_password
+    copy = fitz.open("pdf", sd.doc.tobytes())
+    carry_open_password(sd.doc, copy)
+    return copy
+
+
+class SharedDocPage(DocHolder):
+    """A page that works on the window's one document (window.document, a
+    core.document.SharedDocument; owner's decision 2026-10-23) instead of a
+    copy of its own: self._doc is that document while the page shows it
+    (borrow), None otherwise.  Closing it here only lets it go: the window
+    opens and closes it.  The page's edits are the document's: _dirty and
+    is_dirty() read it, _push_undo puts a step on its one history (with the
+    page's undo_state(), handed back to restore_step on undo), and setting
+    _dirty after an edit marks it changed.
+
+    Hooks: undo_state() / restore_step(state) for a page's own state on a
+    step; document_replaced() redraws after another tool's edit or an undo
+    (sync_document calls it once per change); document_moved(path) after
+    Save as; recovery_extra() / restore_extra() / drop_marks() for marks a
+    page keeps beside the document (Redact's boxes).
+
+    A page without a window (none of the app's) holds its own document."""
+
+    def _shared(self):
+        w = getattr(self, "window_", None)
+        return getattr(w, "document", None) if w is not None else None
+
+    @property
+    def _doc(self):
+        sd = self._shared()
+        if sd is None:
+            return self.__dict__.get("_own_doc")
+        return sd._doc if self.__dict__.get("_attached") else None
+
+    @_doc.setter
+    def _doc(self, value):
+        sd = self._shared()
+        if sd is None:
+            self.__dict__["_own_doc"] = value
+        elif value is None:
+            self.__dict__["_attached"] = False
+        else:                               # a new content (_replace_doc) for every tool
+            sd._doc = value
+            self.__dict__["_attached"] = True
+
+    def _close_doc(self) -> None:
+        if self._shared() is None:
+            return DocHolder._close_doc(self)
+        self.__dict__["_attached"] = False
+
+    def borrow(self, path: str):
+        """The window's document, made *path* first when it is another file
+        (after the unsaved-edits question); None when it cannot be."""
+        win, sd = self.window_, self._shared()
+        if sd is None:
+            return None
+        if not win.adopt(path, ask=True):
+            return None
+        self.__dict__["_attached"] = True
+        self.__dict__["_seen_edits"] = sd.edits
+        win.note_document_page(self)
+        return sd._doc
+
+    def shows_document(self) -> bool:
+        sd = self._shared()
+        return sd is not None and bool(self.__dict__.get("_attached")) and sd.is_open()
+
+    @property
+    def _dirty(self) -> bool:
+        sd = self._shared()
+        if sd is not None and self.shows_document():
+            return sd.dirty
+        return self.__dict__.get("_dirty_flag", False)
+
+    @_dirty.setter
+    def _dirty(self, value: bool):
+        sd = self._shared()
+        if sd is None or not self.shows_document():
+            self.__dict__["_dirty_flag"] = value
+            return
+        if value:
+            sd.changed(adds=self.__dict__.pop("_adds_pending", False))
+            self.__dict__["_seen_edits"] = sd.edits
+
+    def is_dirty(self) -> bool:
+        """Unsaved: the document's edits, or input typed here not applied yet."""
+        return self.shows_document() and (self._dirty or self.has_pending())
+
+    def has_pending(self) -> bool:
+        """Input typed on this page and not applied to the document yet
+        (Metadata's fields): Save applies it first (commit_edits)."""
+        return False
+
+    def commit_edits(self) -> bool:
+        """Apply the pending input as an edit; False when it cannot be (the
+        page said why)."""
+        return True
+
+    def edit_document(self, label: str, fn, *, adds: bool = False):
+        """Run fn(doc) as one undoable edit of the window's document, with
+        this page's undo_state() on the step; its result."""
+        res = self._shared().edit(label, fn, {"page": self.page_key(), "state": self.undo_state()},
+                                  adds=adds)
+        self.__dict__["_seen_edits"] = self._shared().edits
+        return res
+
+    def is_parked(self) -> bool:
+        return False        # the window holds the document: nothing to reopen
+
+    def park_document(self):
+        """Left: the window keeps the document open, so nothing to close."""
+
+    def page_key(self) -> str:
+        t = getattr(self, "tool", None)
+        return getattr(t, "name", "") or type(self).__name__
+
+    # ── the one history ──
+    def _push_undo(self, label: str | None = None, state=None) -> None:
+        """Before an edit made in place: a step on the window's history, with
+        *state* (else undo_state()) for restore_step."""
+        sd = self._shared()
+        if sd is None:
+            return DocHolder._push_undo(self)
+        sd.begin(label or self.title_label.text(),
+                 {"page": self.page_key(),
+                  "state": self.undo_state() if state is None else state}, pg=self._pg)
+
+    def _pop_undo(self) -> None:
+        """An edit begun with _push_undo failed: the document as it was."""
+        sd = self._shared()
+        if sd is None:
+            return DocHolder._pop_undo(self)
+        sd.abandon()
+
+    def _drop_undo(self) -> None:
+        """An edit begun with _push_undo changed nothing: its step goes."""
+        sd = self._shared()
+        if sd is not None:
+            sd.drop_step()
+
+    def undo_state(self):
+        """The page's own state to keep on a history step (none by default)."""
+        return None
+
+    def restore_step(self, state) -> None:
+        """Undo reached a step this page made: *state* is its undo_state() then."""
+
+    def sync_document(self) -> None:
+        """Redraw once when the document changed since this page last showed it."""
+        sd = self._shared()
+        if sd is None or not self.shows_document():
+            return
+        if self.__dict__.get("_seen_edits") != sd.edits:
+            self.__dict__["_seen_edits"] = sd.edits
+            self._pg = max(0, min(self._pg, len(sd.doc) - 1))
+            self.document_replaced()
+
+    def document_replaced(self) -> None:
+        """The document's content changed under the page (another tool, an undo)."""
+
+    def document_moved(self, path: str) -> None:
+        """Save as: the document belongs to *path* now."""
+
+    def drop_marks(self) -> None:
+        """The unsaved edits were discarded: marks held beside them go too."""
+
+
+class HeldDoc(SharedDocPage):
+    """A page that works on its input's (self.file) document: the window's
+    (SharedDocPage); self._src is the file it belongs to."""
     _src: str = ""
 
     def open_held(self, path: str, title: str | None = None):
-        """Open *path* as the held document and close the one before (the
-        page's subtitle names it: refresh_document).  When it cannot be opened
-        the document already open stays and the input goes back to its file.
-        The new document, or None.  *title* is not used any more."""
-        doc = self.window_.open_pdf_safe(path)
+        """Show *path* as the held document (the page's subtitle names it:
+        refresh_document).  When it cannot be opened the document shown
+        stays and the input goes back to its file.  The document, or None.
+        *title* is not used any more."""
+        doc = self.borrow(path)
         if doc is None:
             self.file.set_path(self._src if self._doc is not None else "", notify=False)
             return None
-        self._close_doc()
-        self._doc, self._src = doc, path
-        self._dirty = False
+        self._src = str(path)
         return doc
+
+    def document_moved(self, path: str) -> None:
+        if self._src:
+            self._src = str(path)
+            if isinstance(getattr(self, "file", None), DocInput):
+                self.file.set_path(path, notify=False)
 
     def release_held(self, title: str | None = None, subtitle: str = ""):
         """Close the held document and empty the input (*title* and
@@ -733,144 +911,55 @@ class HeldDoc(DocHolder):
         """Whether *out* is a file other than the one the document came from."""
         return not same_path(out, self._src)
 
-    def park_document(self):
-        """The page is left: a document with no unsaved edits is closed, so
-        its file is free for other tools to overwrite; the input keeps the
-        path and the page reopens it when shown (MainWindow._follow)."""
-        if self._doc is not None and not self.is_dirty():
-            self._close_doc()
 
-    def is_parked(self) -> bool:
-        return self._doc is None and bool(self.file.path())
-
-    # ── crash recovery: the edits are the page's own, the file is unchanged ──
-    def recovery_state(self) -> dict | None:
-        """The unsaved edits as JSON-able data (None: nothing to recover)."""
-        return None
-
-    def apply_recovery(self, state: dict) -> bool:
-        """Put the edits *state* back on the file just opened; whether it fits."""
-        return False
-
-    def recovery_token(self):
-        state = self.recovery_state() if self.is_dirty() else None
-        return None if state is None else json.dumps(state, sort_keys=True)
-
-    def recovery_snapshot(self):
-        return self.recovery_state(), None
-
-    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
-        """Open the file again and put the edits back on it."""
-        if not os.path.isfile(path) or not self.load_document(path) or self._doc is None:
-            return False
-        try:
-            return bool(self.apply_recovery(state))
-        except (KeyError, TypeError, ValueError):
-            return False
-
-
-class WorkspaceDoc(DocHolder):
-    """The document a WorkspacePage edits, held in self._doc."""
+class WorkspaceDoc(SharedDocPage):
+    """The document a WorkspacePage edits: the window's (SharedDocPage)."""
 
     _src_path: str = ""
 
     def open_document(self, path: str, title: str = ""):
-        """Open *path* in place of the document shown, at page 1 with no undo
-        history and no unsaved edits; it becomes the current document.  The
-        new document, or None (the old one stays) when it cannot be opened.
-        *title* is not used any more (the subtitle names the file).  A
-        recovered copy (restore_recovery) is opened in place of the file."""
-        doc = self.__dict__.pop("_incoming_doc", None) or self.window_.open_pdf_safe(path)
+        """Show *path* (made the window's document first when it is another
+        file), at page 1; it becomes the current document.  The document, or
+        None (the one shown stays) when it cannot be opened.  *title* is not
+        used any more (the subtitle names the file)."""
+        doc = self.borrow(path)
         if doc is None:
             return None
-        self._close_doc()
-        self._doc, self._pg, self._undo_stack = doc, 0, []
-        self._src_path, self._dirty = str(path), False
-        self._pages_changed = self._pages_cut = False
+        self._pg = 0
+        self._src_path = str(path)
         self.refresh_document(announce=True)
         return doc
 
     def save(self, after=None):
-        """Ctrl+S: save the document to a file the user chooses (save_name
-        offered); the box says "<saved_what> saved".  after(): run once it
-        is saved (the unsaved-edits question's Save)."""
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        kept = ask_keep_password(self._doc)
-        win = self.window_
+        """Save (Ctrl+S, the page's Save): the window's Save, over the file."""
+        return self.window_.save(after)
 
-        def done(kind, _value):
-            # A save over the open file goes on from an in-memory copy of it.
-            self.show_current()
-            if kind == "done":
-                self._dirty = False
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
-                if not same_path(out, self._src_path):
-                    self.offer_output(out)
-                if callable(after):
-                    after()
+    def document_moved(self, path: str) -> None:
+        if self._src_path:
+            self._src_path = str(path)
+            self.refresh_document()
 
-        appends = self.appends_only()
-        # garbage=1: a whole file drops what the edits left unused (a deleted
-        # note, a replaced content stream), so its old text does not stay in it.
-        win.run_job(lambda stop: self._save_doc(out, incremental=appends, garbage=1, deflate=True),
-                    f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False, keep_password=(kept, [out]))
+    def document_replaced(self) -> None:
+        self._strip_doc = None
+        self.on_page()
+        self.show_current()
 
-    def appends_only(self) -> bool:
-        """Whether the edits since the file was opened only add to it, so a
-        save over it may append them (owner's choice 2026-10-12): none of
-        the editors that replace or remove content does."""
-        return False
+    def restore_step(self, state) -> None:
+        """A page change undone: the tool's page-bound state as it was."""
+        if isinstance(state, tuple) and len(state) == 2 and state[0] == "pages":
+            self.restore_page_state(state[1])
 
-    # ── crash recovery: the edits are in the document itself ──
+    def undo(self):
+        """Ctrl+Z, the rail's Undo: the document's last edit (the window's)."""
+        return self.window_.undo()
+
+    # ── marks beside the document (crash recovery copies them with it) ──
     def recovery_extra(self) -> dict:
         """Unsaved state beyond the document (a page's own, e.g. Redact's boxes)."""
         return {}
 
     def restore_extra(self, state: dict) -> None:
         """Put back what recovery_extra() returned."""
-
-    def recovery_token(self):
-        if not self.is_dirty():
-            return None
-        return self._edits, json.dumps(self.recovery_extra(), sort_keys=True)
-
-    def recovery_snapshot(self):
-        """The document as it is, under its open password when it has one,
-        so a protected file is not left readable in the recovery folder."""
-        kept = open_password_of(self._doc)
-        if kept is None:
-            data = self._doc.tobytes()
-        else:
-            data = self._doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256,
-                                     user_pw=kept.user_pw, owner_pw=kept.user_pw)
-        return {"page": self._pg, **self.recovery_extra()}, data
-
-    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
-        if pdf is None:
-            return False
-        doc = self.window_.open_pdf_data(pdf, Path(path).name)
-        if doc is None:
-            return False
-        self._incoming_doc = doc
-        self.open_path(path)        # the page's own open, on the recovered copy
-        if self._doc is not doc:
-            self.__dict__.pop("_incoming_doc", None)
-            doc.close()
-            return False
-        pg = state.get("page", 0)
-        if isinstance(pg, int) and 0 < pg < len(doc):
-            self._pg = pg
-            self.on_page()
-        self.restore_extra(state)
-        self._dirty = True
-        self.show_current()
-        return True
 
 
 class Refusal(Exception):
@@ -1022,8 +1111,6 @@ class ToolPage(QWidget):
             f.clear()
         self.refresh_document()
 
-    _edits = 0      # counts each edit (each time _dirty is set): crash recovery's cue
-
     @property
     def _dirty(self) -> bool:
         return self.__dict__.get("_dirty_flag", False)
@@ -1031,25 +1118,10 @@ class ToolPage(QWidget):
     @_dirty.setter
     def _dirty(self, value: bool):
         self.__dict__["_dirty_flag"] = value
-        if value:
-            self._edits += 1
 
     def is_dirty(self) -> bool:
-        """Edits since the last save or open (the editing screens)."""
-        return False
-
-    # ── crash recovery (MainWindow keeps a copy of the unsaved edits) ──
-    def recovery_token(self):
-        """Something equal as long as the unsaved edits are the same; None:
-        this page has nothing to recover."""
-        return None
-
-    def recovery_snapshot(self) -> tuple[dict, bytes | None]:
-        """The unsaved edits: (state, the edited PDF or None)."""
-        raise NotImplementedError
-
-    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
-        """Show the edits recovered for *path* as unsaved; whether it could."""
+        """Edits since the last save or open (the editing screens: the
+        window's document, SharedDocPage)."""
         return False
 
     def park_document(self):
@@ -1155,14 +1227,15 @@ class ToolPage(QWidget):
             self.window_.open_document(out)
 
     def start_over(self):
-        """This tool and the current document are cleared."""
+        """This tool and the current document are cleared (after the
+        unsaved-edits question)."""
         win = self.window_
-        if win is not None and not win.settle_unsaved(self, self.start_over):
+        if win is not None:
+            if win.clear_current_document():
+                self.dismiss_offer()
             return
         self.dismiss_offer()
         self.clear_document()
-        if win is not None:
-            win.set_current_document(None)
 
     def leave_offer(self):
         """The page is left with the question open: as Continue with it."""
@@ -1267,7 +1340,10 @@ class ToolPage(QWidget):
             if not src:
                 return None
         win = self.window_
-        doc = open_doc(src) if open_doc is not None else win.open_pdf_safe(src)
+        if open_doc is not None:
+            doc = open_doc(src)
+        else:
+            doc = shared_copy(win, src) or win.open_pdf_safe(src)
         if doc is None:
             return None
         if prepare is not None:
@@ -1410,16 +1486,6 @@ def _rearrange(doc, order) -> None:
     organise.rearrange(doc, list(order))
 
 
-class PagesStep:
-    """A page change on an editor's undo list: the whole document before it,
-    the page shown then, and the tool's own page-bound state (page_state);
-    *after* is what the tool keeps to tell later edits from it (pages_after)."""
-    __slots__ = ("pg", "data", "state", "after")
-
-    def __init__(self, pg: int, data: bytes, state):
-        self.pg, self.data, self.state, self.after = pg, data, state, None
-
-
 class WorkspacePage(ToolPage):
     """Group A, document workspace (Annotate, Redact, Edit Text, Find & Replace,
     Reader): a slim tool rail at the left, the page in the centre (PageView),
@@ -1439,10 +1505,9 @@ class WorkspacePage(ToolPage):
     the panel.  A click goes to the page; Ctrl / Shift click selects several;
     a drag moves them.  add_pages_tool() puts "Pages" in the rail: the panel
     then shows Rotate left / right and Delete for the selection.  A page
-    change goes on the tool's _undo_stack as a PagesStep (whole document);
-    the tool's undo() calls undo_page_change() first, and a tool with state
-    tied to page numbers keeps it in step (page_state, restore_page_state,
-    remap_pages, pages_after)."""
+    change is a step on the window's one history (SharedDocPage), and a
+    tool with state tied to page numbers keeps it in step (page_state,
+    restore_page_state, remap_pages)."""
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
                  view_cls=None, rail: bool = True, page_strip: bool = False):
@@ -1768,8 +1833,6 @@ class WorkspacePage(ToolPage):
     _pages_box = None
     _pages_hide_btn = None
     panel_hosted = False    # the context panel moved into a host's pane (structure.py)
-    _pages_changed = False  # pages moved, turned or deleted since the file was opened
-    _pages_cut = False      # pages deleted since the file was opened (a save writes it whole)
 
     def _build_strip(self) -> QWidget:
         """The strip and the panel's splitter in one splitter of their own."""
@@ -2020,10 +2083,6 @@ class WorkspacePage(ToolPage):
         """The pages changed: *mapping* old index -> new index (None: deleted);
         *turned* the indices turned (their page space changed)."""
 
-    def pages_after(self):
-        """Kept on the page change's step after remap_pages (PagesStep.after)."""
-        return None
-
     def rotate_pages(self, deg: int):
         rows = self.thumbs.selected_rows() if self.thumbs is not None else []
         if not rows or getattr(self, "_doc", None) is None:
@@ -2061,31 +2120,32 @@ class WorkspacePage(ToolPage):
 
     def _page_change(self, apply, mapping: dict, *, turned=(), cut: bool = False):
         """apply(doc) changes the open document's pages in place; on the
-        tool's undo list goes the whole document as it was (PagesStep)."""
+        window's history goes the whole document as it was."""
         doc = self._doc
         turned = set(turned)
         icons = self.thumbs.icons()
         sel = [self.thumbs.item(r).data(Qt.UserRole) for r in self.thumbs.selected_rows()]
-        step = PagesStep(self._pg, doc.tobytes(), self.page_state())
+        # On the window's one history (SharedDocPage) with the tool's
+        # page-bound state, which restore_step hands back on undo.
+        self._push_undo(PAGES_TITLE, ("pages", self.page_state()))
         try:
             apply(doc)
         except Exception as e:
             # Half done: the document as it was.
-            self._replace_doc(fitz.open("pdf", step.data))
+            self._pop_undo()
             self._strip_doc = None
             self.show_current()
             return dialogs.error(PAGES_TITLE, f"The pages could not be changed:\n{e}")
-        self._push_step(step)
         self.remap_pages(mapping, turned)
-        step.after = self.pages_after()
+        # A turn or a move removes nothing: Save may append it; a delete is
+        # written whole (owner's choice 2026-10-12).
+        self._adds_pending = not cut
         new_pg = mapping.get(self._pg)
         if new_pg is None:
             # The page shown was deleted: the next one kept, else the last.
             later = [mapping[k] for k in sorted(mapping) if k > self._pg and mapping[k] is not None]
             new_pg = later[0] if later else len(self._doc) - 1
         self._pg = new_pg
-        self._pages_changed = True
-        self._pages_cut = self._pages_cut or cut
         self._strip_icons = {mapping[k]: ic for k, ic in icons.items()
                              if mapping.get(k) is not None and k not in turned}
         self._strip_reselect = sorted(mapping[k] for k in sel if mapping.get(k) is not None)
@@ -2096,36 +2156,9 @@ class WorkspacePage(ToolPage):
         if self.window_ is not None:
             self.window_.set_status("Pages changed — use Save to write to disk", "success")
 
-    def _push_step(self, step: PagesStep):
-        """Onto the undo list, keeping at most UNDO_DEPTH whole-document copies."""
-        stack = list(getattr(self, "_undo_stack", [])) + [step]
-        copies = [i for i, e in enumerate(stack)
-                  if isinstance(e, PagesStep)
-                  or (isinstance(e, tuple) and len(e) == 2 and isinstance(e[1], bytes))]
-        if len(copies) > UNDO_DEPTH:
-            stack = stack[copies[-UNDO_DEPTH]:]
-        self._undo_stack = stack
-
-    def page_step_on_top(self) -> bool:
-        """The last thing done (to undo first) is a page change."""
-        stack = getattr(self, "_undo_stack", None)
-        return bool(stack) and isinstance(stack[-1], PagesStep)
-
     def undo_page_change(self) -> bool:
-        """Undo the last page change when it is the last thing done; whether it was."""
-        if getattr(self, "_doc", None) is None or not self.page_step_on_top():
-            return False
-        step = self._undo_stack.pop()
-        self._pg = step.pg
-        self._replace_doc(fitz.open("pdf", step.data))
-        self.restore_page_state(step.state)
-        self._strip_doc = None
-        self._dirty = True
-        self.on_page()
-        self.show_current()
-        if self.window_ is not None:
-            self.window_.set_status("Undo applied", "success")
-        return True
+        """Kept for the tools' undo: page changes are on the window's history now."""
+        return False
 
     # ── document ──
     _src_path = ""

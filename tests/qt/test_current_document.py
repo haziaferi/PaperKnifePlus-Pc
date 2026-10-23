@@ -146,10 +146,6 @@ def test_an_editor_with_unsaved_edits_keeps_its_file_and_asks(window, dialogs, t
     assert dialogs.msgs[-1] == ("ask_unsaved", "Save changes to a.pdf?", "")
     assert _same(page.file.path(), a) and page.fields["title"].text() == "Typed"
     assert _same(window.current_document, a)
-    # the current document moved elsewhere: shown again, the editor keeps its file
-    window.set_current_document(b)
-    window._follow(page)
-    assert _same(page.file.path(), a) and page.fields["title"].text() == "Typed"
     # Discard: the switch goes ahead
     dialogs.unsaved.append("discard")
     assert window.open_document(b)
@@ -160,14 +156,12 @@ def test_an_editor_with_unsaved_edits_keeps_its_file_and_asks(window, dialogs, t
 def test_save_in_the_question_saves_then_switches(window, dialogs, tmp_path):
     import pymupdf as fitz
     a, b = make_pdf(tmp_path / "a.pdf"), make_pdf(tmp_path / "b.pdf")
-    out = tmp_path / "saved.pdf"
     page = _open(window, "MetadataTool", a)
     page.fields["title"].setText("Kept")
     dialogs.unsaved.append("save")
-    dialogs.save(out)
     window.open_document(b)
     wait_job(window)
-    with fitz.open(str(out)) as d:
+    with fitz.open(str(a)) as d:                   # Save: over the file, no dialog
         assert d.metadata["title"] == "Kept"
     assert _same(page.file.path(), b) and _same(window.current_document, b)
 

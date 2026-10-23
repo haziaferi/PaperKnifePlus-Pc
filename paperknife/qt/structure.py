@@ -869,6 +869,22 @@ class StructureHost(QWidget):
     def refresh_document(self, announce: bool = False):
         self._show_doc()
 
+    def sync_document(self):
+        """The window's document changed: the tool shown and the viewer catch up."""
+        for p in (self.current_tool(), self.viewer):
+            fn = getattr(p, "sync_document", None) if p is not None else None
+            if callable(fn):
+                fn()
+
+    def document_moved(self, path: str):
+        """Save as: the tools re-hosted here and the viewer follow the new file."""
+        pages = [v.page for v in self._views.values()] + [self.viewer]
+        for p in pages:
+            fn = getattr(p, "document_moved", None) if p is not None else None
+            if callable(fn) and not getattr(p, "shows_document", lambda: False)():
+                fn(path)        # (a page showing the document hears it from the window)
+        self._show_doc()
+
     def is_dirty(self) -> bool:
         return any(callable(getattr(v.page, "is_dirty", None)) and v.page.is_dirty()
                    for v in self._views.values())
@@ -880,9 +896,6 @@ class StructureHost(QWidget):
         for v in self._views.values():
             if callable(getattr(v.page, "discard_changes", None)):
                 v.page.discard_changes()
-
-    def recovery_token(self):
-        return None
 
     def set_compact(self, on: bool):
         pass

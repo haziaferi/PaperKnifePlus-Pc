@@ -199,7 +199,8 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     page.run()
     window.show_page("CompressTool")
     wait_job(window)
-    assert held.is_closed and page._doc is None      # left: the file is let go
+    # left: the window keeps the one document (2026-10-23)
+    assert not held.is_closed and window.document.doc is held
     assert [h for _, h in _sizes(out)] == [792, 792, 792]
 
 

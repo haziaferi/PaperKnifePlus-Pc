@@ -102,6 +102,17 @@ def ask_save(default_name: str = "output.pdf", ext: str = ".pdf", filters=None) 
     return path or ""
 
 
+def ask_print(printer, pages: int) -> bool:
+    """Windows' print dialog for *printer*, pages 1..*pages* offered as its
+    range; whether Print was pressed (the printer then holds the choices)."""
+    from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog
+    dlg = QPrintDialog(printer, _parent())
+    dlg.setMinMax(1, max(1, pages))
+    dlg.setOption(QAbstractPrintDialog.PrintPageRange, True)
+    dlg.setOption(QAbstractPrintDialog.PrintToFile, False)
+    return dlg.exec() == QPrintDialog.Accepted
+
+
 def ask_dir(title: str = "Choose output folder") -> str:
     """An existing folder, or "" when cancelled."""
     path = QFileDialog.getExistingDirectory(_parent(), title, _start_dir(True))

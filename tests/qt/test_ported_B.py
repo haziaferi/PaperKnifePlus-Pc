@@ -99,17 +99,18 @@ def test_while_a_save_holds_the_document_the_window_cannot_reach_it(window, dial
     pump(0.1)
     page = window.current_page()
     release = threading.Event()
-    real_save = type(page)._save_doc
+    sd = window.document                # the window's Save writes it (2026-10-23)
+    real_save = type(sd)._save_doc
 
     def slow_save(self, out, **kw):
         release.wait(20)
         return real_save(self, out, **kw)
 
-    monkeypatch.setattr(type(page), "_save_doc", slow_save)
+    monkeypatch.setattr(type(sd), "_save_doc", slow_save)
     opened = []
     monkeypatch.setattr(page, "open", lambda: opened.append(1))
     dialogs.save(tmp_path / "out.pdf")
-    page.save()
+    window.save_as()
     try:
         assert window.is_locked()
         assert window.show_page("home") is False            # refused

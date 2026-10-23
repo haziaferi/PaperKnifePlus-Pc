@@ -1,6 +1,9 @@
 """Crash recovery (owner's choice 2026-10-12): unsaved edits are copied while
 the app runs; after a crash the next start asks "Recover unsaved changes?"
-with Discard / Recover, and Recover opens each in its tool, as unsaved."""
+with Discard / Recover, and Recover opens the document, as unsaved, in the
+tool it was being edited in.  Since 2026-10-23 the edits are the window's one
+document's: one copy ("document"), with each tool's marks (Redact's boxes)
+and input typed and not applied (Metadata's fields, the bookmark list)."""
 import pymupdf as fitz
 import pytest
 
@@ -57,7 +60,7 @@ def _text(doc):
 def test_edits_are_copied_and_a_crash_offers_them_back(qapp, window, dialogs, tmp_path):
     src, page = _edited(window, dialogs, tmp_path)
     # The job's end copied the edits at once: no wait for the timer.
-    assert window._recovery.keys() == ["FindReplaceTool"]
+    assert window._recovery.keys() == ["document"]
     _crash(window)
     dialogs.recovers.append(True)
     w = _new_window()
@@ -70,7 +73,8 @@ def test_edits_are_copied_and_a_crash_offers_them_back(qapp, window, dialogs, tm
         assert p.document_path() == src
         assert _text(p._doc) == ["Page 1 of the new report", "Page 2 of the new report"]
         assert recovery.orphaned() == []                # taken in by the new app
-        assert w._recovery.keys() == ["FindReplaceTool"]
+        assert w._recovery.keys() == ["document"]
+        assert w.windowTitle().startswith("report.pdf* — ")
     finally:
         close_test_window(w)
 
@@ -96,7 +100,7 @@ def test_closing_the_question_keeps_the_copies_for_the_next_start(qapp, window, 
     w = _new_window()
     try:
         assert w._current_key == "home"
-        assert [e.key for e in recovery.orphaned()] == ["FindReplaceTool"]
+        assert [e.key for e in recovery.orphaned()] == ["document"]
     finally:
         close_test_window(w)
 
@@ -104,8 +108,7 @@ def test_closing_the_question_keeps_the_copies_for_the_next_start(qapp, window, 
 def test_a_save_and_a_normal_exit_leave_nothing(qapp, window, dialogs, tmp_path):
     _, page = _edited(window, dialogs, tmp_path)
     folder = window._recovery.folder
-    dialogs.save(tmp_path / "saved.pdf")
-    page.save()
+    page.save()                                     # the window's Save, over the file
     wait_job(window)
     assert not page.is_dirty()
     assert window._recovery.keys() == []           # the save dropped the copy
@@ -116,7 +119,7 @@ def test_a_save_and_a_normal_exit_leave_nothing(qapp, window, dialogs, tmp_path)
 def test_discarded_edits_drop_the_copy(qapp, window, dialogs, tmp_path):
     _edited(window, dialogs, tmp_path)
     dialogs.unsaved.append("discard")
-    assert window.show_page("home")
+    assert window.open_document(make_pdf(tmp_path / "other.pdf"))
     assert window._recovery.keys() == []
 
 
@@ -132,7 +135,7 @@ def test_unchanged_edits_are_not_written_again(qapp, window, dialogs, tmp_path, 
 
 def test_a_protected_file_s_copy_keeps_its_password(qapp, window, dialogs, tmp_path):
     _edited(window, dialogs, tmp_path, password="s3cret")
-    copy = (window._recovery.folder / "FindReplaceTool.pdf").read_bytes()
+    copy = (window._recovery.folder / "document.pdf").read_bytes()
     with fitz.open("pdf", copy) as d:
         assert d.needs_pass                         # not readable without it
     _crash(window)
@@ -178,7 +181,8 @@ def test_rotate_edits_come_back_on_the_file(qapp, window, dialogs, tmp_path):
         p = w.current_page()
         assert w._current_key == "RotateTool" and p.is_dirty()
         assert p.document_path() == src
-        assert p.order() == [0, 2, 1] and p._extra == {0: 0, 1: 0, 2: 90}
+        assert [pg.get_text().strip() for pg in p._doc] == ["Page 1", "Page 3", "Page 2"]
+        assert [pg.rotation for pg in p._doc] == [0, 90, 0]
     finally:
         close_test_window(w)
 
@@ -188,7 +192,7 @@ def test_metadata_edits_come_back(qapp, window, dialogs, tmp_path):
     assert window.open_tool("MetadataTool", src)
     window.current_page().fields["title"].setText("A new title")
     window.snapshot_edits()
-    assert window._recovery.keys() == ["MetadataTool"]
+    assert window._recovery.keys() == ["document"]                 # typed, not applied
     _crash(window)
     dialogs.recovers.append(True)
     w = _new_window()
@@ -217,13 +221,35 @@ def test_bookmark_edits_come_back(qapp, window, dialogs, tmp_path):
         close_test_window(w)
 
 
-def test_edits_for_a_file_that_is_gone_are_reported(qapp, window, dialogs, tmp_path):
+def test_edits_for_a_file_that_is_gone_still_come_back(qapp, window, dialogs, tmp_path):
+    # The copy holds the whole document (since 2026-10-23), so a file deleted
+    # after the crash loses nothing: Save writes it there again.
     src = _rotated(window, tmp_path)
     window.snapshot_edits()
-    window.current_page()._close_doc()     # a dead app holds no file open
+    window.document._close_doc()           # a dead app holds no file open
     _crash(window)
     import os
     os.remove(src)
+    dialogs.recovers.append(True)
+    w = _new_window()
+    try:
+        p = w.current_page()
+        assert w._current_key == "RotateTool" and p.is_dirty() and not dialogs.warnings()
+        assert [pg.rotation for pg in p._doc] == [0, 90, 0]
+        w.save()
+        wait_job(w)
+        assert os.path.exists(src) and not w.has_unsaved()
+        assert recovery.orphaned() == []
+    finally:
+        close_test_window(w)
+
+
+def test_a_copy_that_cannot_be_read_is_reported(qapp, window, dialogs, tmp_path):
+    _rotated(window, tmp_path)
+    window.snapshot_edits()
+    folder = window._recovery.folder
+    _crash(window)
+    (folder / "document.pdf").write_bytes(b"not a pdf")
     dialogs.recovers.append(True)
     w = _new_window()
     try:
@@ -241,8 +267,9 @@ def test_every_document_workspace_offers_recovery(qapp, window, dialogs, tmp_pat
     assert window.open_tool(tool, src)
     page = window.current_page()
     if tool == "RedactTool":
-        page._pending.append((1, fitz.Rect(10, 10, 50, 50), None))
+        page._add_marks([(1, fitz.Rect(10, 10, 50, 50), None)])
     else:
+        page._push_undo("An edit")
         page._dirty = True
     window.snapshot_edits()
     _crash(window)
@@ -250,7 +277,8 @@ def test_every_document_workspace_offers_recovery(qapp, window, dialogs, tmp_pat
     w = _new_window()
     try:
         p = w.current_page()
-        assert w._current_key == tool and p.is_dirty() and p.document_path() == src
+        assert w._current_key == tool and p.document_path() == src
+        assert p.is_dirty() or tool == "RedactTool"        # boxes are marks, not edits
         if tool == "RedactTool":
             assert [(pg, tuple(r)) for pg, r, _ in p._pending] == [(1, (10, 10, 50, 50))]
     finally:

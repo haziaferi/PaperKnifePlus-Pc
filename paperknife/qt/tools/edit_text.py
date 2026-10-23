@@ -108,7 +108,7 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self._sel_bi = None                 # a selection belongs to one page as it was
 
     def clear_document(self):
-        self._blocks, self._sel_bi, self._undo_stack = [], None, []
+        self._blocks, self._sel_bi = [], None
         super().clear_document()
         self.build_panel()
 
@@ -189,14 +189,3 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
             win.set_status("Edit applied — use Save to write to disk", "success")
         self.show_current()
 
-    def undo(self):
-        if self.undo_page_change():
-            return
-        if not self._undo_stack or self._doc is None:
-            return
-        self._pop_undo()
-        self._dirty = True
-        self._sel_bi = None
-        self.build_panel()
-        self.show_current()
-        self.window_.set_status("Undo applied", "success")

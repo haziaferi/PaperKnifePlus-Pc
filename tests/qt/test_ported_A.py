@@ -133,10 +133,11 @@ def test_redact_box_drawn_over_the_word_on_a_rotated_page_removes_it(window, dia
     page.set_fill("Black")
     dialogs.asks.append(True)
     dialogs.save(tmp_path / "out.pdf")
-    page.save()
+    page.apply_redactions()             # a new redacted copy (owner, 2026-10-23)
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
-    assert "TOPSECRET" not in page._doc[0].get_text()
+    with fitz.open(tmp_path / "out.pdf") as d:
+        assert "TOPSECRET" not in d[0].get_text()
 
 
 # ── Find & Replace progress (tests/test_content.py) ──────────────────────────

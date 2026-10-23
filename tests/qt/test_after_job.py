@@ -77,24 +77,25 @@ def test_a_collection_run_asks_and_its_list_empties(window, dialogs, tmp_path):
     assert _same(window.current_document, out)
 
 
-def test_an_editor_saving_to_a_new_file_asks(window, dialogs, tmp_path):
+def test_save_as_moves_the_document_and_asks_nothing(window, dialogs, tmp_path):
+    # Save as (2026-10-23): the document belongs to the new file from then on,
+    # so there is nothing to continue with.
     src = make_pdf(tmp_path / "in.pdf")
     out = str(tmp_path / "meta.pdf")
     page = _open(window, "MetadataTool", src)
     page.fields["title"].setText("T")
     dialogs.save(out)
-    page.save()
+    window.save_as()
     wait_job(window)
-    assert page.offer_bar().title == "meta.pdf is ready"
-    page.offer_bar().continue_button.click()
-    assert _same(page.file.path(), out) and page.fields["title"].text() == "T"
+    assert page.offer_bar() is None
+    assert _same(page.file.path(), out) and _same(window.current_document, out)
+    assert page.fields["title"].text() == "T"
 
 
 def test_an_editor_saving_over_its_own_file_asks_nothing(window, dialogs, tmp_path):
     src = make_pdf(tmp_path / "in.pdf")
     page = _open(window, "MetadataTool", src)
     page.fields["title"].setText("T")
-    dialogs.save(src)
     page.save()
     wait_job(window)
     assert page.offer_bar() is None and _same(window.current_document, src)

@@ -107,6 +107,7 @@ class Dialogs:
         self.unsaved: list = []         # answers for ask_unsaved: "save" / "discard" / "cancel"
         self.colors: list = []
         self.recovers: list = []        # answers for ask_recover: True / False / None
+        self.prints: list = []          # answers for ask_print: (from, to) pages, True (all) or False
         self.msgs: list[tuple[str, str, str]] = []
 
     def save(self, *paths):
@@ -178,6 +179,23 @@ def _install(mp, d: Dialogs):
     mp.setattr(dmod, "ask_password", ask_password)
     mp.setattr(dmod, "ask_unsaved", ask_unsaved, raising=False)   # (absent before 2026-10-10)
     mp.setattr(dmod, "ask_recover", ask_recover, raising=False)   # (absent before 2026-10-12)
+
+    def ask_print(printer, pages, *a, **k):
+        # A queued (from, to) sets the printer's page range, True prints all,
+        # False (or nothing queued) is Cancel.  The printer writes a PDF to
+        # d.print_file (set by the test) so nothing reaches a real printer.
+        d.msgs.append(("ask_print", str(pages), ""))
+        ans = _pop(d.prints, False)
+        if not ans:
+            return False
+        from PySide6.QtPrintSupport import QPrinter
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(str(getattr(d, "print_file", "")))
+        if isinstance(ans, tuple):
+            printer.setPrintRange(QPrinter.PageRange)
+            printer.setFromTo(*ans)
+        return True
+    mp.setattr(dmod, "ask_print", ask_print, raising=False)       # (absent before 2026-10-23)
     for kind in ("info", "warning", "error"):
         mp.setattr(dmod, kind, rec(kind))
 

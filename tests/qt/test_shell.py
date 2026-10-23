@@ -154,11 +154,18 @@ def test_shortcut_keys_reach_the_page(window, hook_page):
     window.setFocus()
     pump(0.05)
     hook_page.calls.clear()
+    saves = []
+    window.save = lambda after=None: saves.append("save")          # the window's, since 2026-10-23
+    window.save_as = lambda after=None: saves.append("save as")
+    window.print_document = lambda: saves.append("print")
     QTest.keyClick(window, Qt.Key_O, Qt.ControlModifier)
     QTest.keyClick(window, Qt.Key_S, Qt.ControlModifier)
+    QTest.keyClick(window, Qt.Key_S, Qt.ControlModifier | Qt.ShiftModifier)
+    QTest.keyClick(window, Qt.Key_P, Qt.ControlModifier)
     QTest.keyClick(window, Qt.Key_Z, Qt.ControlModifier)
     pump(0.05)
-    assert hook_page.calls == ["open", "save", "undo"]
+    assert hook_page.calls == ["open", "undo"]
+    assert saves == ["save", "save as", "print"]
 
 
 def test_delete_ignored_in_text_field(window, hook_page):

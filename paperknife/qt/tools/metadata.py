@@ -5,14 +5,11 @@ chosen until another file becomes the current document or it is cleared (leaving
 the tool keeps it), so an encrypted file asks for its password once."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from qfluentwidgets import LineEdit
 
 from ...core import metadata as core
 from .. import dialogs
-from ..pages import (HeldDoc, ToolPage, ask_keep_password, card, group_title,
-                     register_page, setting_row)
+from ..pages import HeldDoc, ToolPage, card, group_title, register_page, setting_row
 
 
 @register_page("MetadataTool")
@@ -51,9 +48,7 @@ class MetadataPage(HeldDoc, ToolPage):
             if self._doc is None:
                 self._reset()
             return
-        self._loaded = core.read_metadata(doc)
-        for key, _ in core.FIELDS:
-            self.fields[key].setText(self._loaded[key])
+        self._show_document_values()
 
     def _reset(self):
         self.release_held()
@@ -67,59 +62,59 @@ class MetadataPage(HeldDoc, ToolPage):
     def _meta(self) -> dict[str, str]:
         return {key: self.fields[key].text() for key, _ in core.FIELDS}
 
-    def is_dirty(self) -> bool:
-        """Fields typed since the file was opened or saved."""
+    def _show_document_values(self):
+        self._loaded = core.read_metadata(self._doc)
+        for key, _ in core.FIELDS:
+            self.fields[key].setText(self._loaded[key])
+
+    def has_pending(self) -> bool:
+        """Fields typed and not applied to the document yet."""
         return self._doc is not None and self._meta() != {
             key: self._loaded.get(key, "") for key, _ in core.FIELDS}
 
-    def recovery_state(self) -> dict | None:
-        return self._meta()
-
-    def apply_recovery(self, state: dict) -> bool:
-        for key, _ in core.FIELDS:
-            if key in state:
-                self.fields[key].setText(str(state[key]))
+    def commit_edits(self) -> bool:
+        """The typed fields into the document, as one undoable edit."""
+        if not self.has_pending():
+            return True
+        meta = self._meta()
+        error = core.check_dates(meta)
+        if error:
+            dialogs.error("Metadata", error)
+            return False
+        # Filling empty fields of a file without XMP only adds: appended to
+        # the file on Save (owner's choice 2026-10-12).  A value changed or
+        # cleared, or an XMP stream dropped, is written whole, so the old text goes.
+        adds = not self._doc.get_xml_metadata() and all(
+            not self._loaded.get(k) for k in meta if meta[k] != self._loaded.get(k, ""))
+        self.edit_document("Metadata", lambda d: core.apply_metadata(d, meta, True), adds=adds)
+        self._loaded = dict(meta)
         return True
+
+    def document_replaced(self):
+        # Another tool's edit or an undo: the fields show the document, unless
+        # typed here and not applied.
+        if self._doc is not None and not self.has_pending():
+            self._show_document_values()
+
+    def recovery_extra(self) -> dict:
+        """Fields typed and not applied: crash recovery copies them too."""
+        return {"fields": self._meta()} if self.has_pending() else {}
+
+    def restore_extra(self, state: dict) -> None:
+        for key, value in (state.get("fields") or {}).items():
+            if key in self.fields:
+                self.fields[key].setText(str(value))
+
+    def drop_marks(self):
+        if self._doc is not None:
+            self._show_document_values()
 
     def clear(self):
         for edit in self.fields.values():
             edit.setText("")
 
-    # ── save ─────────────────────────────────────────────────────────────────
+    # ── save (the window's: the fields are applied first) ─────────────────────
     def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Save", "Open a PDF first.")
-        meta = {key: self.fields[key].text() for key, _ in core.FIELDS}
-        error = core.check_dates(meta)
-        if error:
-            return dialogs.error("Metadata", error)
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        kept = ask_keep_password(self._doc)
-        changed = meta != self._loaded
-        # Filling empty fields of a file without XMP only adds: appended to
-        # the file (owner's choice 2026-10-12).  A value changed or cleared,
-        # or an XMP stream dropped, is written whole, so the old text goes.
-        adds_only = not self._doc.get_xml_metadata() and all(
-            not self._loaded.get(k) for k in meta if meta[k] != self._loaded.get(k, ""))
-        win = self.window_
-
-        def work(stop):
-            core.apply_metadata(self._doc, meta, changed)
-            # garbage=1 drops the replaced Info and XMP objects from the file
-            # (levels 2-3 cost the square of the page count: tests/test_save_settings.py).
-            self._save_doc(out, incremental=adds_only, garbage=1, deflate=True)
-
-        def then(kind, _value):
-            if kind == "done":
-                self._loaded = dict(meta)       # the edits are saved
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"PDF with updated metadata saved:\n{out}")
-                if self.saved_elsewhere(out):
-                    self.offer_output(out)
-                if callable(after):
-                    after()
-
-        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
-                    keep_password=(kept, [out]))
+        return self.window_.save(after)

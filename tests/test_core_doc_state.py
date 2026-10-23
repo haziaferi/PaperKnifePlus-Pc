@@ -108,3 +108,19 @@ def test_a_failed_append_puts_the_file_back(tmp_path, monkeypatch):
         raise AssertionError("the failure was swallowed")
     assert open(src, "rb").read() == before
     assert not list(tmp_path.glob(".*.bak"))
+
+
+def test_an_encrypted_file_is_never_appended_to_even_after_a_snapshot(tmp_path):
+    # tobytes() (an undo snapshot) clears the trailer's /Encrypt that
+    # can_append read: an append then wrote the edits unencrypted (2026-10-23).
+    from paperknife.core.doc_state import can_append
+    src = str(tmp_path / "e.pdf")
+    d = fitz.open()
+    d.new_page()
+    d.save(src, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="u", owner_pw="o")
+    d.close()
+    with fitz.open(src) as doc:
+        assert doc.authenticate("u")
+        assert not can_append(doc)
+        doc.tobytes()
+        assert not can_append(doc)

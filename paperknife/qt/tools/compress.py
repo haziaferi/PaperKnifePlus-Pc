@@ -47,8 +47,11 @@ class CompressPage(ToolPage):
             return                          # a folder is the input (prototype B)
         level, orig = self.level, [0]
 
+        src = self.file.path()
+
         def prepare(doc):
-            orig[0] = Path(doc.name).stat().st_size
+            # the file's size: the job's copy of the document is in memory
+            orig[0] = Path(src).stat().st_size
 
         def work(doc, out, stop, progress):
             core_enhance.compress_pdf(doc, out, level)

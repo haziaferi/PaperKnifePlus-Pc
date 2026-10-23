@@ -109,7 +109,7 @@ def test_save_runs_as_a_job_and_writes_the_annotations(window, dialogs, tmp_path
     _drag(page, (100, 100), (200, 200))
     out = tmp_path / "out.pdf"
     dialogs.save(out)
-    page.save()
+    window.save_as()
     wait_job(window)
     with fitz.open(out) as d:
         pg = d[0]
@@ -120,9 +120,10 @@ def test_save_over_the_open_file(window, dialogs, tmp_path):
     page, src = _open(window, tmp_path)
     page.set_kind("rect")
     _drag(page, (100, 100), (200, 200))
-    dialogs.save(src)
-    page.save()
+    before = open(src, "rb").read()
+    page.save()                         # the window's Save: over the file, no dialog
     wait_job(window)
+    assert open(src, "rb").read().startswith(before)     # a note only adds: appended
     with fitz.open(src) as d:
         pg = d[0]
         assert len(list(pg.annots())) == 1
@@ -159,11 +160,11 @@ def test_context_panel_collapses_below_its_minimum(window, tmp_path):
     assert page.context_width() > 0
 
 
-def test_leaving_the_tool_closes_the_document(window, tmp_path):
+def test_leaving_the_tool_keeps_the_document(window, tmp_path):
     page, _ = _open(window, tmp_path)
     doc = page._doc
     window.show_page("home")
-    assert doc.is_closed and page._doc is None
+    assert not doc.is_closed and window.document.doc is doc
 
 
 @pytest.mark.parametrize("kind", ["highlight", "underline", "strikeout"])

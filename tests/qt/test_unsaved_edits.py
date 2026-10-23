@@ -1,8 +1,8 @@
 """Unsaved edits are never discarded silently (phase9/docui-brief.md section
-4; memory inventory behaviour 3: every editing screen dropped them on leave
-without asking).  The seven editors have a real dirty state; leaving, a new
+4; memory inventory behaviour 3).  Since 2026-10-23 (owner) the edits are the
+window's one document's: changing tool takes them along, unasked; a new
 document, Start over and closing the window ask "Save changes to <name>?"
-with Save / Discard / Cancel."""
+with Save / Discard / Cancel, and Save writes over the file."""
 import pymupdf as fitz
 import pytest
 
@@ -44,14 +44,14 @@ def _edit_find_replace(window, dialogs, page):
     wait_job(window)
 
 
-def _edit_redact(window, dialogs, page):
-    page._add_box((40, 40), (140, 90), False)
-
-
+# Each editor's edit, and how the saved file shows it.
 EDITORS = {
-    "TocTool": _edit_toc, "RotateTool": _edit_rotate, "MetadataTool": _edit_metadata,
-    "AnnotateTool": _edit_annotate, "EditTextTool": _edit_text,
-    "FindReplaceTool": _edit_find_replace, "RedactTool": _edit_redact,
+    "TocTool": (_edit_toc, lambda d: d.get_toc() == [[1, "New", 1]]),
+    "RotateTool": (_edit_rotate, lambda d: d[0].rotation == 90),
+    "MetadataTool": (_edit_metadata, lambda d: d.metadata["title"] == "Typed"),
+    "AnnotateTool": (_edit_annotate, lambda d: len(list(d[0].annots())) == 1),
+    "EditTextTool": (_edit_text, lambda d: "Changed words" in d[0].get_text()),
+    "FindReplaceTool": (_edit_find_replace, lambda d: "Leaf" in d[0].get_text()),
 }
 
 
@@ -61,46 +61,101 @@ def _dirty_page(window, dialogs, tmp_path, tool):
     pump(0.1)
     page = window.current_page()
     assert not page.is_dirty(), "freshly opened"
-    EDITORS[tool](window, dialogs, page)
+    EDITORS[tool][0](window, dialogs, page)
     pump(0.05)
     assert page.is_dirty(), "the edit made no dirty state"
     return page, src
 
 
 @pytest.mark.parametrize("tool", EDITORS)
-def test_leaving_with_unsaved_edits_asks_and_cancel_stays(window, dialogs, tmp_path, tool):
+def test_changing_tool_takes_the_edits_along_unasked(window, dialogs, tmp_path, tool):
     page, _src = _dirty_page(window, dialogs, tmp_path, tool)
-    dialogs.unsaved.append("cancel")
-    assert window.show_page("home") is False
-    assert dialogs.msgs[-1] == ("ask_unsaved", "Save changes to doc.pdf?", "")
+    assert window.show_page("home") is True        # nothing asked (the harness would fail)
+    assert window.has_unsaved()
+    assert window.open_tool(tool)
+    pump(0.05)
     assert window.current_page() is page and page.is_dirty()
 
 
 @pytest.mark.parametrize("tool", EDITORS)
-def test_discard_drops_the_edits_and_the_file_reopens_clean(window, dialogs, tmp_path, tool):
-    page, src = _dirty_page(window, dialogs, tmp_path, tool)
-    dialogs.unsaved.append("discard")
-    assert window.show_page("home") is True
-    assert window.open_tool(tool)
-    pump(0.1)
-    assert page._doc is not None and not page.is_dirty()
+def test_the_title_names_the_file_and_marks_unsaved_edits(window, dialogs, tmp_path, tool):
+    page, _src = _dirty_page(window, dialogs, tmp_path, tool)
+    if tool in ("MetadataTool", "TocTool"):
+        # typed in the tool, not applied yet: the document has no edit
+        assert page.has_pending() and window.windowTitle().startswith("doc.pdf — ")
+        assert page.commit_edits()
+    assert window.windowTitle().startswith("doc.pdf* — ")
+    assert window.windowTitle().endswith("v4.0.0")
 
 
 @pytest.mark.parametrize("tool", EDITORS)
-def test_save_writes_the_edits_then_leaves(window, dialogs, tmp_path, tool):
-    page, _src = _dirty_page(window, dialogs, tmp_path, tool)
-    out = tmp_path / "saved.pdf"
-    dialogs.unsaved.append("save")
-    dialogs.save(out)
-    if tool == "RedactTool":
-        dialogs.asks.append(True)                 # its own "Permanently destroy…" question
-    assert window.show_page("home") is False      # the save runs first
+def test_save_writes_over_the_file_unasked(window, dialogs, tmp_path, tool):
+    page, src = _dirty_page(window, dialogs, tmp_path, tool)
+    window.save()
     wait_job(window)
     pump(0.05)
-    with fitz.open(str(out)) as d:
-        assert d.page_count == 3
-    assert type(window.current_page()).__name__ == "HomePage"
-    assert not page.is_dirty()
+    with fitz.open(src) as d:
+        assert d.page_count == 3 and EDITORS[tool][1](d)
+    assert not page.is_dirty() and not window.has_unsaved()
+    assert window.windowTitle().startswith("doc.pdf — ")
+    assert window.status_text() == "✓  Saved → doc.pdf"
+
+
+@pytest.mark.parametrize("tool", EDITORS)
+def test_save_as_writes_a_new_file_the_document_then_belongs_to(window, dialogs, tmp_path,
+                                                                tool):
+    page, src = _dirty_page(window, dialogs, tmp_path, tool)
+    out = tmp_path / "copy.pdf"
+    dialogs.save(out)
+    window.save_as()
+    wait_job(window)
+    pump(0.05)
+    with fitz.open(out) as d:
+        assert EDITORS[tool][1](d)
+    with fitz.open(src) as d:
+        assert not EDITORS[tool][1](d)              # the first file is as it was
+    from paperknife.qt.pages import same_path
+    assert same_path(window.document.path, out) and same_path(window.current_document, out)
+    assert same_path(page.document_path(), out)
+    assert window.windowTitle().startswith("copy.pdf — ")
+
+
+@pytest.mark.parametrize("tool", EDITORS)
+def test_opening_another_document_asks_and_cancel_keeps_the_edits(window, dialogs, tmp_path,
+                                                                  tool):
+    page, src = _dirty_page(window, dialogs, tmp_path, tool)
+    other = make_pdf(tmp_path / "other.pdf")
+    dialogs.unsaved.append("cancel")
+    assert not window.open_document(other)
+    assert dialogs.msgs[-1] == ("ask_unsaved", "Save changes to doc.pdf?", "")
+    assert page.is_dirty()
+    from paperknife.qt.pages import same_path
+    assert same_path(page.document_path(), src)
+
+
+@pytest.mark.parametrize("tool", EDITORS)
+def test_discard_opens_the_other_document_clean(window, dialogs, tmp_path, tool):
+    page, src = _dirty_page(window, dialogs, tmp_path, tool)
+    other = make_pdf(tmp_path / "other.pdf", pages=2)
+    dialogs.unsaved.append("discard")
+    assert window.open_document(other)
+    pump(0.05)
+    assert len(window.document.doc) == 2 and not page.is_dirty()
+    with fitz.open(src) as d:
+        assert not EDITORS[tool][1](d)              # nothing was written
+
+
+@pytest.mark.parametrize("tool", EDITORS)
+def test_save_in_the_question_writes_then_opens_the_other(window, dialogs, tmp_path, tool):
+    page, src = _dirty_page(window, dialogs, tmp_path, tool)
+    other = make_pdf(tmp_path / "other.pdf", pages=2)
+    dialogs.unsaved.append("save")
+    assert window.open_document(other) is False     # the save runs first
+    wait_job(window)
+    pump(0.05)
+    with fitz.open(src) as d:
+        assert EDITORS[tool][1](d)
+    assert len(window.document.doc) == 2 and not window.has_unsaved()
 
 
 @pytest.mark.parametrize("tool", EDITORS)
@@ -123,14 +178,65 @@ def test_start_over_asks(window, dialogs, tmp_path, tool):
     dialogs.unsaved.append("discard")
     page.start_over()
     assert page._doc is None and window.current_document is None
+    assert not window.document.is_open()
 
 
-@pytest.mark.parametrize("tool", EDITORS)
-def test_opening_another_document_asks(window, dialogs, tmp_path, tool):
-    page, src = _dirty_page(window, dialogs, tmp_path, tool)
-    other = make_pdf(tmp_path / "other.pdf")
-    dialogs.unsaved.append("cancel")
-    assert not window.open_document(other)
-    assert page.is_dirty()
-    from paperknife.qt.pages import same_path
-    assert same_path(page.document_path(), src)
+def test_an_edit_in_one_tool_shows_in_the_next(window, dialogs, tmp_path):
+    src = make_pdf(tmp_path / "doc.pdf", pages=3)
+    assert window.open_tool("RotateTool", src)
+    pump(0.1)
+    rot = window.current_page()
+    rot.select(0)
+    rot.rotate(90)
+    assert window.open_tool("AnnotateTool")
+    pump(0.1)
+    ann = window.current_page()
+    assert ann._doc is rot._doc is window.document.doc and ann._doc[0].rotation == 90
+
+
+def test_undo_takes_back_the_last_edit_whichever_tool_made_it(window, dialogs, tmp_path):
+    src = make_pdf(tmp_path / "doc.pdf", pages=3)
+    assert window.open_tool("RotateTool", src)
+    pump(0.1)
+    rot = window.current_page()
+    rot.select(0)
+    rot.rotate(90)
+    assert window.open_tool("AnnotateTool")
+    pump(0.1)
+    ann = window.current_page()
+    _edit_annotate(window, dialogs, ann)
+    assert len(list(ann._doc[0].annots())) == 1
+    assert window.undo()                            # the note goes
+    assert len(list(window.document.doc[0].annots())) == 0
+    assert window.document.doc[0].rotation == 90
+    assert window.undo()                            # then Rotate's turn
+    assert window.document.doc[0].rotation == 0
+    assert window.status_text() == "✓  Undone: Rotate pages"
+    assert not window.undo() and window.status_text() == "Nothing to undo"
+
+
+def test_print_sends_the_chosen_pages_with_the_unsaved_edits(window, dialogs, tmp_path):
+    src = make_pdf(tmp_path / "doc.pdf", pages=4)
+    assert window.open_tool("RotateTool", src)
+    pump(0.1)
+    page = window.current_page()
+    page.select(1)
+    page.rotate(90)
+    dialogs.print_file = tmp_path / "printed.pdf"
+    dialogs.prints.append((2, 3))
+    assert window.print_document()
+    with fitz.open(dialogs.print_file) as d:
+        assert d.page_count == 2
+        # page 2 turned: drawn landscape inside the portrait sheet
+        img = d[0].get_pixmap(dpi=20)
+        assert img.width < img.height
+    assert window.status_text() == "✓  Sent 2 pages to the printer"
+    dialogs.prints.append(False)                    # Cancel prints nothing
+    assert not window.print_document()
+
+
+def test_print_and_save_without_a_document_warn(window, dialogs):
+    assert not window.print_document()
+    window.save()
+    window.save_as()
+    assert [m[1] for m in dialogs.warnings()] == ["Print", "Save", "Save as"]

@@ -36,7 +36,6 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
     def __init__(self, tool=None, window=None):
         super().__init__("Find & Replace", "Open a PDF to start", tool=tool, window=window,
                          page_strip=True)
-        self._undo_stack: list = []
         self._hits: list = []           # (page_num, [rect per line of the match])
         self._hit_idx = -1
         self.skips: list = []           # reflow.Skip of the last Replace All
@@ -124,7 +123,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.show_current()
 
     def clear_document(self):
-        self._undo_stack, self._hits, self._hit_idx = [], [], -1
+        self._hits, self._hit_idx = [], -1
         self.hit_label.setText("")
         self._show_skips([])
         super().clear_document()
@@ -212,7 +211,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
             found = core_text.find_all(self._doc, needle, stop, first_half)
             if not found or stop.is_set():
                 return
-            self._push_undo()
+            self._push_undo("Replace all")
             state["snapshot"] = True
             try:
                 state["result"] = reflow.replace_all(self._doc, needle, repl, unit, stop,
@@ -270,17 +269,11 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
                 self.view.add_rect(rect, accent if cur else HIT_EDGE,
                                    fill=HIT_CUR if cur else HIT)
 
-    # ── undo / save ──────────────────────────────────────────────────────────
-    def undo(self):
-        """Restores the whole document as it was before the last Replace All
-        (or the last page change, whichever came last)."""
-        if self.undo_page_change():
-            return
-        if not self._undo_stack or self._doc is None:
-            return
-        self._pop_undo()
-        self._dirty = True
+    # ── undo (the window's: the whole document as before the step) ───────────
+    def restore_step(self, state):
+        """A Replace All undone: its hits and skips go with it."""
+        if state is not None:
+            return super().restore_step(state)
         self._hits, self._hit_idx = [], -1
         self._show_skips([])
         self.hit_label.setText("Replace undone")
-        self.show_current()
