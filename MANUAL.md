@@ -106,15 +106,17 @@ Every tool page has its title at the top left and its main action (the accent bu
 
 **The current document.** The app holds one current document. Opening or dropping a PDF anywhere, opening a recent file, and a tool's **Open** make it current, and every tool that works on one PDF shows it when you open that tool. Such a tool has the document bar under its title: **Open**, whose main part opens the file dialog and whose arrow lists the recent files, then **Browse…**; and a chip with the file's name (whole when the row has room, else shortened in the middle; the full path in its tooltip) and **✕** (Clear), which lets the document go. With no document, the page shows a dashed target, "Drop a PDF here or click to choose one": a click on it (or `Enter` or `Space`) opens the file dialog. In the single-file tools it sits above the options; in the workspaces it takes the page's place.
 
+**One document per window.** Every tool works on the same open document, and its edits pile up, unsaved, until you save: turn a page in Rotate & Reorder, apply a watermark, add a note in Annotate, and each tool shows the others' edits. Moving to another tool asks nothing. The title bar names the file, with `*` while it holds unsaved edits ("report.pdf* — PaperKnife+ PC"). **Save** (`Ctrl+S`, or a tool's Save button) writes the document over its file; **Save as** (`Ctrl+Shift+S`) asks for a new name, and the document belongs to that file from then on; **Print** (`Ctrl+P`) opens Windows' print dialog, with a page range, and prints the document as it is, unsaved edits included. `Ctrl+Z` (or a tool's **Undo**) takes back the document's last edit, whichever tool made it; undoing back to the last save makes it clean again, and the edits stay undoable after a save (up to ten steps). Opening another file, **✕**, **Start over** and closing the window ask "Save changes to *name*?" with **Save** (the step goes on once the file is saved), **Discard** and **Cancel**; the new file is opened first, so one that cannot be opened (a wrong password, a damaged file) asks nothing and changes nothing. Input typed in a tool and not applied yet (Metadata's fields, the bookmark list) counts as unsaved too, and Save applies it first.
+
 Read / Preview, Edit Text, Find & Replace, Annotate and Redact open as a document workspace: a tool rail at the left (not in Read / Preview), the page in the centre with page arrows and **Zoom** under it, and a context panel at the right. Drag the panel's edge to resize it (220–480 px), double-click the edge or use the panel's hide / show buttons to toggle it.
 
-Edit Text, Find & Replace, Annotate and Redact also show the document's pages as thumbnails in a strip between the rail and the page. Click a thumbnail to go to its page; `Ctrl`- or `Shift`-click to select several; drag thumbnails to move those pages. **Pages** in the rail shows **Rotate left**, **Rotate right** and **Delete** for the selected pages in the panel; choosing another tool in the rail brings its panel back. **Delete** asks first, and is off while every page is selected (a PDF keeps at least one page). The rail's **Undo** and `Ctrl+Z` step back through edits and page changes in the order they were made, and **Save** writes the pages in their new order with the edits. The strip resizes like the panel (120–240 px) and closes with its hide button, a double-click on its edge, or a drag below its narrowest; the button at the left of the page arrows opens it again. Whether it is open is remembered.
+Edit Text, Find & Replace, Annotate and Redact also show the document's pages as thumbnails in a strip between the rail and the page. Click a thumbnail to go to its page; `Ctrl`- or `Shift`-click to select several; drag thumbnails to move those pages. **Pages** in the rail shows **Rotate left**, **Rotate right** and **Delete** for the selected pages in the panel; choosing another tool in the rail brings its panel back. **Delete** asks first, and is off while every page is selected (a PDF keeps at least one page). Page changes are edits of the document like any other: the rail's **Undo** and `Ctrl+Z` take back the last one (in Redact, a box drawn later comes off first), and **Save** writes the pages in their new order with the edits. The strip resizes like the panel (120–240 px) and closes with its hide button, a double-click on its edge, or a drag below its narrowest; the button at the left of the page arrows opens it again. Whether it is open is remembered.
 
 **Compact Mode** (`Ctrl+Alt+C`) hides the navigation pane, the page header and the context panel; moving the pointer to the left, top or right edge of the window brings each back. The title bar hides and comes back when the pointer reaches the top edge (set the environment variable `PK_TITLEBAR=always` to keep it shown). The window's size, position and maximized state are restored at the next start.
 
-**Crash recovery.** While a tool holds unsaved edits (Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate, Redact), PaperKnife+ PC keeps a copy of them in its data folder (Section 7), refreshed within 10 seconds of a change. Saving, **Discard** and a normal exit remove the copy. If the app closes without that — a crash, a power cut, the process ended — the next start asks **Recover unsaved changes?** and lists each file with its tool and the time of the copy: **Recover** opens each in its tool with the edits shown as unsaved, and **Discard** deletes the copies. Closing the question asks it again at the next start. For Rotate & Reorder, Bookmarks / TOC and Metadata the copy holds only the edits, so the file must still be where it was; the copy of a password-protected PDF keeps its password, which is asked again on Recover.
+**Crash recovery.** While the document holds unsaved edits, or a tool holds marks or typed input beside it (Redact's boxes, Metadata's fields, the bookmark list), PaperKnife+ PC keeps one copy of them in its data folder (Section 7), refreshed within 10 seconds of a change. Saving, **Discard** and a normal exit remove the copy. If the app closes without that — a crash, a power cut, the process ended — the next start asks **Recover unsaved changes?** with the file, the tool it was being edited in and the time of the copy: **Recover** opens the document with the edits shown as unsaved, in that tool, with the marks and typed input back; **Discard** deletes the copy. Closing the question asks it again at the next start. The copy holds the whole document, so it comes back even if the file was moved or deleted since (Save then writes it there again); the copy of a password-protected PDF keeps its password, which is asked again on Recover.
 
-**Saving over the open file.** When you save an edit over the file it was made on, and the edit only adds to it — comments added in Annotate, bookmarks added in Bookmarks / TOC, empty properties filled in Metadata (in a file without XMP), pages turned or moved in Rotate & Reorder — the change is appended to the file: the bytes already in it stay as they are, so a digital signature over them remains valid, and a large file is not written again. Any edit that removes or replaces text — a deleted comment, a renamed or deleted bookmark, a changed or cleared property, Edit Text, Find & Replace, Redact — writes the file whole, so the old text does not stay readable inside it. A password-protected file, and any save to a different file, is always written whole. While a change is appended, a copy of the file (`.name-….pdf.bak`) is kept beside it; it is put back if the save fails, and removed when it succeeds.
+**Saving over the open file.** When you Save and every edit since the file was opened or last saved only adds to it — comments added in Annotate, bookmarks added in Bookmarks / TOC, empty properties filled in Metadata (in a file without XMP), pages turned or moved in Rotate & Reorder or a page strip — the changes are appended to the file: the bytes already in it stay as they are, so a digital signature over them remains valid, and a large file is not written again. Any edit that removes or replaces content — a deleted comment or page, a renamed or deleted bookmark, a changed or cleared property, Edit Text, Find & Replace, an undo, any tool applied to the whole document (Compress, Watermark, Crop / Trim, …) — writes the file whole, so the old text does not stay readable inside it. A password-protected file, a protection set or removed with Password, and Save as are always written whole. While a change is appended, a copy of the file (`.name-….pdf.bak`) is kept beside it; it is put back if the save fails, and removed when it succeeds.
 
 ### 4.2 Appearance Mode
 
@@ -172,19 +174,21 @@ The navigation pane lists 23 tools in five groups, with Preferences at the botto
 | | Metadata | View and edit document properties | 5.20 |
 | (bottom) | Preferences | Output folder, recent files, colour mode, OCR and export DPI, compress level, OCR language | 5.26 |
 
-A tool that works on one PDF uses the current document (Section 4.1): open one with the document bar's **Open** (`Ctrl+O`) or its list of recent files, click the empty page's target, or drop a PDF on the window. Moving to another tool keeps the document: the tool you leave closes the file, so other tools can overwrite it, and opens it again when you come back. A tool with unsaved edits keeps its own file. Dropping a file the tool does not take leaves it unchanged and the status line says so.
+A tool that works on one PDF uses the current document (Section 4.1): open one with the document bar's **Open** (`Ctrl+O`) or its list of recent files, click the empty page's target, or drop a PDF on the window. Moving to another tool keeps the document and its unsaved edits (Section 4.1). Dropping a file the tool does not take leaves it unchanged and the status line says so.
+
+Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, OCR (Overlay), PDF Tools and Password change the open document when you click their main button: no file name is asked, the status line ends "· Save writes it to the file", and `Ctrl+Z` takes the change back. Tools that make other files — Merge, Split, Extract Images, PDF → Other, Other → PDF, Batch, Rotate & Reorder's **Extract to a new PDF**, Redact's **Apply and save** and OCR's **Text-only PDF** — ask for a file or folder and read the document as it is, unsaved edits included; the document itself stays as it is.
 
 Merge, Other → PDF and Batch keep their lists (Batch its folders) while you move around; adding files to them does not change the current document, and a finished job empties them.
 
-After a job that writes one PDF, or a save to a new file in an editor, a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Extract Images, Batch) or a file that is not a PDF (PDF → Other) ask nothing, and the current document stays.
+After a job that writes one new PDF (Merge, Extract to a new PDF, Redact's Apply and save, OCR's Text-only PDF), a bar at the top of the page says "*name* is ready": **Continue with it** makes the output the current document and shows it in the tool; **Start over** clears the tool and the current document. Opening another tool counts as **Continue with it**. Jobs that write several files (Split, Extract Images, Batch) or a file that is not a PDF (PDF → Other) ask nothing, and the current document stays.
 
-Unsaved edits in Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact are never dropped silently: leaving the tool, opening another document, **✕**, **Start over** and closing the window ask "Save changes to *name*?" with **Save** (the step goes on once the file is saved), **Discard** and **Cancel**.
+Unsaved edits are never dropped silently: opening another document, **✕**, **Start over** and closing the window ask "Save changes to *name*?" (Section 4.1). Closing the window with redaction boxes drawn and not applied asks "*n* redaction boxes drawn and not applied will be lost. Close anyway?"
 
 Page ranges, where a tool accepts them, are written like `1-3, 5, 8-end`. A range that names a page the document does not have, or runs backwards, is refused with a message before anything is written.
 
-Crop / Trim, Header / Footer, Watermark, Normalise Pages, PDF → Other, Extract Images and OCR show the document's pages as thumbnails in the centre, with the tool's settings in the column at the right. Every page starts selected. Click pages to choose them (`Ctrl` / `Shift` for several, **All pages** for every one); a page left out is veiled. The **Apply to** field in the **Pages** card follows the selection (`all`, or its ranges), and a range typed there selects its pages. With no page selected the main action is off and the bar says "Select at least one page." The tool works on the selected pages only; the others are written unchanged (PDF → Other and Extract Images write only the selected pages, under their own page numbers).
+Crop / Trim, Header / Footer, Watermark, Normalise Pages, PDF → Other, Extract Images and OCR show the document's pages as thumbnails in the centre, with the tool's settings in the column at the right. Every page starts selected. Click pages to choose them (`Ctrl` / `Shift` for several, **All pages** for every one); a page left out is veiled. The **Apply to** field in the **Pages** card follows the selection (`all`, or its ranges), and a range typed there selects its pages. With no page selected the main action is off and the bar says "Select at least one page." The tool works on the selected pages only; the others are kept unchanged (PDF → Other and Extract Images write only the selected pages, under their own page numbers).
 
-A password-protected PDF asks for its open password when it is opened. The password stays with the open document only: it is forgotten when the document is closed, and asked again the next time. When a new PDF is written from a document opened with a password, the app asks whether the new file keeps it; Merge asks only when every protected input has the same open password.
+A password-protected PDF asks for its open password when it is opened. The password stays with the open document only: it is forgotten when the document is closed, and asked again the next time. Save over the file keeps the password without asking. When a new PDF is written from a document opened with a password (Save as, or a tool that makes a new file), the app asks whether the new file keeps it; Merge asks only when every protected input has the same open password.
 
 ### 5.1 Read / Preview
 
@@ -219,7 +223,7 @@ Each part keeps what belongs to its pages: the bookmarks, form fields, links and
 
 ### 5.4 Rotate & Reorder
 
-Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. **Delete** removes the selected pages after asking; it is off while every page is selected. **Extract to a new PDF** writes the selected pages, as turned, to a new file and leaves the document as it is. **Undo** (or `Ctrl+Z`) steps back through turns, moves, drags and deletes until you save. Click **Save PDF** to write the result; the file keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
+Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. **Delete** removes the selected pages after asking; it is off while every page is selected. Each turn, move, drag and delete changes the document at once. **Extract to a new PDF** writes the selected pages, as they are, to a new file and leaves the document as it is. **Undo** (or `Ctrl+Z`) takes back the document's last edit. **Save PDF** (or `Ctrl+S`) writes the document over its file; it keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
 
 ### 5.5 Split by Bookmarks
 
@@ -227,7 +231,7 @@ Split by Bookmarks is now part of Split (Section 5.3): choose a bookmark level u
 
 ### 5.6 Bookmarks / TOC
 
-An editor for the PDF's bookmark (outline) tree. Select an entry, change its **Level** (1–4), **Title**, or **Page** in the column at the right and click **Update selected**; use **Add below**, **Up**, **Down**, and **Delete** above the list. **Save PDF** checks that the levels nest correctly. It does not create a table-of-contents page.
+An editor for the PDF's bookmark (outline) tree. Select an entry, change its **Level** (1–4), **Title**, or **Page** in the column at the right and click **Update selected**; use **Add below**, **Up**, **Down**, and **Delete** above the list. **Save PDF** (or `Ctrl+S`, or Save as) applies the list to the document and writes it, after checking that the levels nest correctly; until then the list is input typed here (Section 4.1). It does not create a table-of-contents page.
 
 ### 5.7 Batch
 
@@ -250,7 +254,7 @@ Three levels balance quality against file size:
 - **Medium** — as Light, and embedded images above 150 DPI are resampled to 150 DPI and stored as JPEG at quality 80 when that makes them smaller.
 - **Aggressive** — as Medium, at 96 DPI.
 
-Text and vector content are kept in every level. If the output is not smaller than the original, a warning says so. The starting level comes from Preferences.
+Text and vector content are kept in every level. **Compress** changes the open document and the status line gives the sizes before and after; if the result would not be smaller, the document is left as it was and a warning says so. The starting level comes from Preferences.
 
 ### 5.9 Watermark
 
@@ -264,10 +268,12 @@ Choose a target size (A4, A3, A5, Letter, Legal, Tabloid), an orientation (Portr
 
 The page has two groups.
 
-- **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Protect PDF**. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions. To change the password of an already-protected PDF, also enter its current password in the **Remove Password** group's **Current password** field.
-- **Remove Password:** enter the current password and click **Remove Password** to save an unencrypted copy.
+- **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Protect PDF**. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions.
+- **Remove Password:** enter the current password and click **Remove Password**.
 
-The password fields are emptied at every end of an attempt (the job ended, the save dialog was cancelled, or the attempt was refused) and when you leave the tool.
+Both set the document's protection, as one edit `Ctrl+Z` takes back: **Save** or **Save as** writes the file with it (the status line says so), and later saves keep it. A protected PDF is opened with its password (Section 5), so changing its password asks for nothing more; removing it asks for the current password in **Current password**. A file with an owner password only (none to open it) is changed without asking for the owner password, as before.
+
+The password fields are emptied after every attempt, whatever came of it, and when you leave the tool.
 
 > ⚠️ **Warning:** Without the password the file cannot be opened. PaperKnife+ PC cannot recover lost passwords.
 
@@ -281,12 +287,12 @@ Choose one of six positions on the page outline (top or bottom; left, centre, or
 
 ### 5.14 PDF Tools
 
-Choose a tool under **Tool**; the main button takes its name. Each writes a new file whole, so what it removed does not stay inside it.
+Choose a tool under **Tool**; the main button takes its name. Each changes the open document; Save writes it whole, so what it removed does not stay inside it.
 
-- **Repair** opens the file (MuPDF rebuilds a damaged cross-reference table while opening) and saves a cleaned copy, without compressing its images. The message says whether damage was found. Pages that cannot be recovered are lost.
+- **Repair** uses the file as MuPDF opened it (it rebuilds a damaged cross-reference table while opening) and cleans it, without compressing its images. The status line says whether damage was found. Pages that cannot be recovered are lost.
 - **Sanitise** removes, as its switches choose (all on): **JavaScript** (the document's scripts and those of its links and fields), **Embedded files** (attachments and file-attachment comments), **XMP metadata**, and **Links that run actions** (launch a program or a file). Web links and what the pages show are kept. The message lists what was removed.
 - **Flatten** draws **Comments** and **Form fields** (switches, both on) into the pages, so they can no longer be edited; a field's value becomes page content.
-- **Remove blank pages** finds the pages with no text, no image, no drawing that shows, no comment and no form field, names them in a question, and writes the file without them once you confirm. It says so when no page is blank, and keeps at least one page.
+- **Remove blank pages** finds the pages with no text, no image, no drawing that shows, no comment and no form field, names them in a question, and removes them once you confirm. It says so when no page is blank, and keeps at least one page.
 
 ### 5.15 OCR
 
@@ -294,8 +300,8 @@ Runs Tesseract on each selected page to make scanned PDFs searchable and copy-pa
 
 - **Language:** the button names the chosen languages ("Italian + English"); click it for a ticked list of the languages Tesseract has installed (page orientation and maths data are left out). Tick every language the text uses and only those: an extra language can make Tesseract read some words worse. The first ticked one leads, and at least one stays ticked. The list starts with Windows' display language the first time, then with the language of the last run; Preferences sets it too.
 - **Render DPI:** it starts at the Preferences OCR DPI, 200 by default (limited to 72–400). Measured on simulated scans (2026-10-22), 200 read best: at 150 Tesseract skipped rows of small text, and at 300 text grew too big for it and fewer words were read.
-- **Overlay** (invisible text layer): the original page is kept unchanged and the recognised words are added on top as invisible text. Words Tesseract recognises with low confidence are left out.
-- **Text-only PDF:** a new PDF with the recognised plain text on A4 pages, without the page images.
+- **Overlay** (invisible text layer): the recognised words are added to the open document's pages as invisible text, the pages otherwise unchanged. Words Tesseract recognises with low confidence are left out.
+- **Text-only PDF:** a new PDF (it asks for a file name) with the recognised plain text on A4 pages, without the page images; the document stays as it is.
 
 ### 5.16 Edit Text
 
@@ -311,11 +317,11 @@ Pick one of seven tools on the rail — **Highlight**, **Underline**, **Strikeou
 
 ### 5.19 Redact
 
-Choose **Draw box** on the rail and drag boxes over content, or choose **Find & redact text**, type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. The panel counts the pending boxes and lists them, up to five rows before the list scrolls (with none, there is no list and **Remove** is off): **Remove** (or `Delete`) drops the selected one, and the rail's **Undo last** (or `Ctrl+Z`) the last one added. With no box drawn but pages moved, turned or deleted in the page strip, **Apply and save** asks "Save the page changes? No redaction boxes are drawn." and writes the file. **Apply and save** asks for confirmation and a file name, then permanently removes the text, image pixels and drawings under the boxes, plus any annotations or form fields they touch. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
+Choose **Draw box** on the rail and drag boxes over content, or choose **Find & redact text**, type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. The panel counts the pending boxes and lists them, up to five rows before the list scrolls (with none, there is no list and **Remove** is off): **Remove** (or `Delete`) drops the selected one, and the rail's **Undo last** (or `Ctrl+Z`) the last one added. The boxes are marks beside the document, not edits of it: Save does not keep them, and closing the window with boxes not applied warns first. **Apply and save** asks for confirmation and a file name (not the file open here), then writes a new redacted copy, with the text, image pixels and drawings under the boxes permanently removed, plus any annotations or form fields they touch; the document open here and its boxes stay as they are. Cancel writes nothing. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
 
 ### 5.20 Metadata
 
-Shows Title, Author, Subject, Keywords, Creator, Producer, Creation date, and Modified date. Dates are entered as `YYYY-MM-DD` (optionally with `HH:MM[:SS]`) or as a PDF date (`D:…`). **Clear all fields** empties them; **Save** (or `Ctrl+S`) writes a copy and drops the old XMP metadata when anything changed.
+Shows Title, Author, Subject, Keywords, Creator, Producer, Creation date, and Modified date. Dates are entered as `YYYY-MM-DD` (optionally with `HH:MM[:SS]`) or as a PDF date (`D:…`). **Clear all fields** empties them. The fields are input typed here until **Save** (or `Ctrl+S`, or Save as) applies them to the document, dropping the old XMP metadata when anything changed, and writes it; `Ctrl+Z` puts the fields back as they were.
 
 ### 5.21 Other → PDF
 
@@ -358,8 +364,10 @@ Click **Save Preferences** (or `Ctrl+S`) to keep changes; **Restore defaults** r
 | Shortcut | Action |
 |---|---|
 | `Ctrl + O` | Open: the file dialog for the current document, as the document bar's **Open** (Section 4.1); add files in Merge and Other → PDF; choose the input folder in Batch |
-| `Ctrl + S` | Save in Rotate & Reorder, Bookmarks / TOC, Edit Text, Find & Replace, Annotate, Redact (**Apply and save**, after confirmation), Metadata, and Preferences; other tools ignore it |
-| `Ctrl + Z` | Undo in Rotate & Reorder, Edit Text, Find & Replace, Annotate, and Redact (edits and page changes, last first) |
+| `Ctrl + S` | Save: the document over its file, from any tool (Preferences: save its settings) |
+| `Ctrl + Shift + S` | Save as: the document to a new file it then belongs to |
+| `Ctrl + P` | Print the document, with a page range |
+| `Ctrl + Z` | Undo the document's last edit, whichever tool made it (in Redact, a box drawn later first) |
 | `Delete` | Remove the selected file (Merge, Other → PDF), annotation (Annotate), pending box (Redact), or bookmark (Bookmarks / TOC); ignored while typing in a field |
 | `Alt + Up` / `Alt + Down` | Move the selected file up / down in Merge and Other → PDF |
 | `Ctrl + K` | Focus the navigation search box |
@@ -370,7 +378,9 @@ Click **Save Preferences** (or `Ctrl+S`) to keep changes; **Restore defaults** r
 | `Ctrl + Alt + C` | Compact Mode on / off (Section 4.1) |
 | `Ctrl` + mouse wheel | Zoom in Read / Preview, Edit Text, Find & Replace, Annotate, and Redact |
 
-While a job holds the page (Section 4.1), `Ctrl+O`, `Ctrl+S`, `Ctrl+Z`, `Delete`, `Ctrl+K`, `Ctrl+F`, `Ctrl+Alt+S` and `Ctrl+Alt+C` are ignored.
+While a job holds the page (Section 4.1), `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, `Ctrl+P`, `Ctrl+Z`, `Delete`, `Ctrl+K`, `Ctrl+F`, `Ctrl+Alt+S` and `Ctrl+Alt+C` are ignored.
+
+Other programs may take a shortcut for themselves before it reaches the app: AMD Software (Radeon) uses `Ctrl+Shift+S` for Instant Replay by default, so Save as does not reach PaperKnife+ PC while it runs; change that program's hotkey to use it here.
 
 ---
 
@@ -469,7 +479,7 @@ PaperKnife+ PC makes zero network connections. There is no telemetry, no analyti
 
 - `prefs.json` — your preferences (Section 5.26), the last window size and position, the folded navigation groups, and the paths of temporary files a job interrupted by quitting left behind, which are deleted at the next start.
 - `recent.json` — recently opened files: path, file name, size, page count, and access time.
-- `recovery\` — while a tool holds unsaved edits, a copy of them: the edited PDF (under its password when it has one) or the pending changes, with the file's path. It is deleted when the edits are saved or discarded and at a normal exit; after a crash it stays until the next start's Recover or Discard (Section 4.1).
+- `recovery\` — while the document holds unsaved edits (or a tool holds marks or typed input beside it), one copy: the edited PDF (under its password when it has one), those marks and typed input, and the file's path. It is deleted when the edits are saved or discarded and at a normal exit; after a crash it stays until the next start's Recover or Discard (Section 4.1).
 
 Apart from the operation you invoke, the only file content read is the first page of each recent file, rendered as a thumbnail on the Home screen (kept in memory only). Neither file holds a password: an open password stays with the open document only (Section 5). Deleting `%USERPROFILE%\.paperknifepluspc\` removes all application data completely.
 
@@ -486,14 +496,16 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **Changed:** every coloured status line starts with ✓, ⚠ or ✗, so its state is not told by colour alone.
 - **Changed:** drag and drop is built into Qt; `tkinterdnd2` is no longer needed.
 - **Changed:** the password of a protected input is kept on the open document only and asked again each time it is opened; a new PDF written from it asks whether to keep the password. The Password tool empties its fields after each job.
-- **Changed:** `Ctrl+S` always means save; tools whose main action is not a save, such as Split, ignore it (Section 6).
+- **Changed:** `Ctrl+S` saves the document from any tool (Section 6).
 - **New:** Compact Mode (`Ctrl+Alt+C`), navigation pane toggle (`Ctrl+Alt+S`), auto-hiding title bar; the window's place and maximized state are restored.
 - **New:** one current document the single-file tools and the workspaces follow, set by opening or dropping a PDF anywhere, a recent file, or a tool's Open (Section 4.1). A document bar under each such page's title holds **Open** (the file dialog; its arrow lists the recent files, then **Browse…**) and the file's name with **✕**; pages no longer show a file card, except Doc / Text → PDF. Read / Preview and the editing workspaces have no Open button of their own; `Ctrl+O` still opens.
 - **New:** a page with no document shows a target, "Drop a PDF here or click to choose one"; a click opens the file dialog.
-- **Changed:** leaving a tool keeps its document instead of clearing it: the file is closed while you are away and opened again when you come back.
+- **New:** one document per window (owner, 2026-10-23): every tool works on it and its edits pile up, unsaved, across tools; the title names the file with `*` while unsaved; **Save** (`Ctrl+S`) writes over the file, **Save as** (`Ctrl+Shift+S`) to a new one the document then belongs to, **Print** (`Ctrl+P`) with a page range; `Ctrl+Z` undoes the last edit of any tool, and undoing back to the save point is clean again (Section 4.1).
+- **Changed:** Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, OCR (Overlay) and PDF Tools change the open document instead of asking for a new file; Compress leaves it as it was when no smaller. Password sets the document's protection, written by Save. Rotate & Reorder's turns, moves and deletes, Metadata's fields and the bookmark list apply to the document. Redact's **Apply and save** writes a new redacted copy and the document keeps its boxes; closing with boxes not applied warns.
 - **New:** after a job that writes one PDF, "*name* is ready" with **Continue with it** / **Start over**; opening another tool counts as Continue. Jobs with several outputs ask nothing. Merge, Image → PDF and Batch keep their lists while you move around and empty them after a finished job.
-- **New:** Rotate & Reorder, Bookmarks / TOC, Metadata, Edit Text, Find & Replace, Annotate and Redact ask "Save changes to *name*?" (**Save** / **Discard** / **Cancel**) before unsaved edits are left, replaced, cleared, or closed with the window.
-- **New:** crash recovery: unsaved edits are copied while you work, and after a crash the next start asks **Recover unsaved changes?** (**Discard** / **Recover**; Section 4.1).
+- **New:** "Save changes to *name*?" (**Save** / **Discard** / **Cancel**) before the document's unsaved edits are replaced, cleared, or closed with the window; changing tool asks nothing.
+- **New:** crash recovery: the document's unsaved edits (with the tools' marks and typed input) are copied while you work, and after a crash the next start asks **Recover unsaved changes?** (**Discard** / **Recover**; Section 4.1).
+- **Fixed:** an undo step on a password-protected file let Save append the edits unencrypted; an owner-password file lost its encryption after an edit.
 - **New:** an edit that only adds to the file (comments, bookmarks, empty properties, turned or moved pages) saved over that file is appended to it, which keeps digital signatures valid (Section 4.1).
 - **Fixed:** a comment deleted in Annotate, and the text replaced in Edit Text or Find & Replace, stayed inside the saved file (no longer shown, but readable by a tool that reads the file's objects); the file is now written without them.
 - **New:** navigation groups fold under their title (click, `Enter` or `Space`); the folded groups are kept in `prefs.json`, and a search still finds tools in them.

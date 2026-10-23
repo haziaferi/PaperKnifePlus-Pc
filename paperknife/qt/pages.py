@@ -849,6 +849,10 @@ class SharedDocPage(DocHolder):
         if sd is not None:
             sd.drop_step()
 
+    def undo(self):
+        """Ctrl+Z: the document's last edit, whichever tool made it (the window's)."""
+        return self.window_.undo() if self.window_ is not None else False
+
     def undo_state(self):
         """The page's own state to keep on a history step (none by default)."""
         return None
@@ -910,6 +914,13 @@ class HeldDoc(SharedDocPage):
     def saved_elsewhere(self, out: str) -> bool:
         """Whether *out* is a file other than the one the document came from."""
         return not same_path(out, self._src)
+
+    def document_replaced(self) -> None:
+        """Another tool's edit or an undo: the page shows the document again
+        (a page of thumbnails renders them anew)."""
+        load = getattr(self, "load", None)
+        if callable(load) and self._src:
+            load(self._src)
 
 
 class WorkspaceDoc(SharedDocPage):

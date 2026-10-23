@@ -360,3 +360,54 @@ def test_language_picker_keeps_its_width_in_the_card(e2win):
     pump(0.2)
     assert picker.button.width() == 160
     assert picker.button.toolTip() == "Italian + English"
+
+
+def test_ctrl_z_in_the_workspace_undoes_the_document_s_last_edit(e2win):
+    # Live check 2026-10-23: Ctrl+Z reached the chosen tool (Watermark), which has
+    # no undo of its own, and nothing happened.
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    host = host_of(e2win)
+    host.pick("WatermarkTool")
+    pump(0.2)
+    sd = e2win.document
+    sd.edit("Turn", lambda d: d[0].set_rotation(90))
+    assert sd.dirty and sd.doc[0].rotation == 90
+    e2win.activateWindow()
+    e2win.setFocus()
+    pump(0.05)
+    QTest.keyClick(e2win, Qt.Key_Z, Qt.ControlModifier)
+    pump(0.1)
+    assert sd.doc[0].rotation == 0 and not sd.dirty
+
+
+def test_a_page_grid_redraws_after_another_tool_s_edit_is_undone(e2win, tmp_path):
+    # Live check 2026-10-23: a turn made in Rotate & Reorder, undone from Watermark,
+    # left Watermark's thumbnail turned (its page had no document_replaced).
+    import pymupdf as fitz
+    src = tmp_path / "wide.pdf"
+    d = fitz.open()
+    d.new_page(width=842, height=595)
+    d.new_page(width=842, height=595)
+    d.save(str(src))
+    d.close()
+    assert e2win.open_document(str(src))
+    host = host_of(e2win)
+    host.pick("RotateTool")
+    pump(0.3)
+    rot = host.current_tool()
+    rot.select(0)
+    rot.rotate(90)
+    host.pick("WatermarkTool")
+    pump(0.3)
+    wm = host.current_tool()
+
+    def shape():
+        while wm.rendering():
+            pump(0.05)
+        pm = wm.grid.item(0).icon().pixmap(200, 200)
+        return "portrait" if pm.height() > pm.width() else "landscape"
+    assert shape() == "portrait"
+    assert e2win.undo()
+    pump(0.2)
+    assert shape() == "landscape"

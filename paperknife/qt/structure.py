@@ -924,7 +924,13 @@ class StructureHost(QWidget):
             return p.save(after) if after is not None else p.save()
 
     def undo(self):
-        return self._hook("undo")
+        """Ctrl+Z: the tool's own (Redact's boxes come off first), else the
+        window's, the document's last edit (live check, 2026-10-23)."""
+        p = self.current_tool()
+        fn = getattr(p, "undo", None) if p is not None else None
+        if callable(fn):
+            return fn()
+        return self.window_.undo() if self.window_ is not None else None
 
     def delete(self):
         return self._hook("delete")
