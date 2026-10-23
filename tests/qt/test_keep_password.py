@@ -8,7 +8,7 @@ import os
 
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, save_as, spy_open, wait_job
 
 OPEN_PW, OWNER_PW = "open-pw", "owner-pw"
 # Print and accessibility only: no copy, no modify, no annotate, no assemble.
@@ -65,17 +65,22 @@ def _tool(window, name):
     return window.current_page()
 
 
-# ── a run_on_file page: Compress ─────────────────────────────────────────────
+# ── a run_on_file page: Compress (applied to the document), then Save as ────
 def _compress(window, dialogs, src, out, answer=None, password=OPEN_PW):
+    """Compress *src* (it changes the window's document, which keeps its open
+    password), then Save as *out*: the question whether the new file keeps
+    the password is Save as's (*answer*).  out None: Save as is cancelled."""
     page = _tool(window, "CompressTool")
     if password is not None:
         dialogs.passwords.append(password)      # asked when the file opens
     page.file.set_path(src)
+    page.run()
+    wait_job(window)
     if out is not None:
         dialogs.save(out)
     if answer is not None:
         dialogs.asks.append(answer)
-    page.run()
+    window.save_as()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     return page
@@ -191,10 +196,11 @@ def test_remove_password_opens_a_yes_output_with_the_open_password_alone(window,
     page.file.set_path(str(kept))
     page.cur_pw.setText(OPEN_PW)
     out = tmp_path / "unlocked.pdf"
-    dialogs.save(out)
-    page.unprotect()
-    wait_job(window)
+    page.unprotect()                    # the document's protection: none (2026-10-23)
     assert not dialogs.errors(), dialogs.errors()
+    save_as(window, dialogs, out)
+    assert not [m for m in dialogs.msgs if m[1] == "Password" and m[0] == "ask_yes_no"
+                and "kept.pdf" in m[2]]           # nothing to keep: not asked
     _assert_open(out)
     with fitz.open(out) as d:
         assert d[2].get_text().strip() == "Page 3"
@@ -534,10 +540,14 @@ def test_every_yes_output_reaches_its_name_already_encrypted(window, dialogs, tm
     _merge(window, dialogs, [src, _locked(tmp_path / "b.pdf", pages=1)],    # Merge
            [OPEN_PW, OPEN_PW], tmp_path / "merged.pdf", answer=True)
     assert not dialogs.errors(), dialogs.errors()
-    names = [n for n, _ in moves]
-    assert names == ["small.pdf", "in.pdf", "in_part01_p1-1.pdf", "in_part02_p2-2.pdf",
-                     "in_part03_p3-3.pdf", "merged.pdf"]
-    assert all(enc for _, enc in moves), moves
+    # (Compress's own output is a temporary file the document takes in:
+    # "applied.pdf", unencrypted and never a name the user sees)
+    # The crash-recovery copy ("document.pdf", in the app's own folder) is
+    # written under the open password too; it is checked in test_recovery.py.
+    theirs = [(n, enc) for n, enc in moves if n not in ("applied.pdf", "document.pdf")]
+    assert [n for n, _ in theirs] == ["small.pdf", "in.pdf", "in_part01_p1-1.pdf",
+                                      "in_part02_p2-2.pdf", "in_part03_p3-3.pdf", "merged.pdf"]
+    assert all(enc for _, enc in theirs), moves
 
 
 def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialogs, tmp_path,
@@ -554,9 +564,11 @@ def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialog
     page = _tool(window, "CompressTool")
     dialogs.passwords.append(OPEN_PW)             # asked when the file opens
     page.file.set_path(src)
+    page.run()                                    # changes the document, in memory
+    wait_job(window)
     dialogs.save(tmp_path / "small.pdf")
     dialogs.asks.append(True)
-    page.run()
+    window.save_as()                              # the new file is to keep the password
     wait_job(window)
     assert not (tmp_path / "small.pdf").exists()
     page = _metadata(window, dialogs, src)

@@ -9,17 +9,17 @@ from ..pages import ToolPage, batch_prototype, register_page, setting_row
 from ..tool_options import LEVELS, CompressOptions  # noqa: F401  (LEVELS: Batch's)
 
 
-def size_report(orig: int, new: int, out: str):
-    """(role, status line, dialog title, dialog text) for a finished compression."""
+def size_report(orig: int, new: int):
+    """(role, status line, box text or None, take it) for a finished
+    compression: a result no smaller leaves the document as it was."""
     orig_kb, new_kb = orig // 1024, new // 1024
     if new < orig:
         pct = round((1 - new / orig) * 100)
-        return ("success", f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) → {Path(out).name}",
-                "Compressed", f"Compressed PDF saved:\n{out}\n\n"
-                              f"Original: {orig_kb} KB  →  New: {new_kb} KB  ({pct}% smaller)")
+        return ("success", f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) · Save writes it to the file",
+                None, True)
     return ("warning", f"⚠  No size reduction: {orig_kb} KB → {new_kb} KB",
-            "Compress", f"The output is not smaller than the original:\n{out}\n\n"
-                        f"Original: {orig_kb} KB  →  New: {new_kb} KB")
+            "Compressing would not make this PDF smaller "
+            f"({orig_kb} KB → {new_kb} KB): it is left as it was.", False)
 
 
 @register_page("CompressTool")
@@ -57,7 +57,6 @@ class CompressPage(ToolPage):
             core_enhance.compress_pdf(doc, out, level)
             return Path(out).stat().st_size
 
-        self.run_on_file("Compress", work, "Compressing PDF…",
-                         lambda new, out: size_report(orig[0], new, out),
-                         save=("compressed.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-                         cancellable=False, warning_box=True)
+        self.run_on_file("Compress", work, "Compressing PDF…", None, prepare=prepare,
+                         cancellable=False, warning_box=True, in_place="Compress",
+                         applied=lambda new: size_report(orig[0], new))

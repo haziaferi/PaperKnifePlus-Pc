@@ -19,17 +19,20 @@ def _merge(window, dialogs, tmp_path):
     return page
 
 
-def _compress(window, dialogs, tmp_path):
-    assert window.open_tool("CompressTool", make_pdf(tmp_path / "in.pdf"))
+def _extract(window, dialogs, tmp_path):
+    # a job that writes one new PDF on an organiser screen (Compress changes
+    # the document since 2026-10-23)
+    assert window.open_tool("RotateTool", make_pdf(tmp_path / "in.pdf"))
     pump(0.05)
     page = window.current_page()
-    dialogs.save(str(tmp_path / "compressed1.pdf"))
-    page.run()
+    page.select(0)
+    dialogs.save(str(tmp_path / "extracted1.pdf"))
+    page.extract()
     wait_job(window)
     return page
 
 
-@pytest.mark.parametrize("run", [_compress, _merge], ids=["compress", "merge"])
+@pytest.mark.parametrize("run", [_extract, _merge], ids=["extract", "merge"])
 @pytest.mark.parametrize("width", [1280, 1700, 2400])   # 2400: room to spare offscreen
 def test_the_bar_is_half_the_page_with_its_buttons_after_the_text(window, dialogs, tmp_path,
                                                                  run, width):
@@ -51,7 +54,7 @@ def test_the_bar_is_half_the_page_with_its_buttons_after_the_text(window, dialog
 def test_the_bar_is_the_same_length_on_both_screens(window, dialogs, tmp_path):
     window.resize(2400, 820)          # wide enough that half the page fits both texts
     pump(0.1)
-    widths = [run(window, dialogs, tmp_path).offer_bar().width() for run in (_compress, _merge)]
+    widths = [run(window, dialogs, tmp_path).offer_bar().width() for run in (_extract, _merge)]
     assert abs(widths[0] - widths[1]) <= 2, widths
 
 

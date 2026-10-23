@@ -13,6 +13,22 @@ import pymupdf as fitz
 from .doc_state import UNDO_DEPTH, DocHolder, snapshot
 
 
+class Protection:
+    """A protection to write the document with: an open password, an owner
+    password and the permissions (core.password.permissions).  The passwords
+    never show in a repr."""
+    __slots__ = ("user_pw", "owner_pw", "perm")
+
+    def __init__(self, user_pw: str, owner_pw: str, perm: int):
+        self.user_pw, self.owner_pw, self.perm = user_pw, owner_pw, perm
+
+    def __repr__(self) -> str:
+        return f"Protection(perm={self.perm})"
+
+
+NO_PASSWORD = "none"        # protection: written without encryption
+
+
 class Step:
     """One edit on the undo history: the document before (or after, on the
     redo history) it, the page shown then, and *extra*: what the tool that
@@ -36,6 +52,9 @@ class SharedDocument(DocHolder):
         self.dirty = False
         self.edits = 0                  # counts every change: crash recovery's cue
         self.adds_only = True           # every edit since the last save only added
+        # How Save writes it: None (as the file is: a password it was opened
+        # with is kept), a Protection, or NO_PASSWORD.  It stays after a save.
+        self.protection = None
         self._undo: list[Step] = []
         self._redo: list[Step] = []
         self._listeners = []
@@ -86,6 +105,7 @@ class SharedDocument(DocHolder):
         self._close_doc()
         self._doc, self.path, self._pg = doc, str(path), 0
         self._undo, self._redo = [], []
+        self.protection = None
         self._at_save_point()
         self._tell("opened")
 
@@ -95,6 +115,7 @@ class SharedDocument(DocHolder):
         self._close_doc()
         self.path = ""
         self._undo, self._redo = [], []
+        self.protection = None
         self._at_save_point()
         self._tell("closed")
 
@@ -134,6 +155,16 @@ class SharedDocument(DocHolder):
         if self._undo:
             step = self._undo.pop()
             self._replace_doc(fitz.open("pdf", step.data))
+
+    def set_protection(self, value, label: str, extra=None) -> None:
+        """Write the document with *value* from the next save on (a
+        Protection, NO_PASSWORD, or None: as the file is), as one undoable
+        edit; its step holds the protection before."""
+        step_extra = dict(extra or {})
+        step_extra["protection"] = self.protection
+        self.begin(label, step_extra)
+        self.protection = value
+        self.changed()
 
     def drop_step(self) -> None:
         """An edit begun with begin() changed nothing after all (a drag over
@@ -182,7 +213,13 @@ class SharedDocument(DocHolder):
         if not src or self._doc is None:
             return None
         step = src.pop()
-        dst.append(Step(step.label, snapshot(self._doc), self._pg, step.extra, step.seq))
+        extra = step.extra
+        if isinstance(extra, dict) and "protection" in extra:
+            # a protection step: the one it set goes on the other history
+            extra, back = dict(extra), extra["protection"]
+            extra["protection"] = self.protection
+            self.protection = back
+        dst.append(Step(step.label, snapshot(self._doc), self._pg, extra, step.seq))
         self._pg = step.pg
         self._replace_doc(fitz.open("pdf", step.data))
         # Back at the save point: clean again (a change with no step keeps it unsaved).

@@ -4,7 +4,6 @@ document's pages); the options sit in the column at the right."""
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QPainter, QPen
@@ -14,7 +13,7 @@ from qfluentwidgets import ComboBox, LineEdit
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs, theme
-from ..pages import (PagePickPage, RadioChoice, card, group_title, muted_caption,
+from ..pages import (SAVE_NOTE, PagePickPage, RadioChoice, card, group_title, muted_caption,
                      radio_button, register_page)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
@@ -151,8 +150,7 @@ class HeaderFooterPage(PagePickPage):
                                      today, stop)
 
         self.run_on_file(
-            "Header/Footer", work, lambda: f"Stamping {len(pages)} page(s)…",
-            lambda _r, out: ("success", f"✓  Stamped {len(pages)} page(s) → {Path(out).name}",
-                             "Done", f"PDF with header/footer saved:\n{out}"),
-            src=src, save=("stamped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-            open_doc=self.job_copy)
+            "Header/Footer", work, lambda: f"Stamping {len(pages)} page(s)…", None, src=src,
+            prepare=prepare, open_doc=self.job_copy, in_place="Header / Footer",
+            applied=lambda _r: ("success", f"✓  Stamped {len(pages)} page(s)" + SAVE_NOTE,
+                                None, True))

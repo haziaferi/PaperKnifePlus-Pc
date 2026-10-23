@@ -4,7 +4,7 @@ import shutil
 
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, save_as, spy_open, wait_job
 
 
 def _page(window):
@@ -16,9 +16,9 @@ def _page(window):
 def _run(window, dialogs, page, src, out, text="CONFIDENTIAL"):
     page.file.set_path(src)
     page.text.setText(text)
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     assert not dialogs.errors(), dialogs.errors()
 
 
@@ -57,9 +57,8 @@ def test_watermark_writes_text_on_every_page_and_reports(window, dialogs, tmp_pa
     with fitz.open(out) as doc:
         assert len(doc) == 3
         assert all("CONFIDENTIAL" in p.get_text() for p in doc)
-    assert dialogs.msgs[-1] == ("info", "Done", f"Watermarked PDF saved:\n{out}")
-    assert window.status_text() == "✓  Watermarked → out.pdf"
-    assert window.status_role == "success"
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
+    assert window.applied_status == "✓  Watermark applied · Save writes it to the file"
 
 
 def test_watermark_honours_opacity_and_stays_on_the_page(window, dialogs, tmp_path):
@@ -138,14 +137,19 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_applying_asks_no_file_name_and_closes_its_copy(window, dialogs, tmp_path,
+                                                          monkeypatch):
+    # Applied to the document (owner's sort, 2026-10-23): no save dialog (the
+    # harness would hand it nothing), and the job's own copy is closed.
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     page.text.setText("X")
     opened = spy_open(window, monkeypatch)
-    page.run()                     # no save path queued: the dialog returns ""
-    assert opened and opened[0].is_closed
-    assert not window._current_job
+    page.run()
+    wait_job(window)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert window.document.dirty and not dialogs.errors()
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):

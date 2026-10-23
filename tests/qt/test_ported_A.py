@@ -227,14 +227,11 @@ def test_ocr_finds_tesseract_in_its_default_folder_off_path(window, dialogs, tmp
     assert window.open_tool("OCRTool")
     pump(0.05)
     page = window.current_page()
-    out = tmp_path / "off_path.pdf"
     page.file.set_path(_source_pdf(tmp_path / "s.pdf"))
-    dialogs.save(out)
-    page.run()
+    page.run()                          # a text layer on the document (2026-10-23)
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
-    with fitz.open(out) as doc:
-        assert "Smith" in doc[0].get_text()
+    assert "Smith" in window.document.doc[0].get_text()
 
 
 def test_batch_ocr_finds_tesseract_in_its_default_folder_off_path(window, dialogs, tmp_path,

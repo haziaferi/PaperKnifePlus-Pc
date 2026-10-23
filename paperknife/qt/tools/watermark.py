@@ -3,12 +3,11 @@
 gains a page range); the options sit in the column at the right."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from ...core import enhance as core_enhance
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import PagePickPage, batch_prototype, card, group_title, register_page
+from ..pages import SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, register_page
 from ..tool_options import DEFAULT_COLOR, WatermarkOptions  # noqa: F401
 
 
@@ -75,8 +74,6 @@ class WatermarkPage(PagePickPage):
                                               progress, pages=pages)
 
         self.run_on_file(
-            "Watermark", work, "Applying watermark…",
-            lambda _r, out: ("success", f"✓  Watermarked → {Path(out).name}",
-                             "Done", f"Watermarked PDF saved:\n{out}"),
-            src=src, save=("watermarked.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-            open_doc=self.job_copy)
+            "Watermark", work, "Applying watermark…", None, src=src, prepare=prepare,
+            open_doc=self.job_copy, in_place="Watermark",
+            applied=lambda _r: ("success", "✓  Watermark applied" + SAVE_NOTE, None, True))

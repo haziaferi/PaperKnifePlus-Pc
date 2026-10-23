@@ -1311,7 +1311,7 @@ class ToolPage(QWidget):
     def run_on_file(self, title: str, work, label, report, *, src: str | None = None,
                     save: tuple | None = None, prepare=None, open_doc=None, ended=None,
                     cancellable: bool = True, warning_box: bool = False,
-                    parts: bool = False):
+                    parts: bool = False, in_place: str | None = None, applied=None):
         """Run *work* on the chosen file: the file card's (or *src*, already
         checked), opened, prepare(doc), the output asked for, then
         work(doc, out, stop, progress) in a job (it closes doc) and, when the
@@ -1333,6 +1333,14 @@ class ToolPage(QWidget):
         ".pdf") puts the after-job question up (offer_output); a folder of
         outputs asks nothing.
 
+        in_place (owner's sort, 2026-10-23: the tools applied with OK): the
+        edit's label.  The file is made the window's document first (after
+        the unsaved-edits question), the work writes a temporary file, and
+        that takes the document's place as one undoable edit: no save
+        dialog, no after-job question, *report* is not used.  applied(result)
+        -> (role, status, box text or None, take it) says how it went; take
+        it False leaves the document as it was (Compress: no smaller).
+
         The job, or None when none was started (no file, a refusal, a
         cancelled save dialog, another job running)."""
         if src is None:
@@ -1340,6 +1348,8 @@ class ToolPage(QWidget):
             if not src:
                 return None
         win = self.window_
+        if in_place and not win.adopt(src, ask=True):
+            return None
         if open_doc is not None:
             doc = open_doc(src)
         else:
@@ -1360,17 +1370,31 @@ class ToolPage(QWidget):
                 doc.close()
                 dialogs.error(title, str(e))
                 return None
-        out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
-        if not out:
-            doc.close()
-            return None
-        pdf_out = parts or (save is not None and save[1].lower() == ".pdf")
-        kept = ask_keep_password(doc) if pdf_out else None
+        if in_place:
+            import tempfile
+            tmp_dir = tempfile.mkdtemp(prefix="pk-apply-")
+            out = os.path.join(tmp_dir, "applied.pdf")
+            kept = None                 # the document keeps its own password
+        else:
+            out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
+            if not out:
+                doc.close()
+                return None
+            pdf_out = parts or (save is not None and save[1].lower() == ".pdf")
+            kept = ask_keep_password(doc) if pdf_out else None
         progress = win.progress_callback()
 
         def then(kind, result):
             if ended is not None:
                 ended(kind)
+            if in_place:
+                try:
+                    if kind == "done":
+                        self._take_output(out, in_place, result, applied, title, warning_box)
+                finally:
+                    import shutil
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                return
             if kind != "done":
                 return
             role, status, box_title, text = report(result, out)
@@ -1386,7 +1410,30 @@ class ToolPage(QWidget):
                           keep_password=(kept, out if parts else [out]))
         if job is None:
             doc.close()
+            if in_place:
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         return job
+
+    def _take_output(self, out: str, label: str, result, applied, title: str,
+                     warning_box: bool):
+        """An in-place run ended: its output becomes the document's content
+        (the open password goes with it) as one undoable edit."""
+        win = self.window_
+        role, status, box, take = (applied(result) if applied is not None else
+                                   ("success", f"✓  {label} applied · Save writes it to the file",
+                                    None, True))
+        if take:
+            sd = win.document
+            with open(out, "rb") as f:
+                new = fitz.open("pdf", f.read())
+            from ..core.password import carry_open_password
+            carry_open_password(sd.doc, new)
+            key = getattr(getattr(self, "tool", None), "name", "") or type(self).__name__
+            sd.replace(new, label, {"page": key})
+        win.set_status(status, role)
+        if box:
+            (dialogs.warning if warning_box and role == "warning" else dialogs.info)(title, box)
 
     # ── shell hooks ──
     def open(self):
@@ -3118,6 +3165,8 @@ class OrganiserPage(ToolPage):
 
 
 # ── Tools that act on chosen pages (owner, 2026-10-17) ───────────────────────
+# A tool applied in place: its status ends so (the edit is unsaved, 2026-10-23).
+SAVE_NOTE = " · Save writes it to the file"
 ALL_PAGES = "all"
 NO_PAGES = "Select at least one page."
 PICK_HINT = "Click pages to choose them · Ctrl / Shift for several"

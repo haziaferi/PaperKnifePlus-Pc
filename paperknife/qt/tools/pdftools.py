@@ -5,11 +5,10 @@ tool is chosen in radio rows, as Compress's levels; its options show under
 them; the one main action names the tool."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from ...core import pdftools as core
 from .. import dialogs
-from ..pages import (KEEP_ONE, ToolPage, card, group_title, pages_phrase, radio_rows,
+from ..pages import (KEEP_ONE, SAVE_NOTE, ToolPage, card, group_title, pages_phrase, radio_rows,
                      register_page, setting_row, toggle_switch)
 
 SUBTITLE = "Repair, sanitise or flatten a PDF · remove its blank pages"
@@ -33,11 +32,10 @@ FLATTEN = [("comments", "Comments"), ("fields", "Form fields")]
 NO_BLANK = "No blank page was found."
 
 
-def repair_report(repaired: bool, out: str):
-    """(status line, dialog text) for a finished repair."""
-    msg = ("Repaired PDF saved" if repaired
-           else "No damage found; cleaned copy saved")
-    return f"✓  {msg} → {Path(out).name}", f"{msg}:\n{out}"
+def repair_report(repaired: bool) -> str:
+    """The status line for a finished repair (in place: Save writes it)."""
+    msg = "Repaired" if repaired else "No damage found; cleaned"
+    return f"✓  {msg}" + SAVE_NOTE
 
 
 def _count(n: int, one: str, many: str) -> str:
@@ -118,35 +116,34 @@ class PdfToolsPage(ToolPage):
         getattr(self, f"_run_{t}")()
 
     def _run_repair(self):
-        def report(repaired, out):
-            status, text = repair_report(repaired, out)
-            return "success", status, "Done", text
+        damaged = [False]
+
+        def prepare(_copy):
+            # The job's copy is written from memory and so never looks broken:
+            # whether MuPDF had to rebuild the file shows on the document opened.
+            damaged[0] = bool(self.window_.document.doc.is_repaired)
 
         self.run_on_file("PDF Tools", lambda doc, out, stop, _p: core.repair_pdf(doc, out),
-                         "Repairing…", report,
-                         save=("repaired.pdf", ".pdf", [("PDF", "*.pdf")]), cancellable=False)
+                         "Repairing…", None, prepare=prepare, cancellable=False,
+                         in_place="Repair",
+                         applied=lambda repaired: ("success", repair_report(repaired or damaged[0]),
+                                                   None, True))
 
     def _run_sanitise(self):
         opts = {name: self._on(name) for name, _l in SANITISE}
 
-        def report(found, out):
-            return ("success", f"✓  Sanitised PDF saved → {Path(out).name}", "Done",
-                    f"Sanitised PDF saved:\n{out}\n\n{sanitise_text(found)}")
-
         self.run_on_file("PDF Tools", lambda doc, out, stop, _p: core.sanitise_pdf(doc, out, **opts),
-                         "Sanitising…", report,
-                         save=("sanitised.pdf", ".pdf", [("PDF", "*.pdf")]), cancellable=False)
+                         "Sanitising…", None, cancellable=False, in_place="Clean up",
+                         applied=lambda found: ("success", "✓  Cleaned up" + SAVE_NOTE,
+                                                sanitise_text(found), True))
 
     def _run_flatten(self):
         opts = {name: self._on(name) for name, _l in FLATTEN}
 
-        def report(found, out):
-            return ("success", f"✓  Flattened PDF saved → {Path(out).name}", "Done",
-                    f"Flattened PDF saved:\n{out}\n\n{flatten_text(found)}")
-
         self.run_on_file("PDF Tools", lambda doc, out, stop, _p: core.flatten_pdf(doc, out, **opts),
-                         "Flattening…", report,
-                         save=("flattened.pdf", ".pdf", [("PDF", "*.pdf")]), cancellable=False)
+                         "Flattening…", None, cancellable=False, in_place="Flatten",
+                         applied=lambda found: ("success", "✓  Flattened" + SAVE_NOTE,
+                                                flatten_text(found), True))
 
     def _run_blank(self):
         blanks: list[int] = []
@@ -163,12 +160,9 @@ class PdfToolsPage(ToolPage):
             return dialogs.ask_yes_no(ACTION["blank"],
                                       f"Remove {what}? {why} no text or drawing.")
 
-        def report(n, out):
-            return ("success", f"✓  Removed {n} blank page(s) → {Path(out).name}", "Done",
-                    f"Saved without its blank pages:\n{out}")
-
         self.run_on_file("PDF Tools",
                          lambda doc, out, stop, _p: core.remove_pages(doc, out, blanks),
-                         "Removing blank pages…", report, prepare=prepare,
-                         save=("without_blank_pages.pdf", ".pdf", [("PDF", "*.pdf")]),
-                         cancellable=False)
+                         "Removing blank pages…", None, prepare=prepare, cancellable=False,
+                         in_place="Remove blank pages",
+                         applied=lambda n: ("success", f"✓  Removed {n} blank page(s)"
+                                            + SAVE_NOTE, None, True))

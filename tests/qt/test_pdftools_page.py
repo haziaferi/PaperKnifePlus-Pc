@@ -1,7 +1,7 @@
 """The Qt PDF Tools page: repair a damaged file."""
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, spy_open, truncated_pdf, wait_job
+from qt_harness import make_pdf, pump, save_as, spy_open, truncated_pdf, wait_job
 
 
 def _page(window):
@@ -52,12 +52,12 @@ def test_sanitise_end_to_end_says_what_it_removed(window, dialogs, tmp_path):
     page.switches["embedded"].setChecked(False)
     page.file.set_path(_risky(tmp_path / "in.pdf"))
     out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     assert not dialogs.errors(), dialogs.errors()
-    assert dialogs.msgs[-1] == ("info", "Done", f"Sanitised PDF saved:\n{out}\n\nRemoved: 1 script")
-    assert window.status_text() == "✓  Sanitised PDF saved → out.pdf"
+    assert ("info", "PDF Tools", "Removed: 1 script") in dialogs.msgs      # what it found
+    assert window.applied_status == "✓  Cleaned up · Save writes it to the file"
     with fitz.open(out) as d:
         assert d.embfile_count() == 1 and "Visible" in d[0].get_text()
 
@@ -72,10 +72,11 @@ def test_flatten_end_to_end(window, dialogs, tmp_path):
     page.radios["flatten"].click()
     page.file.set_path(str(src))
     out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
-    assert dialogs.msgs[-1] == ("info", "Done", f"Flattened PDF saved:\n{out}\n\nFlattened: 1 comment")
+    save_as(window, dialogs, out)
+    assert ("info", "PDF Tools", "Flattened: 1 comment") in dialogs.msgs
+    assert window.applied_status == "✓  Flattened · Save writes it to the file"
     with fitz.open(out) as d:
         assert list(d[0].annots()) == []
 
@@ -97,14 +98,14 @@ def test_remove_blank_pages_asks_naming_them_and_writes_the_rest(window, dialogs
     page.file.set_path(_with_blanks(tmp_path / "in.pdf", ["one", "", "two", ""]))
     out = tmp_path / "out.pdf"
     dialogs.asks.append(True)
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     assert ("ask_yes_no", "Remove blank pages",
             "Remove pages 2 and 4? They have no text or drawing.") in dialogs.msgs
     with fitz.open(out) as d:
         assert [p.get_text().strip() for p in d] == ["one", "two"]
-    assert window.status_text() == "✓  Removed 2 blank page(s) → out.pdf"
+    assert window.applied_status == "✓  Removed 2 blank page(s) · Save writes it to the file"
 
 
 def test_remove_blank_pages_said_no_or_none_found_writes_nothing(window, dialogs, tmp_path):
@@ -141,12 +142,11 @@ def test_pdftools_default_run_saves_a_clean_copy(window, dialogs, tmp_path):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
-    assert [m for m in dialogs.msgs if m[0] != "info"] == [], dialogs.msgs
-    assert dialogs.msgs[-1] == ("info", "Done", f"No damage found; cleaned copy saved:\n{out}")
-    assert window.status_text() == "✓  No damage found; cleaned copy saved → out.pdf"
+    save_as(window, dialogs, out)
+    assert dialogs.msgs == [], dialogs.msgs
+    assert window.applied_status == "✓  No damage found; cleaned · Save writes it to the file"
     with fitz.open(out) as doc:
         assert doc.page_count == 3 and doc[2].get_text().strip() == "Page 3"
 
@@ -155,12 +155,11 @@ def test_pdftools_repair_recovers_a_truncated_file(window, dialogs, tmp_path):
     page = _page(window)
     page.file.set_path(_truncated(tmp_path))
     out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     assert not dialogs.errors(), dialogs.errors()
-    assert dialogs.msgs[-1] == ("info", "Done", f"Repaired PDF saved:\n{out}")
-    assert window.status_text() == "✓  Repaired PDF saved → out.pdf"
+    assert window.applied_status == "✓  Repaired · Save writes it to the file"
     with fitz.open(out) as doc:
         assert not doc.is_repaired and doc.page_count == 2
         assert [p.get_text().strip() for p in doc] == ["Page 1", "Page 2"]
@@ -175,24 +174,27 @@ def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_pa
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_applying_asks_no_file_name_and_closes_its_copy(window, dialogs, tmp_path,
+                                                          monkeypatch):
+    # Applied to the document (owner's sort, 2026-10-23).
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     opened = spy_open(window, monkeypatch)
-    page.run()                     # no save path queued: the dialog returns ""
-    assert opened and opened[0].is_closed
-    assert window._current_job is None
+    page.run()                     # no file name asked (the harness would hand it nothing)
+    wait_job(window)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert window.document.undo_label() == "Repair"
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     opened = spy_open(window, monkeypatch)
-    out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
-    window.show_page("CompressTool")
+    window.show_page("CompressTool")            # refused while the job holds the view
     wait_job(window)
-    assert opened and opened[0].is_closed
-    with fitz.open(out) as doc:
-        assert doc.page_count == 3
+    assert window.show_page("CompressTool")
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert shared.page_count == 3 and not shared.is_closed

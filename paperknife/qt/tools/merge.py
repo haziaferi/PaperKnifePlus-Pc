@@ -24,7 +24,7 @@ from ...pages import PageRangeError, ordered_pages, ordered_ranges_text, parse_r
 from .. import dialogs, theme
 from ..pages import (SETTINGS_W, THUMB_BOX, THUMBS_PER_TICK, CollectionPage, Divider, ElidedLabel,
                      PageStrip, _tool_button, ask_keep_password, muted_caption, plain_card,
-                     register_page)
+                     register_page, shared_copy)
 
 RANGE_PLACEHOLDER = "all  or  1-3, 5, 8-end"
 HINT = ("Add PDFs in order · optionally set page ranges per file"
@@ -122,7 +122,10 @@ class MergePage(CollectionPage):
         n = 0
         win = self.window_
         for p in paths:
-            src = win.open_pdf_safe(str(p)) if win is not None else fitz.open(str(p))
+            # The open document as it is now, unsaved edits included (2026-10-23).
+            src = shared_copy(win, str(p)) if win is not None else None
+            if src is None:
+                src = win.open_pdf_safe(str(p)) if win is not None else fitz.open(str(p))
             if src is None:
                 continue
             mem = fitz.open("pdf", src.tobytes())

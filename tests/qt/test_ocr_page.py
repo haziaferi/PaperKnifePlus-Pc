@@ -6,7 +6,7 @@ import html as _html
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, requires_tesseract, spy_open, wait_job
+from qt_harness import make_pdf, pump, requires_tesseract, save_as, spy_open, wait_job
 
 _WORDS = [  # (text, conf, left, top, width, height) in 72-dpi pixels
     ("Smith", 95, 100, 300, 50, 16),
@@ -84,9 +84,9 @@ def _source_pdf(path, rotation=0):
 
 def _run(window, dialogs, page, src, out):
     page.file.set_path(src)
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
 
 
 def test_the_page_builds_with_the_ctk_defaults(window):
@@ -121,9 +121,9 @@ def test_ocr_overlay_keeps_original_page_and_adds_clean_text(window, dialogs, tm
         assert "Original vector heading" in text, "the original page content was replaced"
         assert not b[0].get_images(), "the page was rasterised"
         assert a[0].get_pixmap(alpha=False).samples == b[0].get_pixmap(alpha=False).samples
-    assert dialogs.msgs[-1] == ("info", "OCR Complete",
-                                f"OCR PDF saved:\n{out}\n\nPages processed: 1")
-    assert window.status_text() == "✓  OCR complete — 1 page(s) → ocr.pdf"
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
+    assert window.applied_status == ("✓  OCR complete — 1 page(s) searchable · Save writes it "
+                                     "to the file")
     assert page.log.text() == "✓  Done — 1 page(s) processed"
 
 
@@ -169,8 +169,13 @@ def test_text_only_mode_writes_a4_text_pages(window, dialogs, tmp_path, tess):
     page.modes["text"].setChecked(True)
     assert page.text_only is True
     out = tmp_path / "text.pdf"
-    _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf", pages=2), out)
+    # a new file of plain text: the save dialog, and the document stays as it is
+    page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=2))
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
+    assert not window.document.dirty
     with fitz.open(out) as d:
         assert len(d) == 2
         assert all("Plain OCR text" in p.get_text() for p in d)
@@ -213,11 +218,13 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_text_only_cancelled_at_the_save_dialog_closes_its_copy(window, dialogs, tmp_path,
+                                                                monkeypatch):
     page = _page(window)
+    page.modes["text"].setChecked(True)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     opened = spy_open(window, monkeypatch)
-    page.run()
+    page.run()                     # no save path queued: the dialog returns ""
     assert opened and opened[0].is_closed
     assert not window._current_job
 

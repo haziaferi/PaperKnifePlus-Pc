@@ -53,6 +53,20 @@ def wait_job(window, timeout: float = 30.0):
     raise TimeoutError("job did not finish")
 
 
+def save_as(window, dialogs, out):
+    """The window's document as it is now, to *out* (the window's Save as):
+    how a test reads what a tool applied in place (2026-10-23).  Only when the
+    tool changed it: a refused run leaves *out* unwritten.  The status the
+    tool gave is kept in window.applied_status (the save's replaces it)."""
+    window.applied_status = window.status_text()
+    if not window.document.dirty:
+        return out
+    dialogs.save(out)
+    window.save_as()
+    wait_job(window)
+    return out
+
+
 def spy_open(window, monkeypatch) -> list:
     """Record every document a job opens for itself: what window.open_pdf_safe
     returns, and the copy a page-range tool (pages.PagePickPage, which holds

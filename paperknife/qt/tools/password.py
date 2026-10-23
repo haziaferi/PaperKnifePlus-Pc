@@ -1,11 +1,10 @@
 """Password — a single-file transform (group C): add, change or remove encryption."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from qfluentwidgets import PasswordLineEdit
 
 from ...core import password as core
+from ...core.document import NO_PASSWORD, Protection
 from .. import dialogs
 from ..pages import (ToolPage, card, group_title, register_page, setting_row,
                      toggle_switch)
@@ -59,24 +58,12 @@ class PasswordPage(ToolPage):
     def deactivate(self):
         self._forget_passwords()
 
-    def _open_unlocked(self, src, password, title, wrong_message, any_encryption=False):
-        """The document at src, authenticated with password when it needs one
-        to open (or, with any_encryption, whenever it is encrypted at all), or
-        None after telling the user why not."""
-        try:
-            doc = core.open_unlocked(src, password, any_encryption)
-        except Exception as e:
-            dialogs.error("Error", str(e))
-            return None
-        if doc is None:
-            dialogs.error(title, wrong_message)
-        return doc
-
     def _attempt(self, fn):
-        """Run one Protect / Remove attempt; when it started no job (no file,
-        a refusal, a cancelled save dialog) the fields are emptied now, as a
-        finished job's ended= empties them."""
-        if fn() is None:
+        """Run one Protect / Remove attempt; the fields (whose eye button
+        shows them) are emptied after it, whatever came of it."""
+        try:
+            fn()
+        finally:
             self._forget_passwords()
 
     def protect(self):
@@ -85,39 +72,65 @@ class PasswordPage(ToolPage):
     def unprotect(self):
         self._attempt(self._unprotect)
 
-    def _protect(self):
-        src = self.chosen_file("Protect")
-        if not src:
+    def _the_document(self, title):
+        """The window's document for the chosen file (opened there first,
+        after the unsaved-edits question, when it is another one), or None."""
+        src = self.chosen_file(title)
+        if not src or not self.window_.adopt(src, ask=True):
             return None
+        return self.window_.document
+
+    @staticmethod
+    def _files_protection(sd) -> bool:
+        """The file is encrypted and no protection was set here since."""
+        return sd.protection is None and (
+            core.open_password_of(sd.doc) is not None
+            or bool((sd.doc.metadata or {}).get("encryption")))
+
+    def _current_password_opens_it(self, sd, cur, title, wrong) -> bool:
+        """The password typed in Current password opens the file (its own
+        encryption: one set here is the user's own); else said why."""
+        if not self._files_protection(sd):
+            return True
+        try:
+            doc = core.open_unlocked(sd.path, cur, any_encryption=True)
+        except Exception as e:
+            dialogs.error("Error", str(e))
+            return False
+        if doc is None:
+            dialogs.error(title, wrong)
+            return False
+        doc.close()
+        return True
+
+    def _protect(self):
+        sd = self._the_document("Protect")
+        if sd is None:
+            return
         pw = self.pw1.text()
         if not pw:
-            dialogs.warning("Protect", "Enter a password.")
-            return None
+            return dialogs.warning("Protect", "Enter a password.")
+        if (core.open_password_of(sd.doc) is None and self._files_protection(sd)
+                and not self._current_password_opens_it(
+                    sd, self.cur_pw.text(), "Protect",
+                    "This PDF is already encrypted. Enter its password in "
+                    "“Current password” below to change it.")):
+            return
         owner = core.owner_password(self.pw2.text())
         perm = core.permissions(self.allow_print.isChecked(), self.allow_copy.isChecked())
-        cur = self.cur_pw.text()
-        return self.run_on_file(
-            "Protect", lambda doc, out, stop, _p: core.protect_pdf(doc, out, pw, owner, perm),
-            "Encrypting…",
-            lambda _v, out: ("success", f"✓  Protected → {Path(out).name}",
-                             "Done", f"Protected PDF saved:\n{out}"),
-            src=src, save=("protected.pdf", ".pdf", [("PDF", "*.pdf")]),
-            open_doc=lambda s: self._open_unlocked(
-                s, cur, "Protect", "This PDF is already encrypted. Enter its password "
-                                   "in “Current password” below to change it."),
-            ended=lambda _kind: self._forget_passwords(), cancellable=False)
+        # The document's protection from now on: Save writes it (2026-10-23).
+        sd.set_protection(Protection(pw, owner, perm), "Protect", {"page": "PasswordTool"})
+        self.window_.set_status("✓  Password set · Save writes it to the file", "success")
 
     def _unprotect(self):
-        src = self.chosen_file("Unprotect")
-        if not src:
-            return None
-        pw = self.cur_pw.text()
-        return self.run_on_file(
-            "Unprotect", lambda doc, out, stop, _p: core.unprotect_pdf(doc, out),
-            "Removing the password…",
-            lambda _v, out: ("success", f"✓  Unlocked → {Path(out).name}",
-                             "Done", f"Unlocked PDF saved:\n{out}"),
-            src=src, save=("unlocked.pdf", ".pdf", [("PDF", "*.pdf")]),
-            open_doc=lambda s: self._open_unlocked(s, pw, "Error", "Incorrect password.",
-                                                   any_encryption=True),
-            ended=lambda _kind: self._forget_passwords(), cancellable=False)
+        sd = self._the_document("Unprotect")
+        if sd is None:
+            return
+        if not (isinstance(sd.protection, Protection) or self._files_protection(sd)):
+            return dialogs.info("Unprotect", "This PDF has no password.")
+        if not self._current_password_opens_it(sd, self.cur_pw.text(), "Error",
+                                               "Incorrect password."):
+            return
+        sd.set_protection(NO_PASSWORD, "Remove password", {"page": "PasswordTool"})
+        self.window_.set_status("✓  Password removed · Save writes the file without it",
+                                "success")

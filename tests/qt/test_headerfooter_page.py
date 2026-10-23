@@ -4,7 +4,7 @@ from datetime import date
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, save_as, spy_open, wait_job
 
 
 def _page(window):
@@ -16,9 +16,9 @@ def _page(window):
 def _stamp(window, dialogs, page, src, out, rng=""):
     page.file.set_path(src)
     page.page_range.setText(rng)
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
 
 
 def _spans(pg, needle):
@@ -56,8 +56,8 @@ def test_end_to_end_stamps_every_page_and_reports(window, dialogs, tmp_path):
         r = doc[0].search_for("Page 1 of 3")[-1]
         w, h = doc[0].rect.width, doc[0].rect.height
         assert r.y1 > h - 40 and abs((r.x0 + r.x1) / 2 - w / 2) < 2      # bottom centre
-    assert dialogs.msgs[-1] == ("info", "Done", f"PDF with header/footer saved:\n{out}")
-    assert window.status_text() == "✓  Stamped 3 page(s) → out.pdf"
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
+    assert window.applied_status == "✓  Stamped 3 page(s) · Save writes it to the file"
 
 
 def test_headerfooter_accepts_capitalised_end(window, dialogs, tmp_path):
@@ -155,13 +155,18 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_applying_asks_no_file_name_and_closes_its_copy(window, dialogs, tmp_path,
+                                                          monkeypatch):
+    # Applied to the document (owner's sort, 2026-10-23): no save dialog (the
+    # harness would hand it nothing), and the job's own copy is closed.
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     opened = spy_open(window, monkeypatch)
     page.run()
-    assert opened and opened[0].is_closed
-    assert not window._current_job
+    wait_job(window)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert window.document.dirty and not dialogs.errors()
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):

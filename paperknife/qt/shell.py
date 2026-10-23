@@ -40,7 +40,7 @@ from qfluentwidgets.components.navigation.navigation_widget import (NavigationIt
 from . import bridge, dialogs, pages, theme
 from ..core import password as core_password
 from ..core import recovery
-from ..core.document import SharedDocument
+from ..core.document import NO_PASSWORD, Protection, SharedDocument
 from ..job_queue import CancellableJob, live_parts
 from ..prefs import PREFS
 from ..recent import RECENT
@@ -867,23 +867,40 @@ class MainWindow(FluentWindow):
             resume()
         return job
 
+    def _write_options(self, ask_keep: bool) -> tuple[dict, object]:
+        """(save options, the open password the job keeps on the file) for
+        writing the document: its protection when the Password tool set one
+        (or NO_PASSWORD); else as the file is: a password it was opened with
+        is kept (on Save as, when the question says so), and a file with an
+        owner password only keeps its encryption (MuPDF re-applies it;
+        core.doc_state.snapshot keeps it through the undo steps)."""
+        sd = self.document
+        opts = {"garbage": 1, "deflate": True}
+        p = sd.protection
+        if isinstance(p, Protection):
+            opts.update(encryption=fitz.PDF_ENCRYPT_AES_256, user_pw=p.user_pw,
+                        owner_pw=p.owner_pw, permissions=p.perm)
+            return opts, None
+        if p == NO_PASSWORD:
+            opts["encryption"] = fitz.PDF_ENCRYPT_NONE
+            return opts, None
+        opened_with = core_password.open_password_of(sd.doc)
+        if opened_with is None and (sd.doc.metadata or {}).get("encryption"):
+            opts["encryption"] = fitz.PDF_ENCRYPT_KEEP
+        kept = pages.ask_keep_password(sd.doc) if ask_keep else opened_with
+        return opts, kept
+
     def save(self, after=None):
-        """Save (Ctrl+S): the document over its own file (owner 2026-10-23);
-        a file opened with a password keeps it.  after(): once it is saved."""
+        """Save (Ctrl+S): the document over its own file (owner 2026-10-23),
+        with its protection (_write_options).  after(): once it is saved."""
         sd = self.document
         if not sd.is_open():
             return dialogs.warning("Save", "Open a PDF first.")
         if not self.commit_pending():
             return None
         out = sd.path
-        opened_with = core_password.open_password_of(sd.doc)
-        self._keep = (opened_with, [out])
-        # A file with an owner password only (no open password) keeps its
-        # encryption (MuPDF re-applies it; core.doc_state.snapshot keeps it
-        # through the undo steps).
-        opts = {"garbage": 1, "deflate": True}
-        if opened_with is None and (sd.doc.metadata or {}).get("encryption"):
-            opts["encryption"] = fitz.PDF_ENCRYPT_KEEP
+        opts, kept = self._write_options(ask_keep=False)
+        self._keep = (kept, [out])
 
         def then(kind, _value):
             if kind == "done":
@@ -903,7 +920,8 @@ class MainWindow(FluentWindow):
         out = dialogs.ask_save(sd.name or "document.pdf", ".pdf", [("PDF", "*.pdf")])
         if not out:
             return None
-        self._keep = (pages.ask_keep_password(sd.doc), [out])
+        opts, kept = self._write_options(ask_keep=True)
+        self._keep = (kept, [out])
 
         def then(kind, _value):
             if kind != "done":
@@ -927,8 +945,7 @@ class MainWindow(FluentWindow):
             self.set_status(f"✓  Saved → {Path(out).name}", "success")
             if callable(after):
                 after()
-        return self._write(lambda stop: sd.save_as(out, garbage=1, deflate=True),
-                           Path(out).name, then)
+        return self._write(lambda stop: sd.save_as(out, **opts), Path(out).name, then)
 
     def print_document(self) -> bool:
         """Print (Ctrl+P): Windows' print dialog, with a page range; the

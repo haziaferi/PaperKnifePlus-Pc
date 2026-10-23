@@ -20,19 +20,22 @@ def _open(window, tool, path=None):
     return window.current_page()
 
 
-def _compress(window, dialogs, tmp_path):
+def _extract(window, dialogs, tmp_path):
+    """A job that writes one new PDF: Rotate & Reorder's Extract (Compress
+    changes the document since 2026-10-23)."""
     src = make_pdf(tmp_path / "in.pdf")
     out = str(tmp_path / "small.pdf")
-    page = _open(window, "CompressTool", src)
+    page = _open(window, "RotateTool", src)
+    page.select(0)
     dialogs.save(out)
-    page.run()
+    page.extract()
     wait_job(window)
     return page, src, out
 
 
 def test_a_finished_job_asks_once_in_an_info_bar(window, dialogs, tmp_path):
     from qfluentwidgets import InfoBar
-    page, _src, out = _compress(window, dialogs, tmp_path)
+    page, _src, out = _extract(window, dialogs, tmp_path)
     bar = page.offer_bar()
     assert isinstance(bar, InfoBar) and bar.isVisibleTo(page)
     assert page.layout().itemAt(0).widget() is bar           # at the top of the page
@@ -43,21 +46,21 @@ def test_a_finished_job_asks_once_in_an_info_bar(window, dialogs, tmp_path):
 
 
 def test_continue_with_it_makes_the_output_current_and_shows_it(window, dialogs, tmp_path):
-    page, _src, out = _compress(window, dialogs, tmp_path)
+    page, _src, out = _extract(window, dialogs, tmp_path)
     page.offer_bar().continue_button.click()
     assert _same(window.current_document, out) and _same(page.file.path(), out)
     assert page.offer_bar() is None
 
 
 def test_start_over_clears_the_tool_and_the_current_document(window, dialogs, tmp_path):
-    page, _src, _out = _compress(window, dialogs, tmp_path)
+    page, _src, _out = _extract(window, dialogs, tmp_path)
     page.offer_bar().start_over_button.click()
     assert window.current_document is None and page.file.path() == ""
     assert page.offer_bar() is None and page.drop_target.isVisibleTo(page)
 
 
 def test_opening_another_tool_counts_as_continue(window, dialogs, tmp_path):
-    page, _src, out = _compress(window, dialogs, tmp_path)
+    page, _src, out = _extract(window, dialogs, tmp_path)
     split = _open(window, "SplitTool")
     assert _same(window.current_document, out) and _same(split.file.path(), out)
     assert page.offer_bar() is None

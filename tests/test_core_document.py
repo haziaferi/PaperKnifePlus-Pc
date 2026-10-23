@@ -223,3 +223,22 @@ def test_an_owner_password_file_stays_encrypted_through_edits_undo_and_save(tmp_
     sd.save(encryption=fitz.PDF_ENCRYPT_KEEP)
     with fitz.open(src) as d:
         assert d.metadata.get("encryption") and "one" in d[0].get_text()
+
+
+def test_protection_is_an_undoable_edit_and_stays_after_a_save(tmp_path):
+    from paperknife.core.document import NO_PASSWORD, Protection
+    src = make_pdf(tmp_path / "in.pdf", pages=1)
+    sd, _ = _opened(src)
+    assert sd.protection is None
+    p = Protection("u", "o", 4)
+    sd.set_protection(p, "Protect")
+    assert sd.protection is p and sd.dirty and "u" not in repr(p)
+    sd.undo()
+    assert sd.protection is None and not sd.dirty
+    sd.redo()
+    assert sd.protection is p
+    sd.set_protection(NO_PASSWORD, "Remove password")
+    sd.save()
+    assert sd.protection == NO_PASSWORD and not sd.dirty
+    sd.undo()
+    assert sd.protection is p

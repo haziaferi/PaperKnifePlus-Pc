@@ -11,7 +11,8 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 from ...core import ocr as core_ocr
 from ...pages import selected_pages
 from .. import bridge
-from ..pages import PagePickPage, batch_prototype, card, group_title, muted_caption, register_page
+from ..pages import (SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, muted_caption,
+                     register_page)
 from ..tool_options import OCR_MODES as MODES  # noqa: F401
 from ..tool_options import OcrOptions
 MISSING_TITLE = "⚠  pytesseract not installed"
@@ -118,6 +119,16 @@ class OCRPage(PagePickPage):
             return ("success", f"✓  OCR complete — {total} page(s) → {Path(out).name}",
                     "OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
 
-        self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report, src=src,
-                         save=("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-                         open_doc=self.job_copy)
+        def applied(total):
+            log.setText(f"✓  Done — {total} page(s) processed")
+            return ("success", f"✓  OCR complete — {total} page(s) searchable" + SAVE_NOTE,
+                    None, True)
+
+        if text_only:       # a new file of plain text: the document stays as it is
+            self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report, src=src,
+                             save=("ocr_text.pdf", ".pdf", [("PDF", "*.pdf")]),
+                             prepare=prepare, open_doc=self.job_copy)
+        else:               # a text layer on the document's pages (owner's sort 2026-10-23)
+            self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", None, src=src,
+                             prepare=prepare, open_doc=self.job_copy, in_place="OCR",
+                             applied=applied)

@@ -4,27 +4,26 @@ every page selected at first, the selection and the range field in step);
 the margins and the range sit in the column at the right."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from qfluentwidgets import LineEdit
 
 from ...core import crop as core
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (PagePickPage, Refusal, card, group_title, muted_caption, register_page,
-                     toggle_switch)
+from ..pages import (SAVE_NOTE, PagePickPage, Refusal, card, group_title, muted_caption,
+                     register_page, toggle_switch)
 
 # (key, row name), in the order the rows are shown
 EDGES = [("top", "Top"), ("left", "Left"), ("right", "Right"), ("bottom", "Bottom")]
 
 
-def crop_report(cropped: int, wanted: int, out: str):
+def crop_report(cropped: int, wanted: int):
     """(role, status line) for a finished crop of *wanted* pages."""
     skipped = wanted - cropped
     note = (f" · {skipped} skipped (margins larger than the page)"
             if skipped else "")
     return ("warning" if skipped else "success",
-            f"✓  Cropped {cropped} page(s){note} → {Path(out).name}")
+            f"✓  Cropped {cropped} page(s){note}" + SAVE_NOTE)
 
 
 @register_page("CropTool")
@@ -81,9 +80,9 @@ class CropPage(PagePickPage):
                 raise Refusal("No page was cropped: the margins are larger "
                               "than every selected page.")
 
-        def report(cropped, out):
-            role, status = crop_report(cropped, len(pages), out)
-            return role, status, "Done", f"Cropped PDF saved:\n{out}"
+        def applied(cropped):
+            role, status = crop_report(cropped, len(pages))
+            return role, status, None, True
 
         def work(doc, out, stop, _p):
             self._release(out)              # a crop over the open file: let it go first
@@ -91,6 +90,5 @@ class CropPage(PagePickPage):
 
         self.run_on_file(
             "Crop", work,
-            lambda: f"Cropping {len(pages)} page(s)…", report, src=src,
-            save=("cropped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-            open_doc=self.job_copy)
+            lambda: f"Cropping {len(pages)} page(s)…", None, src=src, prepare=prepare,
+            open_doc=self.job_copy, in_place="Crop", applied=applied)
