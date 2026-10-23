@@ -375,29 +375,6 @@ def icon_button(icon) -> TransparentToolButton:
     return b
 
 
-def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
-                    width: int = 220, label_width: int = 64, fixed: bool = True):
-    """A horizontal Slider from *lo* to *hi* at *value* and, beside it, a
-    label of fixed *label_width* showing the value and *unit* (s.value_label),
-    both added to *row* (a setting_row's control).  The slider is *width*
-    wide, or at least that wide when not *fixed*."""
-    s = TallSlider(Qt.Horizontal)
-    s.setRange(lo, hi)
-    if fixed:
-        s.setFixedWidth(width)
-    else:
-        s.setMinimumWidth(width)
-    lbl = BodyLabel()
-    lbl.setFixedWidth(label_width)
-    s.valueChanged.connect(lambda v: lbl.setText(f"{v}{unit}"))
-    s.setValue(value)
-    lbl.setText(f"{s.value()}{unit}")
-    s.value_label = lbl
-    row.layout().addWidget(s)
-    row.layout().addWidget(lbl)
-    return s
-
-
 NUMBER_BOX_W = 150      # every number box one width: "120 pt" and its arrows
 
 

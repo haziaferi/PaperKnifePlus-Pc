@@ -41,7 +41,6 @@ class RotatePage(HeldDoc, OrganiserPage):
                                         needs_selection=False)
         self.delete_btn = self.add_action("Delete", None, lambda _=False: self.delete_pages())
         self.grid.model().rowsMoved.connect(lambda *_: self._dragged())
-        self.primary("Save PDF", self.save)
         self._show_undo()
 
     # ── document ─────────────────────────────────────────────────────────────

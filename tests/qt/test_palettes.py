@@ -308,15 +308,6 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, sw_.indicator), P.role("on_accent"), "switch knob on")
     sw_.setChecked(False)
 
-    # ── OCR: slider (Watermark's are number boxes since 2026-10-23) ──
-    page = _open(win, "OCRTool")
-    img = _grab(win)
-    slider = _find(page, "Slider")
-    _has(img, _rect(win, slider), P.role("accent_fill"), "slider fill")
-    _has(img, _rect(win, slider), P.role("track"), "slider groove")
-    _has(img, _rect(win, slider.handle), P.routed(((69, 69, 69) if dark else (255, 255, 255)) + (255,),
-                                                  "control"), "slider handle ring")
-
     # ── Watermark: line edit focus ──
     page = _open(win, "WatermarkTool")
     win.activateWindow()
@@ -349,6 +340,12 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     # With a document (none shows the drop target in the view's place):
     # the ground in the gap above page 1.
     _has(img, _rect(win, page.view, 10, 1, 60, 8), P.role("page_bg"), "page ground")
+    # The zoom slider (the settings' sliders are number boxes since 2026-10-23)
+    slider = _find(page, "Slider")
+    _has(img, _rect(win, slider), P.role("accent_fill"), "slider fill")
+    _has(img, _rect(win, slider), P.role("track"), "slider groove")
+    _has(img, _rect(win, slider.handle), P.routed(((69, 69, 69) if dark else (255, 255, 255)) + (255,),
+                                                  "control"), "slider handle ring")
     page = _open(win, "AnnotateTool")
     img = _grab(win)
     rail_btn = next(w for w in (page.rail.itemAt(i).widget() for i in range(page.rail.count()))

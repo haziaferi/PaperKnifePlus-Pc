@@ -293,7 +293,8 @@ def test_the_first_action_sits_at_one_height_whatever_the_stack(e2win):
     slot is only as tall as the current tool's actions."""
     host = host_of(e2win)
     tops = {}
-    for tool in ("EditTextTool", "FindReplaceTool", "PasswordTool", "CompressTool"):
+    # Edit Text has no card action since 2026-10-23 (the bar's Save is the one place)
+    for tool in ("WatermarkTool", "FindReplaceTool", "PasswordTool", "CompressTool"):
         host.pick(tool)
         pump(0.15)
         buttons = [b for b in host.current_tool()._buttons if b.isVisible()]
@@ -302,6 +303,18 @@ def test_the_first_action_sits_at_one_height_whatever_the_stack(e2win):
         lowest = max(b.mapTo(e2win, b.rect().bottomLeft()).y() for b in buttons)
         assert slot.mapTo(e2win, slot.rect().bottomLeft()).y() - lowest < 8, tool
     assert len(set(tops.values())) == 1, tops
+
+
+def test_a_card_without_actions_has_no_empty_action_band(e2win):
+    """The instant editors lost their card Save (owner, 2026-10-23): no band is
+    left where it was."""
+    host = host_of(e2win)
+    for tool in ("EditTextTool", "AnnotateTool", "RotateTool"):
+        host.pick(tool)
+        pump(0.15)
+        assert not [b for b in host.current_tool()._buttons
+                    if b.isVisible() and getattr(b, "pk_primary", False)], tool
+        assert host.action_slot.height() <= 2, (tool, host.action_slot.height())
 
 
 def test_redact_card_shows_its_warning_without_scrolling(e2win):

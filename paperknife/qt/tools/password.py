@@ -6,7 +6,7 @@ from qfluentwidgets import PasswordLineEdit
 from ...core import password as core
 from ...core.document import NO_PASSWORD, Protection
 from .. import dialogs
-from ..pages import (ToolPage, card, group_title, register_page, setting_row,
+from ..pages import (APPLY, ToolPage, card, group_title, register_page, setting_row,
                      toggle_switch)
 
 
@@ -47,7 +47,7 @@ class PasswordPage(ToolPage):
         self.body.addStretch(1)
 
         self.secondary("Remove Password", self.unprotect)
-        self.primary("Protect PDF", self.protect)
+        self.primary(APPLY, self.protect)
 
     def _forget_passwords(self):
         # The job's closures hold what the worker needs; the fields (whose

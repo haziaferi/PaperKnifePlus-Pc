@@ -94,9 +94,9 @@ def test_the_page_builds_with_the_ctk_defaults(window):
     assert page.title_label.text() == "OCR"
     assert page.lang.text() == "eng"                # nothing chosen yet, no Windows language
     assert page.dpi.minimum() == 72 and page.dpi.maximum() == 400
-    assert page.dpi_label.text() == f"{page.dpi.value()} DPI"
+    assert page.dpi.text() == f"{page.dpi.value()} DPI"
     page.dpi.setValue(123)
-    assert page.dpi_label.text() == "123 DPI"
+    assert page.dpi.text() == "123 DPI"
     assert page.text_only is False and page.run_button.isEnabled()
 
 
@@ -147,7 +147,7 @@ def test_ocr_overlay_places_words_on_rotated_page(window, dialogs, tmp_path, tes
 def test_ocr_uses_preferences_language_and_dpi(window, dialogs, tmp_path, tess, prefs):
     page = _page(window)
     assert page.lang.text() == "ita"
-    assert page.dpi.value() == 250 and page.dpi_label.text() == "250 DPI"
+    assert page.dpi.value() == 250 and page.dpi.text() == "250 DPI"
     _run(window, dialogs, page, _source_pdf(tmp_path / "p.pdf"), tmp_path / "p_ocr.pdf")
     assert tess["lang"] == "ita"
     assert tess["sizes"] == [(round(595 * 250 / 72), round(842 * 250 / 72))]

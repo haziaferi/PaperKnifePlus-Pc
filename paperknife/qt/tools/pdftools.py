@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ...core import pdftools as core
 from .. import dialogs
-from ..pages import (KEEP_ONE, SAVE_NOTE, ToolPage, card, group_title, pages_phrase, radio_rows,
+from ..pages import (APPLY, KEEP_ONE, SAVE_NOTE, ToolPage, card, group_title, pages_phrase, radio_rows,
                      register_page, setting_row, toggle_switch)
 
 SUBTITLE = "Repair, sanitise or flatten a PDF · remove its blank pages"
@@ -93,7 +93,7 @@ class PdfToolsPage(ToolPage):
             self.body.addWidget(box)
             self.option_boxes[key] = (heading, box)
         self.body.addStretch(1)
-        self.action_btn = self.primary(ACTION["repair"], self.run)
+        self.action_btn = self.primary(APPLY, self.run)
         self.tool_group.buttonToggled.connect(lambda *_: self._tool_changed())
         self._tool_changed()
 
@@ -106,7 +106,6 @@ class PdfToolsPage(ToolPage):
         for key, (heading, box) in self.option_boxes.items():
             heading.setVisible(key == t)
             box.setVisible(key == t)
-        self.action_btn.setText(ACTION[t])
 
     def _on(self, name: str) -> bool:
         return self.switches[name].isChecked()

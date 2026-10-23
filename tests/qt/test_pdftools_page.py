@@ -21,18 +21,17 @@ def test_the_page_offers_four_tools_and_the_action_names_the_one_chosen(window):
     assert type(page).__name__ == "PdfToolsPage"
     assert page.title_label.text() == "PDF Tools"
     assert list(page.radios) == ["repair", "sanitise", "flatten", "blank"]
-    assert page.tool_choice == "repair" and page.action_btn.text() == "Repair"
+    # Every choice changes the open document: the action reads Apply (owner, 2026-10-23)
+    assert page.tool_choice == "repair" and page.action_btn.text() == "Apply"
     texts = [lbl.text() for lbl in page.findChildren(QLabel)]
     assert not any("Linear" in t or "PDF/A" in t for t in texts), texts
-    for key, action, shown in (("sanitise", "Sanitise", "sanitise"),
-                               ("flatten", "Flatten", "flatten"),
-                               ("blank", "Remove blank pages", None),
-                               ("repair", "Repair", None)):
+    for key, shown in (("sanitise", "sanitise"), ("flatten", "flatten"), ("blank", None),
+                       ("repair", None)):
         page.radios[key].click()
-        assert page.action_btn.text() == action
+        assert page.action_btn.text() == "Apply"
         for k, (heading, box) in page.option_boxes.items():
             assert box.isVisibleTo(page) == (k == shown) and heading.isVisibleTo(page) == (k == shown)
-    assert [b.text() for b in page._buttons if b.pk_primary] == ["Repair"]   # one main action
+    assert [b.text() for b in page._buttons if b.pk_primary] == ["Apply"]    # one main action
 
 
 def _risky(path):

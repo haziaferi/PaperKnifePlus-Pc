@@ -15,8 +15,7 @@ from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 from ..core import convert as core_convert
 from ..prefs import _DEFAULTS, PREFS, pref_dpi
 from . import dialogs, theme
-from .pages import (LanguagePicker, card, group_title, labelled_slider, number_box,
-                    radio_rows)
+from .pages import LanguagePicker, card, group_title, number_box, radio_rows
 
 
 class Panel:
@@ -141,9 +140,7 @@ class OcrOptions(Panel):
         row.layout().addWidget(self.lang)
 
         row = self.row(group, "Render DPI")
-        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400, "ocr_dpi"), " DPI", width=120,
-                                   fixed=False)
-        self.dpi_label = self.dpi.value_label
+        self.dpi = number_box(row, 72, 400, pref_dpi(72, 400, "ocr_dpi"), " DPI")
 
         self.v.addWidget(group_title("Output mode"))
         group = card(padding=0)
@@ -202,11 +199,9 @@ class OtherOptions(Panel):
         self.image_card = card(padding=0)
         self.v.addWidget(self.image_card)
         row = self.row(self.image_card, "Resolution")
-        self.dpi_slider = labelled_slider(row, *DPI_RANGE, pref_dpi(*DPI_RANGE, "export_dpi"), " DPI",
-                                          width=120, fixed=False)
+        self.dpi_box = number_box(row, *DPI_RANGE, pref_dpi(*DPI_RANGE, "export_dpi"), " DPI")
         row = self.row(self.image_card, "JPEG quality")
-        self.quality_slider = labelled_slider(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%",
-                                              width=120, fixed=False)
+        self.quality_box = number_box(row, *QUALITY_RANGE, QUALITY_DEFAULT, "%")
         self.quality_row = row.parent()
         self._quality_divider = row.divider
         self.fmt.currentTextChanged.connect(self.fmt_changed)
@@ -232,8 +227,8 @@ class OtherOptions(Panel):
         """(dpi, quality): the slider values when the format shows them, else the export
         default (200) and 92."""
         fmt = self.format
-        dpi = int(self.dpi_slider.value()) if fmt in DPI_FORMATS else _DEFAULTS["export_dpi"]
-        quality = int(self.quality_slider.value()) if fmt == "JPEG" else QUALITY_DEFAULT
+        dpi = int(self.dpi_box.value()) if fmt in DPI_FORMATS else _DEFAULTS["export_dpi"]
+        quality = int(self.quality_box.value()) if fmt == "JPEG" else QUALITY_DEFAULT
         return dpi, quality
 
     def options(self) -> dict:

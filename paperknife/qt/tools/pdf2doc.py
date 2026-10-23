@@ -36,7 +36,7 @@ class Pdf2DocPage(PagePickPage):
         o = self.opts = OtherOptions(s, self.setting_row, parent=self)
         self.fmt, self.fmt_info, self.missing = o.fmt, o.fmt_info, o.missing
         self.image_title, self.image_card = o.image_title, o.image_card
-        self.dpi_slider, self.quality_slider = o.dpi_slider, o.quality_slider
+        self.dpi_box, self.quality_box = o.dpi_box, o.quality_box
         self.quality_row, self._quality_divider = o.quality_row, o._quality_divider
 
         self.pages_title = group_title("Pages")

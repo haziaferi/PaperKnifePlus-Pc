@@ -71,7 +71,8 @@ def test_the_bar_s_print_opens_the_window_s_print(window, monkeypatch, tmp_path)
 
 
 @pytest.mark.parametrize("tool", ["WatermarkTool", "HeaderFooterTool", "CompressTool",
-                                  "CropTool", "NormaliseTool", "MetadataTool", "TocTool"])
+                                  "CropTool", "NormaliseTool", "MetadataTool", "TocTool",
+                                  "PdfToolsTool", "PasswordTool", "OCRTool"])
 def test_a_tool_that_changes_the_document_from_its_settings_reads_apply(window, tool):
     page = _page(window, tool)
     assert [b.text() for b in page._buttons if b.pk_primary] == ["Apply"]
@@ -111,3 +112,29 @@ def test_number_boxes_are_one_width(window):
     page = _page(window, "WatermarkTool")
     pump(0.1)
     assert page.size.width() == page.opacity.width() == NUMBER_BOX_W
+
+
+@pytest.mark.parametrize("tool", ["AnnotateTool", "EditTextTool", "FindReplaceTool",
+                                  "RotateTool"])
+def test_an_editor_that_applies_at_once_has_no_card_save(window, tool):
+    # Owner, 2026-10-23: the document bar's Save is the one place to save.
+    page = _page(window, tool)
+    assert not [b.text() for b in page._buttons if b.pk_primary]
+
+
+def test_ocr_reads_apply_for_the_overlay_and_names_the_new_file_for_text_only(window):
+    page = _page(window, "OCRTool")
+    assert page.run_button.text() == "Apply"
+    page.modes["text"].click()
+    assert page.run_button.text() == "Make text-only PDF"
+    page.modes["overlay"].click()
+    assert page.run_button.text() == "Apply"
+
+
+def test_dpi_and_quality_are_number_boxes(window):
+    from paperknife.qt.pages import NUMBER_BOX_W
+    ocr = _page(window, "OCRTool")
+    assert type(ocr.dpi).__name__ != "TallSlider" and ocr.dpi.text().endswith(" DPI")
+    p2d = _page(window, "Pdf2DocTool")
+    assert p2d.quality_box.text() == "92%" and p2d.dpi_box.text().endswith(" DPI")
+    assert p2d.dpi_box.maximumWidth() == p2d.quality_box.maximumWidth() == NUMBER_BOX_W

@@ -176,7 +176,7 @@ The navigation pane lists 23 tools in five groups, with Preferences at the botto
 
 A tool that works on one PDF uses the current document (Section 4.1): open one with the document bar's **Open** (`Ctrl+O`) or its list of recent files, click the empty page's target, or drop a PDF on the window. Moving to another tool keeps the document and its unsaved edits (Section 4.1). Dropping a file the tool does not take leaves it unchanged and the status line says so.
 
-Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, OCR (Overlay), PDF Tools and Password change the open document when you click their main button (**Apply** on Compress, Watermark, Normalise Pages, Crop / Trim and Header / Footer): no file name is asked, the status line ends "· Save writes it to the file", and `Ctrl+Z` takes the change back. Tools that make other files — Merge, Split, Extract Images, PDF → Other, Other → PDF, Batch, Rotate & Reorder's **Extract to a new PDF**, Redact's **Apply and save** and OCR's **Text-only PDF** — ask for a file or folder and read the document as it is, unsaved edits included; the document itself stays as it is.
+Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, OCR (Overlay), PDF Tools and Password change the open document when you click their main button, **Apply**: no file name is asked, the status line ends "· Save writes it to the file", and `Ctrl+Z` takes the change back. Tools that make other files — Merge, Split, Extract Images, PDF → Other, Other → PDF, Batch, Rotate & Reorder's **Extract to a new PDF**, Redact's **Apply and save** and OCR's **Text-only PDF** — ask for a file or folder and read the document as it is, unsaved edits included; the document itself stays as it is.
 
 Merge, Other → PDF and Batch keep their lists (Batch its folders) while you move around; adding files to them does not change the current document, and a finished job empties them.
 
@@ -223,7 +223,7 @@ Each part keeps what belongs to its pages: the bookmarks, form fields, links and
 
 ### 5.4 Rotate & Reorder
 
-Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. **Delete** removes the selected pages after asking; it is off while every page is selected. Each turn, move, drag and delete changes the document at once. **Extract to a new PDF** writes the selected pages, as they are, to a new file and leaves the document as it is. **Undo** (or `Ctrl+Z`) takes back the document's last edit. **Save PDF** (or `Ctrl+S`) writes the document over its file; it keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
+Open a PDF, click a thumbnail to select that page (`Ctrl`- or `Shift`-click to select several), then use **↺ 90° CCW**, **↻ 90° CW**, or **⤢ 180°** to rotate the selection, or **← Move Left / Move Right →** to change its position. A thumbnail can also be dragged to a new place. **Delete** removes the selected pages after asking; it is off while every page is selected. Each turn, move, drag and delete changes the document at once. **Extract to a new PDF** writes the selected pages, as they are, to a new file and leaves the document as it is. **Undo** (or `Ctrl+Z`) takes back the document's last edit. **Save** in the document bar (or `Ctrl+S`) writes the document over its file; it keeps its bookmarks, form fields, links, layers, properties and XMP, and each page keeps its page label.
 
 ### 5.5 Split by Bookmarks
 
@@ -268,7 +268,7 @@ Choose a target size (A4, A3, A5, Letter, Legal, Tabloid), an orientation (Portr
 
 The page has two groups.
 
-- **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Protect PDF**. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions.
+- **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Apply**. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions.
 - **Remove Password:** enter the current password and click **Remove Password**.
 
 Both set the document's protection, as one edit `Ctrl+Z` takes back: **Save** or **Save as** writes the file with it (the status line says so), and later saves keep it. A protected PDF is opened with its password (Section 5), so changing its password asks for nothing more; removing it asks for the current password in **Current password**. A file with an owner password only (none to open it) is changed without asking for the owner password, as before.
@@ -287,7 +287,7 @@ Choose one of six positions on the page outline (top or bottom; left, centre, or
 
 ### 5.14 PDF Tools
 
-Choose a tool under **Tool**; the main button takes its name. Each changes the open document; Save writes it whole, so what it removed does not stay inside it.
+Choose a tool under **Tool**, then click **Apply**. Each changes the open document; Save writes it whole, so what it removed does not stay inside it.
 
 - **Repair** uses the file as MuPDF opened it (it rebuilds a damaged cross-reference table while opening) and cleans it, without compressing its images. The status line says whether damage was found. Pages that cannot be recovered are lost.
 - **Sanitise** removes, as its switches choose (all on): **JavaScript** (the document's scripts and those of its links and fields), **Embedded files** (attachments and file-attachment comments), **XMP metadata**, and **Links that run actions** (launch a program or a file). Web links and what the pages show are kept. The message lists what was removed.
@@ -299,17 +299,17 @@ Choose a tool under **Tool**; the main button takes its name. Each changes the o
 Runs Tesseract on each selected page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract (see Section 4.3).
 
 - **Language:** the button names the chosen languages ("Italian + English"); click it for a ticked list of the languages Tesseract has installed (page orientation and maths data are left out). Tick every language the text uses and only those: an extra language can make Tesseract read some words worse. The first ticked one leads, and at least one stays ticked. The list starts with Windows' display language the first time, then with the language of the last run; Preferences sets it too.
-- **Render DPI:** it starts at the Preferences OCR DPI, 200 by default (limited to 72–400). Measured on simulated scans (2026-10-22), 200 read best: at 150 Tesseract skipped rows of small text, and at 300 text grew too big for it and fewer words were read.
+- **Render DPI:** a number box; it starts at the Preferences OCR DPI, 200 by default (limited to 72–400). Measured on simulated scans (2026-10-22), 200 read best: at 150 Tesseract skipped rows of small text, and at 300 text grew too big for it and fewer words were read.
 - **Overlay** (invisible text layer): the recognised words are added to the open document's pages as invisible text, the pages otherwise unchanged. Words Tesseract recognises with low confidence are left out.
-- **Text-only PDF:** a new PDF (it asks for a file name) with the recognised plain text on A4 pages, without the page images; the document stays as it is.
+- **Text-only PDF:** the main button reads **Make text-only PDF** (with **Overlay** it reads **Apply**): a new PDF (it asks for a file name) with the recognised plain text on A4 pages, without the page images; the document stays as it is.
 
 ### 5.16 Edit Text
 
-Open a PDF, click a text block, edit it in the panel at the right, and click **Apply Edit**. The new text is wrapped to the block's width and drawn in the block's font when that is one of the PDF built-in fonts, otherwise in Helvetica (the status line says so), so the typeface may change. `Ctrl+Z` or the rail's **Undo** undoes the last edit; **Save** or `Ctrl+S` writes the file.
+Open a PDF, click a text block, edit it in the panel at the right, and click **Apply Edit**. The new text is wrapped to the block's width and drawn in the block's font when that is one of the PDF built-in fonts, otherwise in Helvetica (the status line says so), so the typeface may change. `Ctrl+Z` or the rail's **Undo** undoes the last edit; **Save** in the document bar (or `Ctrl+S`) writes the file.
 
 ### 5.17 Find & Replace
 
-Enter the text to find in the panel, click **Find All** (or press `Enter`), and step through matches with **◀ Prev / Next ▶**. **Replace All** replaces every match on all pages. Matching is case-sensitive, and a phrase broken across a line counts as one match. `Ctrl+Z` undoes the last Replace All; **Save** or `Ctrl+S` writes the file.
+Enter the text to find in the panel, click **Find All** (or press `Enter`), and step through matches with **◀ Prev / Next ▶**. **Replace All** replaces every match on all pages. Matching is case-sensitive, and a phrase broken across a line counts as one match. `Ctrl+Z` undoes the last Replace All; **Save** in the document bar (or `Ctrl+S`) writes the file.
 
 ### 5.18 Annotate
 
@@ -350,7 +350,7 @@ Doc / Text → PDF is now part of Other → PDF (Section 5.21).
 | Default output folder | The starting folder of every save and output-folder dialog. Empty: the folder last used in this session, or else the current document's folder |
 | Max recent files shown | Number of cards on the Home screen (1–50) |
 | Colour mode | light, dark, or system (Section 4.2) |
-| OCR DPI | Starting DPI of OCR and Batch → OCR, 200 by default (72–600; each slider clamps it to its own range) |
+| OCR DPI | Starting DPI of OCR and Batch → OCR, 200 by default (72–600; each tool's box keeps it within its own range) |
 | Export DPI | Starting DPI of PDF → Other's PNG/JPEG/PPTX exports, 200 by default (72–600) |
 | Default compress level | Starting level of Compress and Batch → Compress |
 | OCR language | Starting language(s) of OCR and Batch → OCR, from the installed ones; until one is chosen, Windows' display language when installed, else English. Each OCR run sets it to the language it used |
@@ -503,6 +503,7 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **New:** one document per window (owner, 2026-10-23): every tool works on it and its edits pile up, unsaved, across tools; the title names the file with `*` while unsaved; **Save** (`Ctrl+S`) writes over the file, **Save as** (`Ctrl+Shift+S`) to a new one the document then belongs to, **Print** (`Ctrl+P`) with a page range; `Ctrl+Z` undoes the last edit of any tool, and undoing back to the save point is clean again (Section 4.1).
 - **Changed:** Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, OCR (Overlay) and PDF Tools change the open document instead of asking for a new file; Compress leaves it as it was when no smaller. Password sets the document's protection, written by Save. Rotate & Reorder's turns, moves and deletes, Metadata's fields and the bookmark list apply to the document. Redact's **Apply and save** writes a new redacted copy and the document keeps its boxes; closing with boxes not applied warns.
 - **New:** after a job that writes one PDF, "*name* is ready" with **Continue with it** / **Start over**; opening another tool counts as Continue. Jobs with several outputs ask nothing. Merge, Image → PDF and Batch keep their lists while you move around and empty them after a finished job.
+- **New:** the instant editors (Annotate, Edit Text, Find & Replace, Rotate & Reorder) have no Save of their own: the document bar's **Save** is the one place; the main button of OCR (Overlay), PDF Tools and Password reads **Apply** too, and OCR's Text-only PDF reads **Make text-only PDF**; OCR's Render DPI and PDF → Other's resolution and JPEG quality are number boxes (owner, 2026-10-23).
 - **New:** the document bar has **Save** (its arrow: **Save as…**) and **Print** beside **Open** (owner, 2026-10-23); the main button of Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, Metadata and Bookmarks reads **Apply**, and Metadata's and Bookmarks' **Apply** changes the document without writing the file; Watermark's font size and opacity, Batch → Watermark's opacity and Annotate's opacity are typed in number boxes instead of sliders.
 - **New:** "Save changes to *name*?" (**Save** / **Discard** / **Cancel**) before the document's unsaved edits are replaced, cleared, or closed with the window; changing tool asks nothing.
 - **New:** crash recovery: the document's unsaved edits (with the tools' marks and typed input) are copied while you work, and after a crash the next start asks **Recover unsaved changes?** (**Discard** / **Recover**; Section 4.1).

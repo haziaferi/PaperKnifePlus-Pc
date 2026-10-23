@@ -17,7 +17,7 @@ from ...prefs import DPI_RANGE, PREFS, pref_dpi
 from .. import dialogs
 from ..folder_mode import run_over_folder
 from ..pages import (CollectionPage, LanguagePicker, batch_prototype, card, group_title,
-                     number_box, radio_rows, register_page, spin_box)
+                     number_box, radio_rows, register_page)
 from ..tool_options import PANELS
 from .compress import LEVELS
 
@@ -151,8 +151,7 @@ class BatchPage(CollectionPage):
             row.layout().addWidget(text)
             self.controls["text"] = text
             row = self.setting_row(group, "Size")
-            size = spin_box(1, 999, 60, width=120)
-            row.layout().addWidget(size)
+            size = number_box(row, 1, 999, 60, " pt")
             self.controls["size"] = size
             row = self.setting_row(group, "Opacity")
             opacity = number_box(row, 1, 100, 25, "%")
@@ -164,8 +163,7 @@ class BatchPage(CollectionPage):
             self.controls["lang"] = lang
             row = self.setting_row(group, "DPI")
             lo, hi = DPI_RANGE
-            dpi = spin_box(lo, hi, pref_dpi(lo, hi, "ocr_dpi"), width=120)
-            row.layout().addWidget(dpi)
+            dpi = number_box(row, lo, hi, pref_dpi(lo, hi, "ocr_dpi"), " DPI")
             self.controls["dpi"] = dpi
 
     def options(self) -> dict:

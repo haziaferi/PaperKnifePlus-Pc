@@ -11,10 +11,11 @@ from qfluentwidgets import InfoBar, InfoBarPosition
 from ...core import ocr as core_ocr
 from ...pages import selected_pages
 from .. import bridge
-from ..pages import (SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, muted_caption,
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, muted_caption,
                      register_page)
 from ..tool_options import OCR_MODES as MODES  # noqa: F401
 from ..tool_options import OcrOptions
+TEXT_ONLY_ACTION = "Make text-only PDF"     # a new file: a verb naming it, not Apply
 MISSING_TITLE = "⚠  pytesseract not installed"
 MISSING_TEXT = ("Install it with:  pip install pytesseract\n"
                 "Then install the Tesseract binary from:\n"
@@ -41,7 +42,7 @@ class OCRPage(PagePickPage):
                 if w is not None:
                     w.hide()
         self.settings.addStretch(1)
-        self.run_button = self.primary("Run OCR", self.run)
+        self.run_button = self.primary(APPLY, self.run)
         self.run_button.setEnabled(self.available)
         if self.available:
             if batch_prototype() == "B":
@@ -53,8 +54,9 @@ class OCRPage(PagePickPage):
     def _build_options(self):
         s = self.settings
         o = self.opts = OcrOptions(s, self.setting_row, parent=self)
-        self.lang, self.dpi, self.dpi_label = o.lang, o.dpi, o.dpi_label
+        self.lang, self.dpi = o.lang, o.dpi
         self.mode_group, self.modes = o.mode_group, o.modes
+        self.mode_group.buttonToggled.connect(self._mode_changed)
 
         self.pages_title = group_title("Pages")
         s.addWidget(self.pages_title)
@@ -79,6 +81,10 @@ class OCRPage(PagePickPage):
         super()._selection_changed()
         if not getattr(self, "available", True) and hasattr(self, "run_button"):
             self.run_button.setEnabled(False)       # without Tesseract, never
+
+    def _mode_changed(self, *_):
+        # Overlay changes the document (Apply); Text-only makes a new file.
+        self.run_button.setText(TEXT_ONLY_ACTION if self.text_only else APPLY)
 
     @property
     def text_only(self) -> bool:

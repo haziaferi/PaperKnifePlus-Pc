@@ -47,7 +47,6 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.mark_rail("find")
         self.secondary("Find All", self.find_all)
         self.secondary("Replace All", self.replace_all)
-        self.primary("Save", self.save)
         self.build_panel()
         self.show_current()
 

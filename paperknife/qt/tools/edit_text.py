@@ -37,7 +37,6 @@ class EditTextPage(WorkspaceDoc, WorkspacePage):
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.mark_rail("select")
-        self.primary("Save", self.save)
         self.view.pressed.connect(self._mouse_down)
         self.view.released.connect(self._mouse_up)
         self.build_panel()
