@@ -9,7 +9,7 @@ from qfluentwidgets import LineEdit
 
 from ...core import metadata as core
 from .. import dialogs
-from ..pages import HeldDoc, ToolPage, card, group_title, register_page, setting_row
+from ..pages import APPLY, SAVE_NOTE, HeldDoc, ToolPage, card, group_title, register_page, setting_row
 
 
 @register_page("MetadataTool")
@@ -36,7 +36,7 @@ class MetadataPage(HeldDoc, ToolPage):
             self.fields[key] = edit
         self.body.addStretch(1)
         self.secondary("Clear all fields", self.clear)
-        self.primary("Save", self.save)
+        self.primary(APPLY, self.apply)
 
     # ── document ─────────────────────────────────────────────────────────────
     def _load(self, path: str):
@@ -112,6 +112,19 @@ class MetadataPage(HeldDoc, ToolPage):
     def clear(self):
         for edit in self.fields.values():
             edit.setText("")
+
+    # ── Apply (the card's action): the typed fields into the document ──
+    def apply(self) -> bool:
+        if self._doc is None:
+            dialogs.warning("Apply", "Open a PDF first.")
+            return False
+        if not self.has_pending():
+            self.window_.set_status("No changes to apply")
+            return True
+        if not self.commit_edits():
+            return False
+        self.window_.set_status("✓  Metadata applied" + SAVE_NOTE, "success")
+        return True
 
     # ── save (the window's: the fields are applied first) ─────────────────────
     def save(self, after=None):

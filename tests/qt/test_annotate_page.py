@@ -64,7 +64,7 @@ def test_panel_follows_the_tool(window, tmp_path):
     page, _ = _open(window, tmp_path)
     page.set_kind("highlight")
     pump(0.05)                             # widgets added to a shown panel show next turn
-    slider = page.opacity_slider
+    slider = page.opacity_box
     assert slider.isVisibleTo(page)
     page.set_kind("note")
     pump(0.05)
@@ -73,7 +73,7 @@ def test_panel_follows_the_tool(window, tmp_path):
     assert not _shown(slider, page), "the highlight's opacity row is still shown for a note"
     page.set_kind("highlight")
     pump(0.05)
-    assert page.opacity_slider.isVisibleTo(page)
+    assert page.opacity_box.isVisibleTo(page)
     assert not _shown(text_edit, page), "the note's text row is still shown for a highlight"
 
 

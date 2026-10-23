@@ -17,7 +17,7 @@ from ...prefs import DPI_RANGE, PREFS, pref_dpi
 from .. import dialogs
 from ..folder_mode import run_over_folder
 from ..pages import (CollectionPage, LanguagePicker, batch_prototype, card, group_title,
-                     labelled_slider, radio_rows, register_page, spin_box)
+                     number_box, radio_rows, register_page, spin_box)
 from ..tool_options import PANELS
 from .compress import LEVELS
 
@@ -155,8 +155,7 @@ class BatchPage(CollectionPage):
             row.layout().addWidget(size)
             self.controls["size"] = size
             row = self.setting_row(group, "Opacity")
-            opacity = labelled_slider(row, 1, 100, 25, "%", width=110, label_width=40,
-                                      fixed=False)
+            opacity = number_box(row, 1, 100, 25, "%")
             self.controls["opacity"] = opacity
         elif op == "OCR":
             row = self.setting_row(group, "Language")

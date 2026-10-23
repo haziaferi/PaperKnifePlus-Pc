@@ -308,14 +308,17 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, sw_.indicator), P.role("on_accent"), "switch knob on")
     sw_.setChecked(False)
 
-    # ── Watermark: slider, line edit focus ──
-    page = _open(win, "WatermarkTool")
+    # ── OCR: slider (Watermark's are number boxes since 2026-10-23) ──
+    page = _open(win, "OCRTool")
     img = _grab(win)
     slider = _find(page, "Slider")
     _has(img, _rect(win, slider), P.role("accent_fill"), "slider fill")
     _has(img, _rect(win, slider), P.role("track"), "slider groove")
     _has(img, _rect(win, slider.handle), P.routed(((69, 69, 69) if dark else (255, 255, 255)) + (255,),
                                                   "control"), "slider handle ring")
+
+    # ── Watermark: line edit focus ──
+    page = _open(win, "WatermarkTool")
     win.activateWindow()
     page.text.setFocus()
     pump(0.1)

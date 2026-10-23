@@ -398,6 +398,21 @@ def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
     return s
 
 
+NUMBER_BOX_W = 150      # every number box one width: "120 pt" and its arrows
+
+
+def number_box(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
+               width: int = NUMBER_BOX_W):
+    """A number typed in (owner, 2026-10-23: Font size and Opacity as boxes, not
+    sliders, so an exact value can be typed): a spin_box from *lo* to *hi* at
+    *value*, *unit* after the number, added to *row* (a setting_row's control)."""
+    sb = spin_box(lo, hi, value, width=width)
+    sb.setFixedWidth(width)
+    sb.setSuffix(unit)
+    row.layout().addWidget(sb)
+    return sb
+
+
 def spin_box(lo: int, hi: int, value: int, width: int = 160):
     """A Fluent SpinBox that shows its number.
 
@@ -3178,6 +3193,7 @@ class OrganiserPage(ToolPage):
 # ── Tools that act on chosen pages (owner, 2026-10-17) ───────────────────────
 # A tool applied in place: its status ends so (the edit is unsaved, 2026-10-23).
 SAVE_NOTE = " · Save writes it to the file"
+APPLY = "Apply"         # the card's action on a tool that changes the open document (step 5 E)
 ALL_PAGES = "all"
 NO_PAGES = "Select at least one page."
 PICK_HINT = "Click pages to choose them · Ctrl / Shift for several"

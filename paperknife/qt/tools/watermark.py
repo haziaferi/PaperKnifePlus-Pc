@@ -7,7 +7,7 @@ from __future__ import annotations
 from ...core import enhance as core_enhance
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, register_page
+from ..pages import APPLY, SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, register_page
 from ..tool_options import DEFAULT_COLOR, WatermarkOptions  # noqa: F401
 
 
@@ -18,8 +18,7 @@ class WatermarkPage(PagePickPage):
                          tool=tool, window=window)
         s = self.settings
         o = self.opts = WatermarkOptions(s, self.setting_row, parent=self)
-        self.text, self.size, self.size_label = o.text, o.size, o.size_label
-        self.opacity, self.opacity_label = o.opacity, o.opacity_label
+        self.text, self.size, self.opacity = o.text, o.size, o.opacity
         self.swatch, self.pick_button = o.swatch, o.pick_button
 
         self.pages_title = group_title("Pages")
@@ -29,7 +28,7 @@ class WatermarkPage(PagePickPage):
         self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
         s.addStretch(1)
-        self.primary("Apply Watermark", self.run)
+        self.primary(APPLY, self.run)
         if batch_prototype() == "B":
             from ..folder_mode import FolderMode
             FolderMode(self, self.opts, "watermark", "Watermark", self.columns, self.grid_card,

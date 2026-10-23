@@ -30,12 +30,13 @@ def _spans(page):
 def test_the_page_builds_with_the_ctk_defaults(window):
     page = _page(window)
     assert page.title_label.text() == "Watermark"
-    assert page.size.value() == 60 and page.size_label.text() == "60 pt"
-    assert page.opacity.value() == 25 and page.opacity_label.text() == "25%"
+    # Owner, 2026-10-23: number boxes, not sliders, so a value can be typed.
+    assert page.size.value() == 60 and page.size.text() == "60 pt"
+    assert page.opacity.value() == 25 and page.opacity.text() == "25%"
     assert page.color == (128, 128, 128)
     page.size.setValue(90)
     page.opacity.setValue(40)
-    assert page.size_label.text() == "90 pt" and page.opacity_label.text() == "40%"
+    assert page.size.text() == "90 pt" and page.opacity.text() == "40%"
 
 
 def test_without_a_file_or_text_it_warns(window, dialogs, tmp_path):

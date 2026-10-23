@@ -13,7 +13,7 @@ from qfluentwidgets import ComboBox, LineEdit
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs, theme
-from ..pages import (SAVE_NOTE, PagePickPage, RadioChoice, card, group_title, muted_caption,
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, RadioChoice, card, group_title, muted_caption,
                      radio_button, register_page)
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
@@ -114,7 +114,7 @@ class HeaderFooterPage(PagePickPage):
         self.setting_row(group, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
         s.addStretch(1)
-        self.primary("Apply Header / Footer", self.run)
+        self.primary(APPLY, self.run)
 
     @property
     def pos(self) -> str:

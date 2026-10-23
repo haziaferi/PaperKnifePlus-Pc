@@ -7,7 +7,7 @@ from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import annotate as core_annotate
 from .. import dialogs, theme
-from ..pages import TallSlider, WorkspaceDoc, WorkspacePage, register_page
+from ..pages import NUMBER_BOX_W, WorkspaceDoc, WorkspacePage, register_page, spin_box
 
 # Segoe Fluent Icons code points
 GLYPHS = {"highlight": 0xE7E6, "underline": 0xE8DC, "strikeout": 0xEDE0, "rect": 0xE739,
@@ -69,14 +69,12 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             row.addStretch(1)
         if self.kind not in ("note", "freetext"):
             row = self.panel_field("Opacity")
-            self.opacity_slider = TallSlider(self.zoom_slider.orientation())
-            self.opacity_slider.setRange(10, 100)
-            self.opacity_slider.setValue(self.opacity)
-            lbl = BodyLabel(f"{self.opacity}%")
-            self.opacity_slider.valueChanged.connect(
-                lambda v: (setattr(self, "opacity", v), lbl.setText(f"{v}%")))
-            row.addWidget(self.opacity_slider, 1)
-            row.addWidget(lbl)
+            self.opacity_box = spin_box(10, 100, self.opacity, width=NUMBER_BOX_W)
+            self.opacity_box.setFixedWidth(NUMBER_BOX_W)
+            self.opacity_box.setSuffix("%")
+            self.opacity_box.valueChanged.connect(lambda v: setattr(self, "opacity", v))
+            row.addWidget(self.opacity_box)
+            row.addStretch(1)
         if self.kind in ("note", "freetext"):
             row = self.panel_field("Text")
             self.text_edit = LineEdit()

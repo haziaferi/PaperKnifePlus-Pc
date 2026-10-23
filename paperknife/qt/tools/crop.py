@@ -10,7 +10,7 @@ from qfluentwidgets import LineEdit
 from ...core import crop as core
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (SAVE_NOTE, PagePickPage, Refusal, card, group_title, muted_caption,
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, Refusal, card, group_title, muted_caption,
                      register_page, toggle_switch)
 
 # (key, row name), in the order the rows are shown
@@ -59,7 +59,7 @@ class CropPage(PagePickPage):
         self.setting_row(pages, "Reset to full media box first",
                          "undo previous crops").layout().addWidget(self.reset)
         s.addStretch(1)
-        self.primary("Crop", self.run)
+        self.primary(APPLY, self.run)
 
     def run(self):
         src = self.chosen_file("Crop")

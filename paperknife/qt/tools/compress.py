@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import enhance as core_enhance
-from ..pages import ToolPage, batch_prototype, register_page, setting_row
+from ..pages import APPLY, ToolPage, batch_prototype, register_page, setting_row
 from ..tool_options import LEVELS, CompressOptions  # noqa: F401  (LEVELS: Batch's)
 
 
@@ -32,7 +32,7 @@ class CompressPage(ToolPage):
         self.opts = CompressOptions(self.body, setting_row, parent=self)
         self.level_group, self.radios = self.opts.level_group, self.opts.radios
         self.body.addStretch(1)
-        self.primary("Compress", self.run)
+        self.primary(APPLY, self.run)
         if batch_prototype() == "B":
             from ..folder_mode import FolderMode
             FolderMode(self, self.opts, "compress", "Compress", self.body, self.drop_target)

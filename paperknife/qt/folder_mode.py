@@ -195,7 +195,8 @@ class FolderMode:
                 w.setVisible(not on)
         db = page.doc_bar
         db.open_control.setVisible(not on)
-        db.chip.setVisible(not on)
+        for w in db.document_controls():
+            w.setVisible(not on and bool(page.document_path()))
         for b in page._buttons:
             if getattr(b, "pk_primary", False):
                 b.setEnabled(True if on else b.isEnabled())

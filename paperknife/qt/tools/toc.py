@@ -7,7 +7,7 @@ from qfluentwidgets import ComboBox, FluentIcon, LineEdit, PushButton
 
 from ...core import organise
 from .. import dialogs
-from ..pages import HeldDoc, MasterDetailPage, register_page
+from ..pages import APPLY, SAVE_NOTE, HeldDoc, MasterDetailPage, register_page
 
 LEVELS = ["1", "2", "3", "4"]
 
@@ -33,7 +33,7 @@ class TocPage(HeldDoc, MasterDetailPage):
         self.add_tool("Down", FluentIcon.DOWN, lambda: self._move(1), needs_selection=True)
         self.add_tool("Delete", FluentIcon.DELETE, self._delete, needs_selection=True)
         self._build_detail()
-        self.primary("Save PDF", self.save)
+        self.primary(APPLY, self.apply)
 
     # ── detail column ────────────────────────────────────────────────────────
     def _build_detail(self):
@@ -191,6 +191,19 @@ class TocPage(HeldDoc, MasterDetailPage):
 
     def delete(self):
         self._delete()
+
+    # ── Apply (the card's action): the typed list into the document ──
+    def apply(self) -> bool:
+        if self._doc is None:
+            dialogs.warning("Apply", "Open a PDF first.")
+            return False
+        if not self.has_pending():
+            self.window_.set_status("No changes to apply")
+            return True
+        if not self.commit_edits():
+            return False
+        self.window_.set_status("✓  Bookmarks applied" + SAVE_NOTE, "success")
+        return True
 
     # ── save (the window's: the list is applied first) ───────────────────────
     def save(self, after=None):

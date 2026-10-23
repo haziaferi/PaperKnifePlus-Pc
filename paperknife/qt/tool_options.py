@@ -15,7 +15,8 @@ from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 from ..core import convert as core_convert
 from ..prefs import _DEFAULTS, PREFS, pref_dpi
 from . import dialogs, theme
-from .pages import LanguagePicker, card, group_title, labelled_slider, radio_rows
+from .pages import (LanguagePicker, card, group_title, labelled_slider, number_box,
+                    radio_rows)
 
 
 class Panel:
@@ -87,14 +88,10 @@ class WatermarkOptions(Panel):
         row.layout().addWidget(self.text)
 
         row = self.row(group, "Font size")
-        self.size = labelled_slider(row, 18, 120, 60, " pt", width=120, label_width=52,
-                                    fixed=False)
-        self.size_label = self.size.value_label
+        self.size = number_box(row, 18, 120, 60, " pt")
 
         row = self.row(group, "Opacity")
-        self.opacity = labelled_slider(row, 5, 100, 25, "%", width=120, label_width=52,
-                                       fixed=False)
-        self.opacity_label = self.opacity.value_label
+        self.opacity = number_box(row, 5, 100, 25, "%")
 
         row = self.row(group, "Colour")
         self.color = DEFAULT_COLOR
