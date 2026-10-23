@@ -35,8 +35,8 @@ import os
 from pathlib import Path
 
 import pymupdf as fitz
-from PySide6.QtCore import (QEasingCurve, QEvent, QItemSelectionModel, QObject, QPoint, Qt, QTimer,
-                            QVariantAnimation, Signal)
+from PySide6.QtCore import (QEasingCurve, QEvent, QItemSelectionModel, QObject, QPoint, QSize, Qt,
+                            QTimer, QVariantAnimation, Signal)
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFrame, QHBoxLayout, QLayout, QListView,
                                QListWidget, QListWidgetItem, QSizePolicy, QVBoxLayout, QWidget)
@@ -436,10 +436,16 @@ class LanguagePicker(QWidget):
         super().__init__(parent)
         self._installed = list(core_ocr.installed_languages() if installed is None else installed)
         self._chosen: list[str] = []
+        self._width = width
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         self.button = DropDownPushButton(self)
-        self.button.setFixedWidth(width)
+        # As wide as it is given, up to *width*: a stacked row (the 200 px card) sizes
+        # a control by its hint, and the button's own hint is its text, so it shrank to
+        # "Italian" and cut "Italian + English" to "Italian ..." (the live check,
+        # 2026-10-23).  The text is shortened again at each resize.
+        self.button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.button.setMaximumWidth(width)
         lay.addWidget(self.button)
         self.menu = CheckableMenu(parent=self.button, indicatorType=MenuIndicatorType.CHECK)
         self.button.setMenu(self.menu)
@@ -469,11 +475,25 @@ class LanguagePicker(QWidget):
             a.toggled.connect(lambda on, c=code: self._toggle(c, on))
             self.menu.addAction(a)
             self.actions_by_code[code] = a
-        full = " + ".join(core_ocr.lang_name(c) for c in self._chosen)
+        self._relabel()
+
+    def _full_label(self) -> str:
+        from ..core import ocr as core_ocr
+        return " + ".join(core_ocr.lang_name(c) for c in self._chosen)
+
+    def _relabel(self):
+        full = self._full_label()
         fm = self.button.fontMetrics()
         room = self.button.width() - 44                  # the arrow and the padding
         self.button.setText(fm.elidedText(full, Qt.ElideRight, max(40, room)))
         self.button.setToolTip(full)
+
+    def sizeHint(self):
+        return QSize(self._width, self.button.sizeHint().height())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._relabel()
 
     def _toggle(self, code: str, on: bool):
         self._chosen_explicitly = True

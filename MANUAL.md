@@ -138,7 +138,7 @@ The OCR tool requires the Tesseract OCR engine to be installed separately. Paper
    - Click **Environment Variables** → select **Path** under User variables → **Edit**.
    - Click **New** and paste the Tesseract installation path.
    - Click **OK** on all dialogs, then restart PaperKnife+ PC.
-4. In Preferences, set the OCR language code (e.g., `eng` for English, `ita` for Italian, `deu` for German). Multiple codes can be combined: `eng+ita`. The OCR tool and Batch → OCR start with this code; you can change it per run.
+4. The OCR tool, Batch → OCR and Preferences choose the language from a list of the languages Tesseract has installed (Section 5.15). The first time it is Windows' display language when installed, otherwise English; after that, the language of the last OCR run.
 
 ---
 
@@ -189,6 +189,8 @@ A password-protected PDF asks for its open password when it is opened. The passw
 ### 5.1 Read / Preview
 
 A view-only viewer of the current document: open a PDF with the document bar's **Open**, `Ctrl+O` or the empty page's target, scroll through all pages continuously, and change the size with the **Zoom** slider (50–300 %) or `Ctrl` + mouse wheel. The strip under the pages shows which pages are in view; its arrows jump one page.
+
+A newly opened file whose widest page does not fit the view (a landscape page) opens zoomed to the width of the view; the zoom is never raised for this, and reopening the same file keeps your zoom. A file whose first pages hold pictures but no text shows a bar, "**Scanned PDF** · No searchable text.", with **Run OCR**, which opens OCR (Section 5.15) on that file; ✕ closes the bar, and it is shown once per file.
 
 ### 5.2 Merge
 
@@ -290,7 +292,7 @@ Choose a tool under **Tool**; the main button takes its name. Each writes a new 
 
 Runs Tesseract on each selected page to make scanned PDFs searchable and copy-pasteable. Requires Tesseract (see Section 4.3).
 
-- **Language code:** must match the document language. It starts with the code from Preferences; change it per run.
+- **Language:** the button names the chosen languages ("Italian + English"); click it for a ticked list of the languages Tesseract has installed (page orientation and maths data are left out). Tick every language the text uses and only those: an extra language can make Tesseract read some words worse. The first ticked one leads, and at least one stays ticked. The list starts with Windows' display language the first time, then with the language of the last run; Preferences sets it too.
 - **Render DPI:** it starts at the Preferences OCR DPI, 200 by default (limited to 72–400). Measured on simulated scans (2026-10-22), 200 read best: at 150 Tesseract skipped rows of small text, and at 300 text grew too big for it and fewer words were read.
 - **Overlay** (invisible text layer): the original page is kept unchanged and the recognised words are added on top as invisible text. Words Tesseract recognises with low confidence are left out.
 - **Text-only PDF:** a new PDF with the recognised plain text on A4 pages, without the page images.
@@ -305,11 +307,11 @@ Enter the text to find in the panel, click **Find All** (or press `Enter`), and 
 
 ### 5.18 Annotate
 
-Pick one of seven tools on the rail — **Highlight**, **Underline**, **Strikeout**, **Rectangle**, **Line**, **Note**, **Text box** — and drag (or click) on the page. **Note** and **Text box** use the text in the panel's **Text** field. Set **Colour** (**Choose**; not for Note) and **Opacity** (10–100 %; not for Note or Text box) before drawing, and **Zoom** to change the view. Click an existing annotation to select it, then **Remove** in the panel (or `Delete`) to delete it; the rail's **Undo** (or `Ctrl+Z`) removes the last annotation you added. Click **Save** to write the file.
+Pick one of seven tools on the rail — **Highlight**, **Underline**, **Strikeout**, **Rectangle**, **Line**, **Note**, **Text box** — and drag (or click) on the page. A Highlight, Underline or Strikeout dragged straight along a line of text takes the height of that line; dragged along empty paper it adds nothing and the status line says so. **Note** and **Text box** use the text in the panel's **Text** field. Set **Colour** (**Choose**; not for Note) and **Opacity** (10–100 %; not for Note or Text box) before drawing, and **Zoom** to change the view. Click an existing annotation to select it, then **Remove** in the panel (or `Delete`) to delete it; the rail's **Undo** (or `Ctrl+Z`) removes the last annotation you added. Click **Save** to write the file.
 
 ### 5.19 Redact
 
-Choose **Draw box** on the rail and drag boxes over content, or choose **Find & redact text**, type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. The panel lists the pending boxes: **Remove** (or `Delete`) drops the selected one, and the rail's **Undo last** (or `Ctrl+Z`) the last one added. With no box drawn but pages moved, turned or deleted in the page strip, **Apply and save** asks "Save the page changes? No redaction boxes are drawn." and writes the file. **Apply and save** asks for confirmation and a file name, then permanently removes the text, image pixels and drawings under the boxes, plus any annotations or form fields they touch. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
+Choose **Draw box** on the rail and drag boxes over content, or choose **Find & redact text**, type an exact phrase and click **Mark all** to mark every occurrence in the document. Choose a **Black** or **White** fill. The panel counts the pending boxes and lists them, up to five rows before the list scrolls (with none, there is no list and **Remove** is off): **Remove** (or `Delete`) drops the selected one, and the rail's **Undo last** (or `Ctrl+Z`) the last one added. With no box drawn but pages moved, turned or deleted in the page strip, **Apply and save** asks "Save the page changes? No redaction boxes are drawn." and writes the file. **Apply and save** asks for confirmation and a file name, then permanently removes the text, image pixels and drawings under the boxes, plus any annotations or form fields they touch. A drawing that crosses a box edge — a table border, a chart line, a signature, a logo — is cut at the edge: the part inside the box is destroyed and the part outside stays as it was. If a page's drawings cannot be read reliably, every drawing a box touches is removed whole instead, and the status bar says so. If even that cannot empty the boxes (a gradient mesh, a soft mask), the page is replaced by an image of itself and a warning says its text is no longer selectable. On save, each redacted phrase is also removed from the document properties, XMP metadata, bookmark titles, annotations, form fields, and attachments, and the message lists what was changed.
 
 ### 5.20 Metadata
 
@@ -339,13 +341,13 @@ Doc / Text → PDF is now part of Other → PDF (Section 5.21).
 
 | Setting | Used by |
 |---|---|
-| Default output folder | The starting folder of every save and output-folder dialog |
+| Default output folder | The starting folder of every save and output-folder dialog. Empty: the folder last used in this session, or else the current document's folder |
 | Max recent files shown | Number of cards on the Home screen (1–50) |
 | Colour mode | light, dark, or system (Section 4.2) |
 | OCR DPI | Starting DPI of OCR and Batch → OCR, 200 by default (72–600; each slider clamps it to its own range) |
 | Export DPI | Starting DPI of PDF → Other's PNG/JPEG/PPTX exports, 200 by default (72–600) |
 | Default compress level | Starting level of Compress and Batch → Compress |
-| OCR language code | Starting language of OCR and Batch → OCR |
+| OCR language | Starting language(s) of OCR and Batch → OCR, from the installed ones; until one is chosen, Windows' display language when installed, else English. Each OCR run sets it to the language it used |
 
 Click **Save Preferences** (or `Ctrl+S`) to keep changes; **Restore defaults** resets them after asking.
 
@@ -497,7 +499,11 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **New:** navigation groups fold under their title (click, `Enter` or `Space`); the folded groups are kept in `prefs.json`, and a search still finds tools in them.
 - **Fixed:** Rotate & Reorder, Split and Split by Bookmarks dropped the form fields (Rotate & Reorder), bookmarks, page labels, layers, document properties, XMP and the links to named destinations; Merge dropped all of them but the form fields. Merge now writes a bookmark per input file (Section 5.2).
 - **Fixed:** Password kept a typed password after a cancelled save dialog or a refused attempt; its fields are now emptied at every end of an attempt.
-- **Unchanged:** the same 26 tools, and the same `prefs.json` and `recent.json`.
+- **New:** OCR's language is chosen from the installed languages, one or several (it was a typed code), starting from Windows' display language and then the last one used; OCR and the image exports each have their own DPI preference, both 200 by default (one shared 150 before; a saved 150 becomes 200, any other saved value is kept for both).
+- **New:** a scanned PDF opened in Read / Preview shows "Scanned PDF · No searchable text." with **Run OCR**; a landscape page opens fitted to the view's width.
+- **Changed:** a dialog with no folder set or used yet starts in the current document's folder; a Highlight, Underline or Strikeout dragged along a line marks that line; Redact's list of pending boxes is as tall as its boxes; PDF Tools' descriptions are shorter (the full ones are in Section 5.14).
+- **Fixed:** a Highlight, Underline or Strikeout dragged straight along a line failed ("bad quads entry"); Redact's "0 boxes pending" was drawn in near-invisible grey.
+- **Unchanged:** the same 26 tools, the same `recent.json`, and `prefs.json` but for the DPI and OCR language keys above.
 - **Removed:** the `customtkinter` and `tkinterdnd2` dependencies.
 
 ### v3.2.2

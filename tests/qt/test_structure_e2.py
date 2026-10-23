@@ -343,3 +343,20 @@ def test_pdf_tools_card_fits_a_maximized_window(e2win):
     host.pick("PdfToolsTool")
     pump(0.4)
     assert host.options_stack.currentWidget().vScrollBar.maximum() == 0
+
+
+def test_language_picker_keeps_its_width_in_the_card(e2win):
+    """The card's stacked rows size a control by its hint; the picker's button hinted
+    at its text, shrank to "Italian" and showed "Italian + English" as "Italian ..."
+    (the live check, 2026-10-23).  It keeps its full width there."""
+    host = host_of(e2win)
+    host.pick("OCRTool")
+    pump(0.4)
+    picker = host.current_tool().lang
+    picker.setText("ita")                                    # a short name: a short hint
+    pump(0.2)
+    assert picker.button.width() == 160, picker.button.width()   # its own width, not the text's
+    picker.setText("ita+eng")
+    pump(0.2)
+    assert picker.button.width() == 160
+    assert picker.button.toolTip() == "Italian + English"
