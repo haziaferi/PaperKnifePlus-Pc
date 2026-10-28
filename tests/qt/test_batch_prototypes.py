@@ -185,3 +185,30 @@ def test_a_is_today(proto):
     assert w.current_page().__dict__.get("_folder_mode") is None
     w.open_tool("BatchTool")
     assert hasattr(w.current_page(), "op")
+
+
+@pytest.mark.parametrize("tool", ["CompressTool", "WatermarkTool", "OCRTool", "Pdf2DocTool"])
+def test_b_a_folder_names_its_action_as_batch_does_and_hides_save(proto, tmp_path, tool):
+    """A folder makes new files: its action is not Apply (step 5's rule), and the
+    document bar's Save / Print go with the document."""
+    w = proto("B")
+    assert w.open_tool(tool, make_pdf(tmp_path / "in.pdf"))
+    page = w.current_page()
+    fm = page.__dict__.get("_folder_mode")
+    if fm is None:
+        pytest.skip("no OCR engine: the page only says how to get it")
+    primary = next(b for b in page._buttons if b.pk_primary)
+    before = primary.text()
+    fm.set_folder(True)
+    pump(0.05)
+    assert primary.text() == "Run Batch"
+    bar = page.doc_bar
+    assert not bar.save_control.isVisibleTo(page) and not bar.print_button.isVisibleTo(page)
+    if tool == "OCRTool":                           # its output mode does not rename it
+        page.modes["text"].click()
+        assert primary.text() == "Run Batch"
+        page.modes["overlay"].click()
+    fm.set_folder(False)
+    pump(0.05)
+    assert primary.text() == before
+    assert bar.save_control.isVisibleTo(page) and bar.print_button.isVisibleTo(page)

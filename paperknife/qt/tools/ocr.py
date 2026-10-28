@@ -84,6 +84,9 @@ class OCRPage(PagePickPage):
 
     def _mode_changed(self, *_):
         # Overlay changes the document (Apply); Text-only makes a new file.
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.on:
+            return                                  # a folder: the folder mode names it
         self.run_button.setText(TEXT_ONLY_ACTION if self.text_only else APPLY)
 
     @property

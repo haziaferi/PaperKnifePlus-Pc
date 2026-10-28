@@ -22,6 +22,7 @@ from . import bridge, dialogs
 from .pages import CollectionRow, card, group_title, muted_caption, plain_card, setting_row
 
 NOT_SET = "Not set…"
+FOLDER_ACTION = "Run Batch"   # a folder makes new files: the Batch screen's verb, not Apply
 EMPTY_TEXT = ("Choose an input folder: its PDFs are listed here, "
               "and each file's result appears beside it during the run.")
 ONE_FILE, A_FOLDER = "One file", "A folder"
@@ -200,6 +201,11 @@ class FolderMode:
         for b in page._buttons:
             if getattr(b, "pk_primary", False):
                 b.setEnabled(True if on else b.isEnabled())
+                if on and not hasattr(b, "pk_document_text"):
+                    b.pk_document_text = b.text()
+                b.setText(FOLDER_ACTION if on else getattr(b, "pk_document_text", b.text()))
+        if not on and hasattr(page, "_mode_changed"):
+            page._mode_changed()                    # OCR: the name follows its output mode
         if not on and hasattr(page, "_selection_changed"):
             page._selection_changed()
         if not on and hasattr(page, "refresh_document"):

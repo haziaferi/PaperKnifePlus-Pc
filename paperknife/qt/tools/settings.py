@@ -7,8 +7,8 @@ from qfluentwidgets import ComboBox, LineEdit, PushButton
 from ...core import settings as core
 from ...prefs import PREFS
 from .. import dialogs, theme
-from ..pages import (LanguagePicker, ToolPage, card, group_title, register_page,
-                     setting_row, spin_box)
+from ..pages import (NUMBER_BOX_W, LanguagePicker, ToolPage, card, group_title, number_box,
+                     register_page, setting_row, spin_box)
 
 APPEARANCES = ["light", "dark", "system"]
 COMPRESS_LEVELS = ["light", "medium", "aggressive"]
@@ -33,6 +33,7 @@ class SettingsPage(ToolPage):
         row.layout().addWidget(browse)
         row = setting_row(general, "Max recent files shown")
         self.max_recent = spin_box(*core.INT_RANGES["max_recent"][1:], PREFS.max_recent)
+        self.max_recent.setFixedWidth(NUMBER_BOX_W)
         row.layout().addWidget(self.max_recent)
 
         # Appearance
@@ -50,11 +51,10 @@ class SettingsPage(ToolPage):
         ops = card(padding=0)
         self.body.addWidget(ops)
         row = setting_row(ops, "OCR DPI")
-        self.ocr_dpi = spin_box(*core.INT_RANGES["ocr_dpi"][1:], PREFS.ocr_dpi)
-        row.layout().addWidget(self.ocr_dpi)
+        self.ocr_dpi = number_box(row, *core.INT_RANGES["ocr_dpi"][1:], PREFS.ocr_dpi, " DPI")
         row = setting_row(ops, "Export DPI (images, slides)")
-        self.export_dpi = spin_box(*core.INT_RANGES["export_dpi"][1:], PREFS.export_dpi)
-        row.layout().addWidget(self.export_dpi)
+        self.export_dpi = number_box(row, *core.INT_RANGES["export_dpi"][1:], PREFS.export_dpi,
+                                     " DPI")
         row = setting_row(ops, "Default compress level")
         self.compress_level = ComboBox()
         self.compress_level.addItems(COMPRESS_LEVELS)

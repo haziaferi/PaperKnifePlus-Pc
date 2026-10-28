@@ -163,3 +163,13 @@ def test_leaving_the_tool_drops_unsaved_changes(window, isolated_prefs):
     assert _page(window) is page
     assert page.ocr_lang.text() == (PREFS.ocr_lang or "eng") != "fra"
     assert not isolated_prefs.exists()
+
+
+def test_the_dpi_preferences_are_number_boxes_like_the_tools(window):
+    # Step 5 (owner, 2026-10-23): one kind of number box, one width, its unit shown.
+    from paperknife.qt.pages import NUMBER_BOX_W
+    page = _page(window)
+    pump(0.05)
+    for box in (page.ocr_dpi, page.export_dpi):
+        assert box.text().endswith(" DPI") and box.width() == NUMBER_BOX_W
+    assert page.max_recent.width() == NUMBER_BOX_W
