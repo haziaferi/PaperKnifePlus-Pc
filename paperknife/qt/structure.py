@@ -677,8 +677,14 @@ class StructureHost(QWidget):
         elif isinstance(page, ToolPage):
             # A form: its cards are the options; the document shows in the viewer.
             if page.drop_target is not None:
-                page.drop_target.setParent(None)
+                # Parked under a widget never shown, not left without a parent: the
+                # page still shows it when its document goes, and a widget with no
+                # parent shows as a window of its own (the live walk, 2026-10-31).
+                if self.__dict__.get("_parked") is None:
+                    self._parked = QWidget()
+                    self._parked.hide()
                 page.drop_target.hide()
+                page.drop_target.setParent(self._parked)
             area = page.scroll_area or page.content
             area.setParent(None)
             if hasattr(area, "setHorizontalScrollBarPolicy"):
@@ -841,6 +847,10 @@ class StructureHost(QWidget):
         self.subtitle_label.setText(os.path.basename(path) if path else "Open a PDF to start")
         if self.viewer is not None and path and self.viewer.document_path() != path:
             self.viewer.load_document(path)
+        elif self.viewer is not None and not path and self.viewer.document_path():
+            # The window let the document go: under a form tool the viewer went on
+            # showing its pages (the live walk, 2026-10-31).
+            self.viewer.clear_document()
 
     def document_path(self) -> str:
         p = self.current_tool()

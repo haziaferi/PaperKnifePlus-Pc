@@ -424,3 +424,33 @@ def test_a_page_grid_redraws_after_another_tool_s_edit_is_undone(e2win, tmp_path
     assert e2win.undo()
     pump(0.2)
     assert shape() == "landscape"
+
+
+@pytest.mark.parametrize("tool", ["PdfToolsTool", "MetadataTool", "PasswordTool", "CompressTool"])
+def test_a_form_tool_s_target_never_opens_a_window_of_its_own(e2win, tool):
+    """The live walk, 2026-10-31: the clear button on PDF Tools left the page empty,
+    and its drop target - taken out of the page by the workspace - showed as a
+    window of its own ("PaperKnife+ PC", "Drop a PDF here or click to choose one")."""
+    from PySide6.QtWidgets import QApplication
+    from paperknife.qt.docui import DropTarget
+    host = host_of(e2win)
+    host.pick(tool)
+    pump(0.15)
+    assert e2win.clear_current_document()
+    pump(0.2)
+    stray = [w for w in QApplication.topLevelWidgets()
+             if isinstance(w, DropTarget) and w.isVisible()]
+    assert not stray, tool
+
+
+def test_clearing_the_document_empties_the_viewer_under_a_form_tool(e2win):
+    """The live walk, 2026-10-31: after the clear button, PDF Tools still showed
+    the pages of the document just let go."""
+    host = host_of(e2win)
+    host.pick("PdfToolsTool")
+    pump(0.15)
+    assert host.viewer.document_path()
+    assert e2win.clear_current_document()
+    pump(0.2)
+    assert host.viewer.document_path() == ""
+    assert not host.viewer.view.isVisibleTo(host.viewer)
