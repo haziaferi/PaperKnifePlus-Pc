@@ -77,7 +77,7 @@ class PdfToolsPage(ToolPage):
         self.body.addWidget(group_title("Tool"))
         group = card(padding=0)
         self.body.addWidget(group)
-        self.tool_group = radio_rows(group, TOOLS, "repair", parent=self)
+        self.tool_group = radio_rows(group, TOOLS, "repair", parent=self, info=True)
         self.radios = self.tool_group.buttons
         self.switches: dict = {}
         self.option_boxes: dict = {}

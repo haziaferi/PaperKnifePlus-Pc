@@ -97,12 +97,14 @@ class HeaderFooterPage(PagePickPage):
         self.font.setCurrentText("Helvetica")
         self.font.setMinimumWidth(140)
         row.layout().addWidget(self.font)
-        row = self.setting_row(group, "Size and margin")
+        # One field per row (owner, 2026-10-31: one width for a card's fields; two
+        # side by side were squeezed to 96 px).
+        row = self.setting_row(group, "Font size")
         self.size = _field("10", width=56)
         self.size.setAccessibleName("Size")
         row.layout().addWidget(self.size)
         row.layout().addWidget(muted_caption("pt"))
-        row.layout().addSpacing(8)
+        row = self.setting_row(group, "Margin")
         self.margin = _field("20", width=56)
         self.margin.setAccessibleName("Margin")
         row.layout().addWidget(self.margin)

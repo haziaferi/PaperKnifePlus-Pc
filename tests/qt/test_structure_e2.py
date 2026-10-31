@@ -5,6 +5,8 @@ action fixed at the card's top, the card collapsing to an edge card that keeps t
 the same spot, page grids clear of the card with a toolbar on the selected page, and the
 zoom as  -  100 %  +  in the centre."""
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget
 from conftest import close_test_window
 from qt_harness import make_pdf, pump
 
@@ -454,3 +456,93 @@ def test_clearing_the_document_empties_the_viewer_under_a_form_tool(e2win):
     pump(0.2)
     assert host.viewer.document_path() == ""
     assert not host.viewer.view.isVisibleTo(host.viewer)
+
+
+@pytest.mark.parametrize("tool", ["WatermarkTool", "OCRTool", "MetadataTool", "PasswordTool",
+                                  "HeaderFooterTool"])
+def test_a_card_s_input_fields_take_one_width(e2win, tool):
+    """Owner, 2026-10-31: text 96, number 113 and language 120 px on one card;
+    every input field takes FIELD_W."""
+    from PySide6.QtWidgets import QAbstractSpinBox, QLineEdit
+    from qfluentwidgets import ComboBox, EditableComboBox
+    from paperknife.qt.pages import FIELD_W, LanguagePicker
+    host = host_of(e2win)
+    host.pick(tool)
+    pump(0.2)
+    kinds = (QLineEdit, QAbstractSpinBox, ComboBox, EditableComboBox, LanguagePicker)
+    widths = {}
+    for ctl in host.card.findChildren(QWidget, "settingControl"):
+        for c in ctl.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+            if isinstance(c, kinds) and c.isVisibleTo(host.card):
+                widths[f"{type(c).__name__}:{ctl.title_label.text()}"] = c.width()
+    assert widths, tool
+    assert set(widths.values()) == {FIELD_W}, widths
+
+
+def test_pdf_tools_descriptions_open_from_an_info_button(e2win):
+    """Owner, 2026-10-31: no description lines under the names; a circled "i"
+    beside each name shows it in a small card over the page."""
+    from qfluentwidgets import Flyout
+    from paperknife.qt.tools.pdftools import TOOLS
+    host = host_of(e2win)
+    host.pick("PdfToolsTool")
+    pump(0.2)
+    page = host.current_tool()
+    rows = {c.title_label.text(): c for c in host.card.findChildren(QWidget, "settingControl")
+            if getattr(c, "info_button", None) is not None}
+    assert set(rows) == {title for _k, title, _d in TOOLS}
+    for _k, title, desc in TOOLS:
+        c = rows[title]
+        assert c.desc_label is None and c.info_button.info_text == desc
+    btn = rows["Sanitise"].info_button
+    btn.click()
+    pump(0.3)
+    shown = [f for f in e2win.findChildren(Flyout) if f.isVisible()]
+    assert shown and "hidden metadata" in shown[-1].view.contentLabel.text()
+    fl = shown[-1]
+    assert fl.view.contentLabel.wordWrap() and not fl.view.iconWidget.isVisible()
+    # just under the "i", within the tool card's width (it covered the row above and
+    # ran past the window, the live look 2026-10-31)
+    from PySide6.QtCore import QPoint
+    view_tl = fl.view.mapToGlobal(QPoint(0, 0))
+    card_tl = host.card.mapToGlobal(QPoint(0, 0))
+    assert view_tl.y() >= btn.mapToGlobal(QPoint(0, btn.height())).y()
+    assert card_tl.x() <= view_tl.x() and view_tl.x() + fl.view.width() <= card_tl.x() + host.card.width()
+    assert page.tool_choice == "repair"           # the "i" does not choose the row
+
+
+def test_redact_s_remove_stays_put_as_the_list_grows(e2win):
+    """Owner, 2026-10-31: Remove moved up as the pending list shrank."""
+    host = host_of(e2win)
+    host.pick("RedactTool")
+    pump(0.3)
+    page = host.current_tool()
+    rm = page.remove_button
+    ys = []
+    for n in (0, 1, 3, 1):
+        page._pending, page._marked_at = [], []
+        page._add_marks([(0, (10, 10, 50, 30), "") for _ in range(n)])
+        page._refresh_boxes()
+        pump(0.1)
+        ys.append(rm.mapTo(e2win, rm.rect().topLeft()).y())
+    assert len(set(ys)) == 1, ys
+
+
+def test_a_renamed_action_is_never_clipped(e2win):
+    """2026-10-31: OCR's Text-only PDF renames its action "Text-only PDF from OCR";
+    the card kept the width it had for "Apply" and the name read "ext-only PDF from OC"."""
+    host = host_of(e2win)
+    host.pick("OCRTool")
+    pump(0.2)
+    page = host.current_tool()
+    if not getattr(page, "available", True):
+        pytest.skip("no OCR engine")
+    b = page.run_button
+    page.modes["text"].click()
+    pump(0.3)
+    assert b.text() == "Text-only PDF from OCR"
+    assert b.width() >= b.sizeHint().width(), (b.width(), b.sizeHint().width())
+    assert host.card.geometry().right() <= host.width()      # the card still fits
+    page.modes["overlay"].click()
+    pump(0.3)
+    assert b.text() == "Apply" and b.width() >= b.sizeHint().width()

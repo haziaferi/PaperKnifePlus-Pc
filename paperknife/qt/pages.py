@@ -194,8 +194,54 @@ def group_title(text: str) -> StrongBodyLabel:
     return lbl
 
 
+def info_button(title: str, text: str) -> QWidget:
+    """A circled "i" that shows *text* in a small card just under it, inside the
+    card or row that holds it, until a click elsewhere (owner, 2026-10-31:
+    descriptions as overlay cards, not lines under the name)."""
+    from qfluentwidgets import Flyout, FlyoutAnimationType, FlyoutView
+    from qfluentwidgets import FluentIcon as FIF
+    b = TransparentToolButton(FIF.INFO)
+    b.setFixedSize(INFO_SIZE, INFO_SIZE)
+    b.setIconSize(QSize(16, 16))
+    b.setToolTip(f"About {title}")              # the text itself is the card's
+    b.setAccessibleName(f"About {title}")
+    b.info_text = text
+
+    def show():
+        # What holds it: the floating tool card, else its setting row.
+        def holder(name):
+            w = b.parentWidget()
+            while w is not None and w.objectName() != name:
+                w = w.parentWidget()
+            return w
+        box = holder("toolCard") or holder("settingRow") or b.window()
+        width = min(INFO_W, box.width() - 2 * INFO_INSET)
+        view = FlyoutView(title, text)
+        view.iconWidget.hide()          # no icon: its empty column was a blank band
+        # The library wraps the text by a character count taken from the screen's
+        # width (one long line on a wide screen): the card takes *width* and its
+        # labels wrap inside it.
+        view.contentLabel.setWordWrap(True)
+        view.titleLabel.setWordWrap(True)
+        view.setFixedWidth(width)
+        fl = Flyout(view, b.window(), isDeleteOnClose=True)
+        at = QPoint(box.mapToGlobal(QPoint(INFO_INSET, 0)).x(),
+                    b.mapToGlobal(QPoint(0, b.height() + 2)).y())
+        b.flyout = fl
+        fl.exec(at, FlyoutAnimationType.FADE_IN)
+        fl.move(at - view.mapTo(fl, QPoint(0, 0)))  # the view, not its shadow, at *at*
+    b.clicked.connect(show)
+    return b
+
+
+INFO_SIZE = CONTROL_H   # the "i" beside a name: no control is shorter (owner's rule)
+INFO_W = 280            # its card at most; never wider than what holds the "i"
+INFO_INSET = 8          # the card's edge inside what holds the "i"
+
+
 def setting_row(group: QWidget, title: str, desc: str = "",
-                label_width: int | None = None, path: bool = False) -> QWidget:
+                label_width: int | None = None, path: bool = False,
+                info: bool = False) -> QWidget:
     """Add a Windows 11 settings row to *group* (a card()) and return the
     container for its control: the name and description sit in a fixed-width
     column on the left, the control right-aligned, rows split by thin lines.
@@ -206,7 +252,9 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
     take the room the control leaves, for a narrow column such as a
     CollectionPage's settings.  path: the description is a file path, one
-    line shortened in the middle (ElidedCaption) instead of wrapped.
+    line shortened in the middle (ElidedCaption) instead of wrapped.  info: the
+    description is not shown under the name but by a circled "i" beside it, in a
+    small overlay card (control.info_button).
 
     The control also carries the row's labels and the line above it:
     control.title_label, control.desc_label (None without *desc*) and
@@ -240,9 +288,19 @@ def setting_row(group: QWidget, title: str, desc: str = "",
         # A settings column's row: a long name wraps rather than push the
         # control past the column's edge.
         name.setWordWrap(True)
-    tv.addWidget(name)
-    d = None
-    if desc:
+    d = info_btn = None
+    if desc and info:
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(4)
+        line.addWidget(name)
+        info_btn = info_button(title, desc)
+        line.addWidget(info_btn, 0, Qt.AlignVCenter)
+        line.addStretch(1)
+        tv.addLayout(line)
+    else:
+        tv.addWidget(name)
+    if desc and not info:
         if path:
             d = muted_path(desc, texts)
         else:
@@ -263,6 +321,7 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     lay.addWidget(row)
     group.setProperty("pk_rows", rows + 1)
     control.title_label, control.desc_label, control.divider = name, d, divider
+    control.info_button = info_btn
     return control
 
 
@@ -281,7 +340,7 @@ class RadioChoice(QButtonGroup):
 
 
 def radio_rows(group: QWidget, choices, default, *, row=setting_row,
-               parent=None) -> RadioChoice:
+               parent=None, info: bool = False) -> RadioChoice:
     """One setting row per (value, title, desc) in *choices* in *group* (a
     card()), each with a radio button; *default* is checked.  *row* makes a
     row (a page's own setting_row)."""
@@ -290,7 +349,7 @@ def radio_rows(group: QWidget, choices, default, *, row=setting_row,
         rb = radio_button()
         rb.setChecked(value == default)
         choice.addButton(rb)
-        control = row(group, title, desc)
+        control = row(group, title, desc, info=True) if info and desc else row(group, title, desc)
         control.layout().addWidget(rb)
         _ClickSelects(control.parentWidget(), rb, rb.click)
         choice.buttons[value] = rb
@@ -375,7 +434,8 @@ def icon_button(icon) -> TransparentToolButton:
     return b
 
 
-NUMBER_BOX_W = 150      # every number box one width: "120 pt" and its arrows
+FIELD_W = 160           # an input field on a tool card: text, number, language (owner, 2026-10-31)
+NUMBER_BOX_W = FIELD_W  # every number box one width: "120 pt" and its arrows
 
 
 def number_box(row: QWidget, lo: int, hi: int, value: int, unit: str, *,

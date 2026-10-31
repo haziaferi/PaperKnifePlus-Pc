@@ -15,7 +15,7 @@ from ..pages import (APPLY, SAVE_NOTE, PagePickPage, batch_prototype, card, grou
                      register_page)
 from ..tool_options import OCR_MODES as MODES  # noqa: F401
 from ..tool_options import OcrOptions
-TEXT_ONLY_ACTION = "Make text-only PDF"     # a new file: a verb naming it, not Apply
+TEXT_ONLY_ACTION = "Text-only PDF from OCR"     # a new file: a verb naming it, not Apply
 MISSING_TITLE = "⚠  pytesseract not installed"
 MISSING_TEXT = ("Install it with:  pip install pytesseract\n"
                 "Then install the Tesseract binary from:\n"

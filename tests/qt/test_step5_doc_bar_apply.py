@@ -126,7 +126,7 @@ def test_ocr_reads_apply_for_the_overlay_and_names_the_new_file_for_text_only(wi
     page = _page(window, "OCRTool")
     assert page.run_button.text() == "Apply"
     page.modes["text"].click()
-    assert page.run_button.text() == "Make text-only PDF"
+    assert page.run_button.text() == "Text-only PDF from OCR"
     page.modes["overlay"].click()
     assert page.run_button.text() == "Apply"
 

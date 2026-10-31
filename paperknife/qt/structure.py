@@ -182,9 +182,25 @@ def _stack_rows(widget):
                 for c in w.findChildren(QWidget):   # under the name: the column's width
                     if c.minimumWidth() > STACK_CONTROL_W:
                         c.setMinimumWidth(STACK_CONTROL_W)
+                _field_width(w)                     # after: its fields keep FIELD_W
                 v.addWidget(w, 0, Qt.AlignLeft)
             else:
                 v.addWidget(w)
+
+
+def _field_width(ctl):
+    """The input fields of a stacked row take one width, FIELD_W (owner, 2026-10-31:
+    text 96, number 113, language 120 px on one card)."""
+    from PySide6.QtWidgets import QAbstractSpinBox, QLineEdit
+    from qfluentwidgets import ComboBox, EditableComboBox
+    from .pages import FIELD_W, LanguagePicker
+    if ctl is None:
+        return
+    for c in ctl.findChildren(QWidget, options=Qt.FindDirectChildrenOnly):
+        if isinstance(c, (QLineEdit, QAbstractSpinBox, ComboBox, EditableComboBox,
+                          LanguagePicker)):
+            c.setMinimumWidth(0)
+            c.setFixedWidth(FIELD_W)
 
 
 def _wrap_buttons(card, buttons, width):
@@ -559,6 +575,9 @@ class StructureHost(QWidget):
 
             def again():
                 self._replace_due = False
+                if self.card is not None:           # a renamed action: its new width counts
+                    self._fit_action_slot()
+                    self.card_top.invalidate()
                 self._place_card()
             QTimer.singleShot(0, again)
         return super().eventFilter(obj, e)
@@ -714,6 +733,10 @@ class StructureHost(QWidget):
             b.setParent(actions)
             ah.addWidget(b, 0, Qt.AlignRight) if stacked else ah.addWidget(b)
         self.action_slot.addWidget(actions)
+        if self.float_:
+            # An action renamed while shown (OCR's "Text-only PDF from OCR") asks for
+            # room: the card measures again, or the new name was clipped (2026-10-31).
+            actions.installEventFilter(self)
         view = _View(page, options, centre, actions)
         self._views[key] = view
         return view

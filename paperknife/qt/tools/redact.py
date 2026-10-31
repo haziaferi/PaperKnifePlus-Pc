@@ -95,12 +95,15 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         # As tall as its boxes, up to BOX_ROWS, and gone while there are none: an empty
         # list grew to fill the column and pushed the permanence warning out of sight
         # (owner, 2026-10-22).
-        self.box_list = ListWidget()
-        self.box_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.panel_body.addWidget(self.box_list)
+        # Remove above the list (owner, 2026-10-31: it stays put; below the list it
+        # moved up as the list shrank).
         rm = self.remove_button = PushButton("Remove")
         rm.clicked.connect(self.delete)
         self.panel_body.addWidget(rm)
+        self.panel_body.addSpacing(4)
+        self.box_list = ListWidget()
+        self.box_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.panel_body.addWidget(self.box_list)
         self.panel_body.addSpacing(16)
         warn = BodyLabel(WARN_TITLE)
         warn.setWordWrap(True)
