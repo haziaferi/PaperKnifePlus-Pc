@@ -209,6 +209,8 @@ def tess_off_path(monkeypatch, tmp_path):
     monkeypatch.setattr(pytesseract, "image_to_pdf_or_hocr", only_at_exe(image_to_pdf_or_hocr))
     monkeypatch.setattr(pytesseract, "image_to_string",
                         only_at_exe(lambda img, lang=None, **k: "text"))
+    monkeypatch.setattr(pytesseract, "image_to_osd",
+                        only_at_exe(lambda img, **k: {"rotate": 0, "orientation_conf": 0.0}))
     return exe
 
 

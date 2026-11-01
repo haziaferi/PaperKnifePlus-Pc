@@ -54,6 +54,8 @@ def tess(monkeypatch):
     monkeypatch.setattr(pytesseract, "image_to_data", image_to_data)
     monkeypatch.setattr(pytesseract, "image_to_pdf_or_hocr", image_to_pdf_or_hocr)
     monkeypatch.setattr(pytesseract, "image_to_string", image_to_string)
+    monkeypatch.setattr(pytesseract, "image_to_osd",
+                        lambda img, **k: {"rotate": 0, "orientation_conf": 0.0})
     return calls
 
 
@@ -117,7 +119,8 @@ def test_ocr_overlay_keeps_original_page_and_adds_clean_text(window, dialogs, tm
         text = b[0].get_text()
         words = {w[4] for w in b[0].get_text("words")}
         assert {"Smith", "&", "don't", "Ελληνικά"} <= words, text
-        assert "zzzq" not in text, "low-confidence words must be dropped"
+        # the invisible layer keeps every word (ScanKnife+, question 4, 2026-11-01)
+        assert "zzzq" in words, text
         assert "Original vector heading" in text, "the original page content was replaced"
         assert not b[0].get_images(), "the page was rasterised"
         assert a[0].get_pixmap(alpha=False).samples == b[0].get_pixmap(alpha=False).samples
@@ -178,7 +181,8 @@ def test_text_only_mode_writes_a4_text_pages(window, dialogs, tmp_path, tess):
     assert not window.document.dirty
     with fitz.open(out) as d:
         assert len(d) == 2
-        assert all("Plain OCR text" in p.get_text() for p in d)
+        # the words from 40 up (ScanKnife+, question 4), not Tesseract's own text
+        assert all("Smith & don't" in p.get_text() and "zzzq" not in p.get_text() for p in d)
         assert "Page 2" not in d[1].get_text()
         assert (round(d[0].rect.width), round(d[0].rect.height)) == (595, 842)
 
@@ -255,6 +259,38 @@ def test_ocr_with_real_tesseract_makes_an_image_only_page_searchable(window, dia
     with fitz.open(out) as doc:
         for word in ("Invoice", "quarterly", "statement"):
             assert doc[0].search_for(word), (word, doc[0].get_text())
+
+
+@requires_tesseract
+def test_ocr_with_real_tesseract_reads_a_page_scanned_upside_down(window, dialogs, tmp_path):
+    """ScanKnife+'s orientation detection (2026-11-01): an upside-down scan is read
+    upright and its words go where the page shows them (before: junk)."""
+    import io
+
+    from PIL import Image
+    prose = "The quarterly statement lists every invoice paid this month. " * 14
+    with fitz.open() as text_doc, fitz.open() as img:
+        p = text_doc.new_page()
+        assert p.insert_textbox(fitz.Rect(72, 72, 523, 770), prose, fontsize=13) >= 0
+        w, h = p.rect.width, p.rect.height
+        truth = [fitz.Rect(w - r.x1, h - r.y1, w - r.x0, h - r.y0)     # turned 180 degrees
+                 for r in p.search_for("statement")]
+        pix = p.get_pixmap(dpi=200)
+        im = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        buf = io.BytesIO()
+        im.transpose(Image.Transpose.ROTATE_180).save(buf, "PNG")
+        img.new_page(width=w, height=h).insert_image(p.rect, stream=buf.getvalue())
+        img.save(tmp_path / "upside_down.pdf")
+    page = _page(window)
+    out = tmp_path / "real_ocr.pdf"
+    _run(window, dialogs, page, str(tmp_path / "upside_down.pdf"), out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as doc:
+        hits = doc[0].search_for("statement")
+    assert len(hits) >= len(truth) - 1, (len(hits), len(truth))
+    for hit in hits:            # Tesseract's box is the ink's, inside the font's full box
+        c = (hit.tl + hit.br) / 2
+        assert any(c in t for t in truth), hit
 
 
 def test_the_language_starts_from_windows_then_the_last_one_used(window, dialogs, tmp_path,

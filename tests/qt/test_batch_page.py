@@ -261,6 +261,8 @@ def test_batch_ocr_writes_an_invisible_text_layer(window, dialogs, tmp_path, mon
     monkeypatch.setattr(pytesseract, "image_to_data", lambda img, lang=None, **k: {
         "text": ["", "HELLO", "WORLD"], "conf": [-1, 95, 95], "left": [0, 100, 300],
         "top": [0, 200, 200], "width": [0, 150, 150], "height": [0, 40, 40]})
+    monkeypatch.setattr(pytesseract, "image_to_osd",
+                        lambda img, **k: {"rotate": 0, "orientation_conf": 0.0})
     in_dir, out_dir = _folders(tmp_path)
     image_pdf(in_dir / "a.pdf")
     page = _setup(_page(window), in_dir, out_dir, "OCR")

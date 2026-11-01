@@ -4,8 +4,10 @@ from __future__ import annotations
 import functools
 import html
 import importlib.util as _ilu
+import math
 import os
 import shutil
+from typing import NamedTuple
 
 import pymupdf as fitz
 from PIL import Image
@@ -14,7 +16,19 @@ from ..job_queue import atomic_output
 from ..pages import render
 
 HAS_OCR  = _ilu.find_spec("pytesseract") is not None
-MIN_CONF = 30
+# Measured by ScanKnife+ (docs/ocr-bench/questions.md, 2026-10; Tesseract's fast
+# models, as the Windows installer ships them):
+# - the text layer keeps every word: it is invisible, so a junk word costs nothing
+#   and a dropped one cannot be found (question 4);
+# - the text-only copy leaves out words below 40, which removed 306 junk words for
+#   82 real ones out of about 31,000 (question 4);
+# - orientation detection's turn is taken from a confidence of 3: no wrong turn in
+#   200 pages above 1.5 (question 5).
+TEXT_MIN_CONF = 40
+MIN_TURN_CONF = 3
+# PIL's transposition that turns an image clockwise by the key
+_TURN_CW = {90: Image.Transpose.ROTATE_270, 180: Image.Transpose.ROTATE_180,
+            270: Image.Transpose.ROTATE_90}
 # Where the UB-Mannheim installer puts Tesseract; it does not add itself to PATH.
 TESS_DIRS = (("ProgramFiles", "Tesseract-OCR"), ("ProgramFiles(x86)", "Tesseract-OCR"),
              ("LOCALAPPDATA", r"Programs\Tesseract-OCR"))
@@ -110,23 +124,87 @@ def remember_lang(lang: str) -> None:
         PREFS.save()
 
 
-def ocr_words(img, lang: str, scale: float) -> list[tuple[fitz.Rect, str]]:
-    """Tesseract words in *img* (a page rendered at *scale*) as (rect, text) in page.rect space."""
+class OcrWord(NamedTuple):
+    """A word Tesseract read: its box in page.rect space, its text, Tesseract's
+    confidence (0-100) and (block, paragraph, line), which tell where the text breaks."""
+    rect: fitz.Rect
+    text: str
+    conf: float
+    line: tuple[int, int, int]
+
+
+def upright_turn(img) -> int:
+    """The clockwise turn (0, 90, 180 or 270) that makes the page in *img* upright:
+    Tesseract's orientation detection, taken from a confidence of MIN_TURN_CONF.
+    0 when it cannot tell (Tesseract refuses a page with too little text) or
+    cannot run; the reading that follows reports a missing Tesseract."""
     pytesseract = tesseract()
-    data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
-    to_page = fitz.Matrix(1 / scale, 1 / scale)
+    try:
+        osd = pytesseract.image_to_osd(img, output_type=pytesseract.Output.DICT)
+    except (RuntimeError, ValueError, OSError):
+        return 0
+    turn = int(osd.get("rotate", 0)) % 360
+    if turn in _TURN_CW and float(osd.get("orientation_conf", 0)) >= MIN_TURN_CONF:
+        return turn
+    return 0
+
+
+def _unturned(box, width: int, height: int, turn: int):
+    """*box* (pixels of a *width* x *height* image that is the page turned
+    clockwise by *turn*) as pixels of the page image before the turn."""
+    u0, v0, u1, v1 = box
+    if turn == 90:
+        return v0, width - u1, v1, width - u0
+    if turn == 180:
+        return width - u1, height - v1, width - u0, height - v0
+    if turn == 270:
+        return height - v1, u0, height - v0, u1
+    return box
+
+
+def ocr_words(img, lang: str, scale: float, turn: int = 0) -> list[OcrWord]:
+    """Every word Tesseract reads in *img* (a page rendered at *scale*), read
+    turned clockwise by *turn* and boxed in page.rect space, whatever its
+    confidence: the text layer is invisible, so a junk word costs nothing and a
+    dropped one cannot be found (ScanKnife+, question 4)."""
+    pytesseract = tesseract()
+    upright = img.transpose(_TURN_CW[turn]) if turn else img
+    data = pytesseract.image_to_data(upright, lang=lang, output_type=pytesseract.Output.DICT)
+    n = len(data["text"])
+    blocks, pars, lines = (data.get(k) or [0] * n for k in ("block_num", "par_num", "line_num"))
+    width, height = upright.size
     words = []
-    for text, conf, x, y, w, h in zip(data["text"], data["conf"], data["left"],
-                                      data["top"], data["width"], data["height"],
-                                      strict=True):
+    for text, conf, x, y, w, h, b, p, ln in zip(
+            data["text"], data["conf"], data["left"], data["top"], data["width"],
+            data["height"], blocks, pars, lines, strict=True):
         text = text.strip()
-        if text and float(conf) >= MIN_CONF:
-            words.append((fitz.Rect(x, y, x + w, y + h) * to_page, text))
+        if text:
+            box = _unturned((x, y, x + w, y + h), width, height, turn)
+            words.append(OcrWord(fitz.Rect(box) * (1 / scale), text, float(conf),
+                                 (int(b), int(p), int(ln))))
     return words
 
 
-def add_text_layer(page: fitz.Page, words) -> None:
-    """Add *words* ((rect, text) in page.rect space) to *page* as invisible, searchable text."""
+def words_text(words, min_conf: float = TEXT_MIN_CONF) -> str:
+    """*words* as plain text without those below *min_conf*: words on a line joined
+    by spaces, lines by a line break, blocks by an empty line."""
+    out, last = [], None
+    for w in words:
+        if w.conf < min_conf:
+            continue
+        if last is not None:
+            out.append("\n\n" if w.line[0] != last[0] else "\n" if w.line != last else " ")
+        out.append(w.text)
+        last = w.line
+    return "".join(out)
+
+
+def add_text_layer(page: fitz.Page, words, turn: int = 0) -> None:
+    """Add *words* ((rect, text, ...) in page.rect space) to *page* as invisible,
+    searchable text, each word filling its box: its height from the font's ascent
+    to its descent, its length stretched to the box's, so a selection covers the
+    printed word.  On a page read turned clockwise by *turn* the words run as the
+    printed text does: turned back anticlockwise."""
     if not words:
         return
     if page.rotation:
@@ -141,10 +219,33 @@ def add_text_layer(page: fitz.Page, words) -> None:
     layer = fitz.open()
     lp = layer.new_page(width=page.rect.width, height=page.rect.height)
     tw = fitz.TextWriter(lp.rect)
-    font = fitz.Font("helv")      # TextWriter falls back to MuPDF's Noto fonts for other scripts
-    for rect, text in words:
-        tw.append(fitz.Point(rect.x0, rect.y1), text, font=font,
-                  fontsize=max(1, rect.height * 0.85))
+    probe = fitz.TextWriter(lp.rect)            # measures a word's length
+    font = fitz.Font("helv")      # MuPDF falls back to its Noto fonts for other scripts
+    em = font.ascender - font.descender
+    lang = fitz.mupdf.fz_text_language_from_string(None)
+    cos, sin = round(math.cos(math.radians(turn))), round(math.sin(math.radians(turn)))
+    sideways = turn in (90, 270)
+    for rect, text, *_ in words:
+        # The box in the writer's space: PDF's, y up from the bottom.
+        left, right = rect.x0, rect.x1
+        bottom, top = lp.rect.height - rect.y1, lp.rect.height - rect.y0
+        across = right - left if sideways else top - bottom
+        along = top - bottom if sideways else right - left
+        if across <= 0 or along <= 0:
+            continue
+        size = across / em
+        length = probe.append((0, 0), text, font=font, fontsize=size)[1].x
+        if length <= 0:
+            continue
+        stretch = along / length
+        drop = -font.descender * size           # the baseline above the box's edge
+        x, y = {90: (right - drop, bottom), 180: (right, top - drop),
+                270: (left + drop, top)}.get(turn, (left, bottom + drop))
+        # TextWriter.append has no stretch or turn: its call with a text matrix
+        # that has both (font size and stretch along, turned anticlockwise).
+        trm = fitz.mupdf.fz_make_matrix(size * stretch * cos, size * stretch * sin,
+                                        -size * sin, size * cos, x, y)
+        fitz.mupdf.fz_show_string(tw.this, font.this, trm, text, 0, 0, 0, lang)
     tw.write_text(lp, render_mode=3)
     layer.subset_fonts()
     # TextWriter ignores a cropbox offset on the target page; show_pdf_page honours it.
@@ -186,16 +287,18 @@ def ocr_pdf(doc, out: str, lang: str, dpi: int, text_only: bool, stop, progress,
 
             pix = render(page, scale)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            turn = upright_turn(img)
+            words = ocr_words(img, lang, scale, turn)
 
             if text_only:
-                text = pytesseract.image_to_string(img, lang=lang)
+                text = words_text(words)
                 A4   = fitz.paper_rect("A4")
                 np   = nd.new_page(width=A4.width, height=A4.height)
                 np.insert_htmlbox(A4,
                                   f"<pre>{html.escape(text)}</pre>",
                                   css="pre { font-size: 10pt; }")
             else:
-                add_text_layer(page, ocr_words(img, lang, scale))
+                add_text_layer(page, words, turn)
 
         if text_only:
             nd.save(tmp, deflate=True)
