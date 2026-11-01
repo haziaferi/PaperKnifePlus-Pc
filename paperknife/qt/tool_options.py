@@ -182,7 +182,7 @@ class OtherOptions(Panel):
         group = card(padding=0)
         self.v.addWidget(group)
         row = self.row(group, "Output format", OTHER_INFO["TXT"])
-        self.fmt_info = row.desc_label
+        self.fmt_info = row.info_button
         self.fmt = ComboBox()
         self.fmt.addItems(core_convert.FORMATS)
         self.fmt.setCurrentText("TXT")
@@ -208,7 +208,7 @@ class OtherOptions(Panel):
         self.fmt_changed("TXT")
 
     def fmt_changed(self, fmt: str):
-        self.fmt_info.setText(OTHER_INFO.get(fmt, ""))
+        self.fmt_info.set_info(OTHER_INFO.get(fmt, ""))
         lib, installed = core_convert.NEEDS.get(fmt, ("", True))
         self.missing.setText("" if installed else
                              f"⚠  '{lib}' is not installed.\nInstall it:  pip install {lib}")

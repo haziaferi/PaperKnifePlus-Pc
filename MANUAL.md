@@ -148,6 +148,8 @@ The OCR tool requires the Tesseract OCR engine to be installed separately. Paper
 
 The navigation pane lists 23 tools in five groups, with Preferences at the bottom.
 
+A setting's or panel's description is not shown under its name: click the circled **i** beside the name to see it in a small card, which closes when you click elsewhere. A file path, and a hint on a row without a name, stay in view.
+
 | Group | Tool | What it does | § |
 |---|---|---|---|
 | Read | Read / Preview | Continuous-scroll, view-only PDF viewer | 5.1 |
@@ -503,6 +505,7 @@ Apart from the operation you invoke, the only file content read is the first pag
 - **New:** one document per window (owner, 2026-10-23): every tool works on it and its edits pile up, unsaved, across tools; the title names the file with `*` while unsaved; **Save** (`Ctrl+S`) writes over the file, **Save as** (`Ctrl+Shift+S`) to a new one the document then belongs to, **Print** (`Ctrl+P`) with a page range; `Ctrl+Z` undoes the last edit of any tool, and undoing back to the save point is clean again (Section 4.1).
 - **Changed:** Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, OCR (Overlay) and PDF Tools change the open document instead of asking for a new file; Compress leaves it as it was when no smaller. Password sets the document's protection, written by Save. Rotate & Reorder's turns, moves and deletes, Metadata's fields and the bookmark list apply to the document. Redact's **Apply and save** writes a new redacted copy and the document keeps its boxes; closing with boxes not applied warns.
 - **New:** after a job that writes one PDF, "*name* is ready" with **Continue with it** / **Start over**; opening another tool counts as Continue. Jobs with several outputs ask nothing. Merge, Image → PDF and Batch keep their lists while you move around and empty them after a finished job.
+- **Changed:** every setting's and panel's description opens from a circled **i** beside its name, as PDF Tools' do (Section 5; owner, 2026-11-01).
 - **Changed:** OCR's Text-only PDF button reads **Text-only PDF from OCR**; PDF Tools' descriptions open from a circled **i** beside each tool's name instead of lines under it; Redact's **Remove** sits above the pending list and no longer moves; a tool card's input fields share one width, and Header / Footer's size and margin take a row each (owner, 2026-10-31).
 - **New:** the instant editors (Annotate, Edit Text, Find & Replace, Rotate & Reorder) have no Save of their own: the document bar's **Save** is the one place; the main button of OCR (Overlay), PDF Tools and Password reads **Apply** too, and OCR's Text-only PDF reads **Text-only PDF from OCR**; OCR's Render DPI and PDF → Other's resolution and JPEG quality are number boxes (owner, 2026-10-23).
 - **New:** the document bar has **Save** (its arrow: **Save as…**) and **Print** beside **Open** (owner, 2026-10-23); the main button of Compress, Watermark, Normalise Pages, Crop / Trim, Header / Footer, Metadata and Bookmarks reads **Apply**, and Metadata's and Bookmarks' **Apply** changes the document without writing the file; Watermark's font size and opacity, Batch → Watermark's opacity and Annotate's opacity are typed in number boxes instead of sliders.

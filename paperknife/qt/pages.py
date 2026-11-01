@@ -194,10 +194,13 @@ def group_title(text: str) -> StrongBodyLabel:
     return lbl
 
 
-def info_button(title: str, text: str) -> QWidget:
+def info_button(title: str, text: str, within: QWidget | None = None) -> QWidget:
     """A circled "i" that shows *text* in a small card just under it, inside the
     card or row that holds it, until a click elsewhere (owner, 2026-10-31:
-    descriptions as overlay cards, not lines under the name)."""
+    descriptions as overlay cards, not lines under the name; 2026-11-01: every
+    description).  *within*: the box the card opens inside, when it is not the
+    tool card or setting row around the "i" (a side panel).  set_info(text)
+    changes the text, for a description that follows a choice."""
     from qfluentwidgets import Flyout, FlyoutAnimationType, FlyoutView
     from qfluentwidgets import FluentIcon as FIF
     b = TransparentToolButton(FIF.INFO)
@@ -207,6 +210,10 @@ def info_button(title: str, text: str) -> QWidget:
     b.setAccessibleName(f"About {title}")
     b.info_text = text
 
+    def set_info(new: str):
+        b.info_text = new
+    b.set_info = set_info
+
     def show():
         # What holds it: the floating tool card, else its setting row.
         def holder(name):
@@ -214,9 +221,9 @@ def info_button(title: str, text: str) -> QWidget:
             while w is not None and w.objectName() != name:
                 w = w.parentWidget()
             return w
-        box = holder("toolCard") or holder("settingRow") or b.window()
+        box = holder("toolCard") or within or holder("settingRow") or b.window()
         width = min(INFO_W, box.width() - 2 * INFO_INSET)
-        view = FlyoutView(title, text)
+        view = FlyoutView(title, b.info_text)
         view.iconWidget.hide()          # no icon: its empty column was a blank band
         # The library wraps the text by a character count taken from the screen's
         # width (one long line on a wide screen): the card takes *width* and its
@@ -241,7 +248,7 @@ INFO_INSET = 8          # the card's edge inside what holds the "i"
 
 def setting_row(group: QWidget, title: str, desc: str = "",
                 label_width: int | None = None, path: bool = False,
-                info: bool = False) -> QWidget:
+                info: bool = True) -> QWidget:
     """Add a Windows 11 settings row to *group* (a card()) and return the
     container for its control: the name and description sit in a fixed-width
     column on the left, the control right-aligned, rows split by thin lines.
@@ -252,9 +259,10 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
     take the room the control leaves, for a narrow column such as a
     CollectionPage's settings.  path: the description is a file path, one
-    line shortened in the middle (ElidedCaption) instead of wrapped.  info: the
-    description is not shown under the name but by a circled "i" beside it, in a
-    small overlay card (control.info_button).
+    line shortened in the middle (ElidedCaption) instead of wrapped.  info (the
+    default): the description is not shown under the name but by a circled "i"
+    beside it, in a small overlay card (control.info_button).  A path, and the
+    hint of a row without a name, stay lines: they are the row's content.
 
     The control also carries the row's labels and the line above it:
     control.title_label, control.desc_label (None without *desc*) and
@@ -289,7 +297,8 @@ def setting_row(group: QWidget, title: str, desc: str = "",
         # control past the column's edge.
         name.setWordWrap(True)
     d = info_btn = None
-    if desc and info:
+    info = bool(info and desc and title and not path)
+    if info:
         line = QHBoxLayout()
         line.setContentsMargins(0, 0, 0, 0)
         line.setSpacing(4)
@@ -340,7 +349,7 @@ class RadioChoice(QButtonGroup):
 
 
 def radio_rows(group: QWidget, choices, default, *, row=setting_row,
-               parent=None, info: bool = False) -> RadioChoice:
+               parent=None) -> RadioChoice:
     """One setting row per (value, title, desc) in *choices* in *group* (a
     card()), each with a radio button; *default* is checked.  *row* makes a
     row (a page's own setting_row)."""
@@ -349,7 +358,7 @@ def radio_rows(group: QWidget, choices, default, *, row=setting_row,
         rb = radio_button()
         rb.setChecked(value == default)
         choice.addButton(rb)
-        control = row(group, title, desc, info=True) if info and desc else row(group, title, desc)
+        control = row(group, title, desc)
         control.layout().addWidget(rb)
         _ClickSelects(control.parentWidget(), rb, rb.click)
         choice.buttons[value] = rb
@@ -1854,6 +1863,10 @@ class WorkspacePage(ToolPage):
         bv.setSpacing(4)
         top = QHBoxLayout()
         top.addWidget(SubtitleLabel(title))
+        self.panel_info = None
+        if desc:                    # the description by an "i", as every row's
+            self.panel_info = info_button(title, desc, within=box)
+            top.addWidget(self.panel_info, 0, Qt.AlignVCenter)
         top.addStretch(1)
         if not self.panel_hosted:
             hide = icon_button(theme.glyph_icon(0xE76C, 14))
@@ -1862,10 +1875,6 @@ class WorkspacePage(ToolPage):
             top.addWidget(hide)
             self._panel_hide_btn = hide
         bv.addLayout(top)
-        if desc:
-            d = muted_caption(desc)
-            d.setWordWrap(True)
-            bv.addWidget(d)
         self.panel_body = QVBoxLayout()
         self.panel_body.setContentsMargins(0, 8, 0, 0)
         self.panel_body.setSpacing(4)
@@ -3660,11 +3669,14 @@ class MasterDetailPage(ToolPage):
         self._detail_box = box
         bv = box.layout()
         bv.setSpacing(4)
-        bv.addWidget(SubtitleLabel(title))
-        if desc:
-            d = muted_caption(desc)
-            d.setWordWrap(True)
-            bv.addWidget(d)
+        top = QHBoxLayout()
+        top.addWidget(SubtitleLabel(title))
+        self.detail_info = None
+        if desc:                    # the description by an "i", as every row's
+            self.detail_info = info_button(title, desc, within=box)
+            top.addWidget(self.detail_info, 0, Qt.AlignVCenter)
+        top.addStretch(1)
+        bv.addLayout(top)
         self.detail = QVBoxLayout()
         self.detail.setContentsMargins(0, 4, 0, 0)
         self.detail.setSpacing(4)

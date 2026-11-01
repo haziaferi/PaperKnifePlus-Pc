@@ -511,6 +511,43 @@ def test_pdf_tools_descriptions_open_from_an_info_button(e2win):
     assert page.tool_choice == "repair"           # the "i" does not choose the row
 
 
+def test_every_description_opens_from_an_info_button(e2win):
+    """Owner, 2026-11-01: descriptions work the same way everywhere, by the "i".
+    No named row of any tool keeps a description line (a path is the row's
+    content, not a description), and a panel heading's description is an "i"."""
+    from paperknife.qt.pages import ElidedCaption, WorkspacePage
+    host = host_of(e2win)
+    lines, infos = [], 0
+    for _g, tools in host.groups:
+        for key in tools:
+            host.pick(key)
+            pump(0.05)
+            for c in host.findChildren(QWidget, "settingControl"):
+                if not c.isVisibleTo(host) or not c.title_label.text():
+                    continue
+                if c.desc_label is not None and not isinstance(c.desc_label, ElidedCaption):
+                    lines.append(f"{key}: {c.title_label.text()}")
+                infos += c.info_button is not None
+            page = host.current_tool()
+            if key in ("AnnotateTool", "RedactTool"):      # their panels have a description
+                assert isinstance(page, WorkspacePage)
+                assert page.panel_info is not None and page.panel_info.info_text, key
+    assert not lines, lines
+    assert infos > 20
+
+
+def test_a_description_that_follows_a_choice_follows_it_in_its_card(e2win):
+    """Convert's format description changes with the format: the "i" shows the new one."""
+    from paperknife.qt.tool_options import OTHER_INFO
+    host = host_of(e2win)
+    host.pick("Pdf2DocTool")
+    pump(0.2)
+    page = host.current_tool()
+    for fmt in ("TXT", "HTML"):
+        page.fmt.setCurrentText(fmt)
+        assert page.fmt_info.info_text == OTHER_INFO[fmt]
+
+
 def test_redact_s_remove_stays_put_as_the_list_grows(e2win):
     """Owner, 2026-10-31: Remove moved up as the pending list shrank."""
     host = host_of(e2win)

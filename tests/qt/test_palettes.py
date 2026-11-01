@@ -203,7 +203,8 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, div), P.role("divider"), "app divider")
     title = _find(page, "BodyLabel", lambda w: w.text() == "Light")
     _has(img, _rect(win, title), P.role("fluent_text"), "label text")
-    desc = _find(card, "CaptionLabel")
+    # descriptions sit behind an "i" (2026-11-01): a caption still on the page
+    desc = _find(page, "CaptionLabel", lambda w: bool(w.text()))
     _has(img, _rect(win, desc), P.role("muted"), "muted caption")
     prim = next(b for b in page.findChildren(pages.PrimaryPushButton) if getattr(b, "pk_primary", 0))
     _has(img, _rect(win, prim, 4, 4, -4, -4), P.role("accent_fill"), "primary button")

@@ -47,7 +47,7 @@ def test_the_page_builds_and_each_format_shows_its_options(window):
     from paperknife.qt.tools.pdf2doc import INFO
     for fmt in INFO:
         page.fmt.setCurrentText(fmt)
-        assert page.fmt_info.text() == INFO[fmt]
+        assert page.fmt_info.info_text == INFO[fmt]
         assert page.image_card.isVisibleTo(page) == (fmt in ("PNG", "JPEG", "PPTX"))
         assert page.quality_row.isVisibleTo(page) == (fmt == "JPEG")
         assert not page.missing.isVisibleTo(page)        # every library is installed here
