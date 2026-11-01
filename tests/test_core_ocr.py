@@ -16,11 +16,12 @@ _WORDS = [("Hello", 95, 100, 200, 80, 20), ("World", 90, 200, 200, 80, 20),
 
 @pytest.fixture
 def tess(monkeypatch):
-    calls = {"pages": 0}
+    calls = {"pages": 0, "modes": set()}
 
     def image_to_data(img, lang=None, output_type=None, **k):
         calls["lang"] = lang
         calls["pages"] += 1
+        calls["modes"].add(img.mode)
         s = img.size[0] / 595.0
         d = {"text": [""], "conf": [-1], "left": [0], "top": [0], "width": [0], "height": [0]}
         for text, conf, x, y, w, h in _WORDS:
@@ -34,12 +35,25 @@ def tess(monkeypatch):
 
     def image_to_osd(img, **k):
         calls["osd"] = calls.get("osd", 0) + 1
+        calls["modes"].add(img.mode)
         return {"rotate": 0, "orientation_conf": 0.0}
 
     monkeypatch.setattr(pytesseract, "get_tesseract_version", lambda: "5.0")
     monkeypatch.setattr(pytesseract, "image_to_data", image_to_data)
     monkeypatch.setattr(pytesseract, "image_to_osd", image_to_osd)
     return calls
+
+
+def test_tesseract_is_given_the_page_in_grey(tmp_path, tess):
+    """Measured 2026-11-01 on simulated scans (clean, faded, cream paper, shaded, blue
+    ink, receipts): the grey page reads as many words as the colour one, 0.7-1.1 s a
+    page sooner.  It is not contrast-stretched (ScanKnife+, question 8): see
+    test_ocr_with_real_tesseract_reads_a_page_of_one_line."""
+    src = make_pdf(tmp_path / "in.pdf", pages=2)
+    assert core.ocr_pdf(fitz.open(src), str(tmp_path / "out.pdf"), "eng", 72, False,
+                        threading.Event(), lambda v: None) == 2
+    assert tess["osd"] == 2 and tess["pages"] == 2
+    assert tess["modes"] == {"L"}
 
 
 def test_ocr_words_scales_to_page_space_and_keeps_every_word(tess):

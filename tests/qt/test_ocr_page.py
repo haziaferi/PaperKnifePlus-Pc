@@ -293,6 +293,39 @@ def test_ocr_with_real_tesseract_reads_a_page_scanned_upside_down(window, dialog
         assert any(c in t for t in truth), hit
 
 
+@requires_tesseract
+def test_ocr_with_real_tesseract_reads_a_page_of_one_line(window, dialogs, tmp_path):
+    """A page of one line has less ink than the 0.5% of the page a contrast stretch
+    clips at each end (ScanKnife+, question 8), so the stretch would start inside the
+    paper's grain and spread it from black to white: 0 words of 11 read when measured
+    (2026-11-01), against 11 of 11 from the plain grey page."""
+    import io
+    import random
+
+    from PIL import Image, ImageChops
+    line = "The quarterly statement lists every invoice paid this month in full"
+    with fitz.open() as text_doc, fitz.open() as img:
+        p = text_doc.new_page()
+        p.insert_text((56, 80), line, fontsize=11)
+        pix = p.get_pixmap(dpi=300)
+        scan = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        noise = random.Random(1).randbytes(scan.width * scan.height)    # a scanner's grain,
+        grain = Image.frombytes("L", scan.size, noise).point(lambda v: 124 + v * 8 // 255)
+        scan = ImageChops.add(scan, grain.convert("RGB"), 1.0, -128)     # +-4 levels
+        buf = io.BytesIO()
+        scan.save(buf, "JPEG", quality=85)
+        img.new_page(width=p.rect.width, height=p.rect.height).insert_image(
+            p.rect, stream=buf.getvalue())
+        img.save(tmp_path / "one_line.pdf")
+    page = _page(window)
+    out = tmp_path / "real_ocr.pdf"
+    _run(window, dialogs, page, str(tmp_path / "one_line.pdf"), out)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as doc:
+        got = doc[0].get_text().split()
+    assert sum(w in got for w in line.split()) >= len(line.split()) - 1, got
+
+
 def test_the_language_starts_from_windows_then_the_last_one_used(window, dialogs, tmp_path,
                                                                  tess, ocr_languages):
     """Owner, 2026-10-22: Windows' display language the first time (when installed),

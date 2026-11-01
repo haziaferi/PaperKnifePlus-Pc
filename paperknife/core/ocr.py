@@ -286,7 +286,12 @@ def ocr_pdf(doc, out: str, lang: str, dpi: int, text_only: bool, stop, progress,
             progress((n + 1) / total)
 
             pix = render(page, scale)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            # Grey (measured 2026-11-01 on simulated scans): as many words as the
+            # colour page, 0.7-1.1 s a page sooner.  Not contrast-stretched as
+            # ScanKnife+ does (question 8): on a page of one line, whose ink is less
+            # than the 0.5% clipped at each end, the stretch spread the paper's grain
+            # from black to white and no word was read.
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert("L")
             turn = upright_turn(img)
             words = ocr_words(img, lang, scale, turn)
 
