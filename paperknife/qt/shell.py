@@ -227,6 +227,11 @@ class MainWindow(FluentWindow):
     # The current document changed: its path, or None (owner's decision
     # 2026-10-10: one document the single-input screens follow).
     current_document_changed = Signal(object)
+    # A tool's result went into the open document, not yet into its file (its status
+    # says "Save writes ..."): the card offers Save under its action (owner R7, 2026-11-21).
+    applied_unsaved = Signal()
+    # SharedDocument's events ("opened", "changed", "saved", "closed"), on the GUI thread
+    document_event = Signal(str)
 
     def __init__(self, tools=None):
         super().__init__()
@@ -829,6 +834,7 @@ class MainWindow(FluentWindow):
             # right after making it): the page shown redraws only if it did not.
             self._sync_queued = True
             QTimer.singleShot(0, self._sync_shown)
+        self.document_event.emit(event)
 
     def _sync_shown(self):
         self._sync_queued = False
@@ -1112,6 +1118,8 @@ class MainWindow(FluentWindow):
         self.status_role = role
         theme.label_role(self.status_label, role)
         self.status_label.setText(msg)
+        if role == "success" and "Save writes" in msg and self.document.dirty:
+            self.applied_unsaved.emit()
 
     def status_text(self) -> str:
         return self.status_label.text()

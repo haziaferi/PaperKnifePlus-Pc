@@ -583,3 +583,116 @@ def test_a_renamed_action_is_never_clipped(e2win):
     page.modes["overlay"].click()
     pump(0.3)
     assert b.text() == "Apply" and b.width() >= b.sizeHint().width()
+
+
+# ── owner, 2026-11-21: R1 rail marks, R7 Save after Apply, R13 wide card ──
+
+def test_the_rail_keeps_where_you_are_while_another_column_is_open(e2win):
+    """R1: the bar marks the open tool's group, the tint the browsed column's."""
+    rail, host = rail_of(e2win), host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.1)
+    po, pages = rail.buttons["Protect & optimise"], rail.buttons["Pages"]
+    assert po.property("mark") == "both" and pages.property("mark") == ""
+    rail.toggle_column(pages)
+    pump(0.1)
+    assert po.property("mark") == "here" and pages.property("mark") == "browse"
+    assert rail.column_hint.isVisibleTo(rail.column)
+    assert "right-click" in rail.column_hint.text()
+    hint = rail.column_hint.mapTo(rail.column, rail.column_hint.rect().bottomLeft()).y()
+    assert hint <= rail.column.height()                     # the column holds its hint
+    rail.close_column()
+    pump(0.1)
+    assert po.property("mark") == "both"
+    assert "right-click: menu" in po.toolTip()
+
+
+def test_the_right_click_menu_ticks_the_open_tool(e2win, monkeypatch):
+    rail, host = rail_of(e2win), host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.1)
+    from qfluentwidgets import RoundMenu
+    shown = []
+    monkeypatch.setattr(RoundMenu, "exec", lambda self, *a, **k: shown.append(self))
+    rail.popup(rail.buttons["Protect & optimise"])
+    ticked = [a.text().replace("&&", "&") for a in shown[0].actions() if a.isChecked()]
+    assert ticked == ["Compress"]
+
+
+def _wait_status(win, text, t=30.0):
+    import time
+    end = time.time() + t
+    while time.time() < end and text not in win.status_text():
+        pump(0.1)
+    return text in win.status_text()
+
+
+def test_after_apply_the_card_offers_save_under_its_action(e2win, monkeypatch):
+    """R7: "Applied · Save now" one line under Apply until the file holds the result."""
+    host = host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.2)
+    assert not host.applied_row.isVisibleTo(host.card)
+    h0 = host.card.height()
+    from qfluentwidgets import PrimaryPushButton
+    apply_btn = next(b for b in host.action_slot.currentWidget().findChildren(PrimaryPushButton))
+    apply_btn.click()
+    assert _wait_status(e2win, "Save writes"), e2win.status_text()
+    pump(0.3)
+    row = host.applied_row
+    assert row.isVisibleTo(host.card) and host.card.height() > h0
+    a = apply_btn.mapTo(e2win, apply_btn.rect().center())
+    s = host.save_now.mapTo(e2win, host.save_now.rect().center())
+    assert (a - s).manhattanLength() < 120                 # beside Apply, not 707 px away
+    assert host.card.geometry().contains(host.save_now.mapTo(host, host.save_now.rect().center()))
+    saved = []
+    monkeypatch.setattr(e2win, "save", lambda *a, **k: saved.append(1))
+    host.save_now.click()
+    assert saved == [1]
+    e2win.document._at_save_point()
+    e2win.document._tell("saved")
+    pump(0.1)
+    assert not row.isVisibleTo(host.card)
+
+
+def test_the_save_line_leaves_with_another_tool(e2win):
+    host = host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.1)
+    e2win.document.changed()
+    e2win.set_status("✓  Compressed · Save writes it to the file", "success")
+    pump(0.1)
+    assert host.applied_row.isVisibleTo(host.card)
+    host.pick("WatermarkTool")
+    pump(0.1)
+    assert not host.applied_row.isVisibleTo(host.card)
+
+
+def test_a_wide_window_widens_the_card_and_its_fields(e2win):
+    """R13: from 1600 px the card is 260 px inside, its fields 220; back at 1280, 200 / 160."""
+    from PySide6.QtWidgets import QLineEdit
+
+    from paperknife.qt import structure
+    from paperknife.qt.pages import FIELD_W
+    host = host_of(e2win)
+    host.pick("PasswordTool")
+    pump(0.2)
+    narrow = host.card.width()
+
+    def fields():
+        return {c.width() for c in host.card.findChildren(QLineEdit)
+                if c.isVisibleTo(host.card) and c.objectName() != "qt_spinbox_lineedit"
+                and c.parentWidget().objectName() == "settingControl"}
+    assert fields() == {FIELD_W}
+    e2win.resize(1920, 1040)
+    pump(0.4)
+    assert host.card.width() == narrow + structure.DETAILS_W_WIDE - structure.DETAILS_W
+    assert fields() == {structure.FIELD_W_WIDE}
+    host.pick("WatermarkTool")                              # built while wide
+    pump(0.3)
+    assert host.card.width() == narrow + structure.DETAILS_W_WIDE - structure.DETAILS_W
+    e2win.resize(1280, 820)
+    pump(0.4)
+    host.pick("PasswordTool")
+    pump(0.2)
+    assert host.card.width() == narrow and fields() == {FIELD_W}

@@ -75,6 +75,42 @@ def left_mode() -> str:
 DETAILS_W = 200
 LIST_W = 200
 STACK_CONTROL_W = 96     # the widest minimum a stacked row's control keeps (a slider)
+# From a 1600 px window the card is wider, its fields 220 (owner R13, 2026-11-21:
+# labels wrapped in the 232 px card beside ~1,550 px of free page at 1920).
+CARD_WIDE_AT = 1600
+DETAILS_W_WIDE = 260
+FIELD_W_WIDE = 220
+
+
+def _rewiden(root, wide: bool):
+    """The card's options at the wide widths, or back: a fixed DETAILS_W column (or
+    one capped at it) takes DETAILS_W_WIDE, a fixed FIELD_W field FIELD_W_WIDE.  Each
+    widget keeps its narrow width as a property, so going back restores only these."""
+    from .pages import FIELD_W
+    for c in [root, *root.findChildren(QWidget)]:
+        was = c.property("pk_narrow_w")
+        if not wide:
+            if was is not None:
+                if c.property("pk_narrow_fixed"):
+                    c.setFixedWidth(int(was))
+                else:
+                    c.setMaximumWidth(int(was))
+                c.setProperty("pk_narrow_w", None)
+            continue
+        if was is not None:
+            continue
+        lo, hi = c.minimumWidth(), c.maximumWidth()
+        for narrow, broad in ((DETAILS_W, DETAILS_W_WIDE), (FIELD_W, FIELD_W_WIDE)):
+            if lo == hi == narrow:
+                c.setProperty("pk_narrow_w", narrow)
+                c.setProperty("pk_narrow_fixed", True)
+                c.setFixedWidth(broad)
+                break
+            if hi == narrow == DETAILS_W:
+                c.setProperty("pk_narrow_w", narrow)
+                c.setProperty("pk_narrow_fixed", False)
+                c.setMaximumWidth(broad)
+                break
 
 
 def active() -> bool:
@@ -345,6 +381,7 @@ class StructureHost(QWidget):
         # sized like the right column's (DETAILS_W), the action fixed at its top.
         self.float_ = details() == "float" and not self.ribbon
         self._replace_due = False
+        self._wide = False                      # the wide card (_check_wide)
         self.right = details() in ("right", "float") and not self.ribbon
         self._views: dict[str, _View] = {}
         self._current: str | None = None
@@ -523,6 +560,25 @@ class StructureHost(QWidget):
         top.addWidget(self.action_slot, 0, Qt.AlignTop)            # fixed at the top
         cv.addLayout(top)
         self.card_top = top
+        # After Apply, until the file holds the result: Save one line under the action
+        # (owner R7, 2026-11-21: the document bar's Save was 707 px from Apply at 1280).
+        from qfluentwidgets import HyperlinkButton
+        self.applied_row = QWidget()
+        ar = QHBoxLayout(self.applied_row)
+        ar.setContentsMargins(0, 0, 0, 0)
+        ar.setSpacing(4)
+        self.applied_label = muted_caption("✓ Applied ·")
+        self.save_now = HyperlinkButton("", "Save now")
+        self.save_now.setFixedHeight(24)
+        self.save_now.clicked.connect(self._save_now)
+        ar.addWidget(self.applied_label, 0, Qt.AlignVCenter)
+        ar.addWidget(self.save_now, 0, Qt.AlignVCenter)
+        cv.addWidget(self.applied_row, 0, Qt.AlignRight)
+        self.applied_row.hide()
+        self._applied_for = None
+        if self.window_ is not None and not self.files and hasattr(self.window_, "applied_unsaved"):
+            self.window_.applied_unsaved.connect(self._show_applied)
+            self.window_.document_event.connect(self._applied_doc_event)
         # The tool's name, under the action and open or collapsed alike: nothing else
         # on the screen named the tool Apply runs (critique 2026-11-21).
         self.card_name = StrongBodyLabel("")
@@ -545,6 +601,43 @@ class StructureHost(QWidget):
             w.setSizePolicy(QSizePolicy.Preferred if w is cur else QSizePolicy.Ignored,
                             QSizePolicy.Preferred if w is cur else QSizePolicy.Ignored)
         self.action_slot.updateGeometry()
+
+    # ── Save under the action after Apply (owner R7, 2026-11-21) ──
+    def _show_applied(self):
+        if self.card is None or self._current is None or not self.card.isVisible():
+            return
+        self._applied_for = self._current
+        self._set_applied(True)
+
+    def _applied_doc_event(self, event: str):
+        doc = self.window_.document
+        if event in ("saved", "opened", "closed") or not doc.dirty:
+            self._set_applied(False)
+
+    def _set_applied(self, on: bool):
+        if not on:
+            self._applied_for = None
+        if self.applied_row.isVisibleTo(self.card) != on:
+            self.applied_row.setVisible(on)
+            self._place_card()
+
+    def _save_now(self):
+        if self.window_ is not None:
+            self.window_.save()
+
+    # ── the card's width: wider in a wide window (owner R13, 2026-11-21) ──
+    def _details_w(self) -> int:
+        return DETAILS_W_WIDE if self._wide else DETAILS_W
+
+    def _check_wide(self):
+        win = self.window_ if self.window_ is not None else self.window()
+        wide = self.float_ and win is not None and win.width() >= CARD_WIDE_AT
+        if wide == self._wide:
+            return
+        self._wide = wide
+        for v in self._views.values():
+            if v.options is not None:
+                _rewiden(v.options, wide)
 
     def card_open(self) -> bool:
         return bool(self.card is not None and self._card_open)
@@ -570,11 +663,16 @@ class StructureHost(QWidget):
         right = self.width() - PAGE_MARGINS[2]
         y = self.centre.y() + 4
         action_w = self.card_top.sizeHint().width() + m.left() + m.right() + 2 * c.frameWidth()
+        if self.applied_row.isVisibleTo(c):
+            top_h += self.applied_row.sizeHint().height() + c.layout().spacing()
+            action_w = max(action_w, self.applied_row.sizeHint().width() + m.left() + m.right()
+                           + 2 * c.frameWidth())
         # An open card has one width on every tool and in both workspaces, with or
         # without options (same place, same size; critique 2026-11-21: Files' 230
         # against 232 px); collapsed, it is the edge card.  The action row's own
         # width still wins (a long label is never cut).
-        w = max(DETAILS_W + m.left() + m.right() + 8, action_w) if self._card_open else action_w
+        dw = self._details_w()
+        w = max(dw + m.left() + m.right() + 8, action_w) if self._card_open else action_w
         if self.card_name.text():
             name_h = self.card_name.heightForWidth(w - m.left() - m.right() - 2 * c.frameWidth())
             top_h += max(name_h, self.card_name.sizeHint().height()) + c.layout().spacing()
@@ -583,7 +681,7 @@ class StructureHost(QWidget):
             inner = cur.widget() if hasattr(cur, "widget") and cur.widget() is not None else cur
             lay = inner.layout()
             # wrapped text in a 200 px column: the height for that width, not the hint
-            body_h = (lay.totalHeightForWidth(DETAILS_W) if lay is not None and lay.hasHeightForWidth()
+            body_h = (lay.totalHeightForWidth(dw) if lay is not None and lay.hasHeightForWidth()
                       else inner.sizeHint().height())
             body_h = max(body_h, inner.minimumSizeHint().height())
             want = m.top() + top_h + 9 + body_h + m.bottom() + 12
@@ -632,10 +730,12 @@ class StructureHost(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        self._check_wide()
         self._place_card()
 
     def showEvent(self, e):
         super().showEvent(e)
+        self._check_wide()
         self._place_card()
 
     def eventFilter(self, obj, e):
@@ -900,6 +1000,10 @@ class StructureHost(QWidget):
         if key not in self.tools():
             return False
         view = self._views.get(key) or self._make_view(key)
+        if self._wide and view.options is not None:
+            _rewiden(view.options, True)        # built after the window grew
+        if self.card is not None and key != self._applied_for:
+            self._set_applied(False)            # another tool: the bar's Save remains
         self._current = key
         self.centre.setCurrentWidget(view.centre or self.viewer or self.centre.widget(0))
         if view.options is not None:
@@ -952,6 +1056,7 @@ class StructureHost(QWidget):
         self.action_slot.setCurrentIndex(0)
         self.title_label.setText(self._title)
         if self.float_:
+            self._set_applied(False)
             self.card.hide()
         elif self.ribbon or self.right:
             self.options_panel.hide()
@@ -1345,18 +1450,32 @@ class GroupButton(TransparentTogglePushButton):
         self.setCheckable(True)
         self.setFixedSize(RAIL_W - 8, GROUP_H)
         self.setText("")
-        self.setToolTip(group or "Files")
-        # Checked: the list's selected tint and an accent bar at the left edge, not
-        # the main action's own fill (critique 2026-11-21: a state that outweighed
-        # and imitated the action).
+        # Both routes named where the pointer rests (owner R1, 2026-11-21: the
+        # right-click menu had no visible cue).
+        self.setToolTip(f"{group or 'Files'} · click: list, right-click: menu")
+        # Two marks, apart (owner R1, 2026-11-21): the accent bar at the left edge is
+        # the group of the tool open now, the list's selected tint the group whose
+        # column is open; one group can have both.  Not the main action's own fill
+        # (critique 2026-11-21: a state that outweighed and imitated the action).
         from qfluentwidgets import setCustomStyleSheet
 
         def qss(dark):
             tint = theme.hex_color("tint_selected", dark)
+            hover = theme.hex_color("tint_hover", dark)
             bar = theme.hex_color("accent", dark)
-            return ("QPushButton:checked,QPushButton:checked:hover,QPushButton:checked:pressed"
+            both = 'QPushButton[mark="both"]'
+            browse = 'QPushButton[mark="browse"]'
+            here = 'QPushButton[mark="here"]'
+            return (f"{both},{both}:hover,{both}:pressed"
                     f"{{background-color:{tint};border:none;border-left:3px solid {bar};"
-                    "border-radius:4px;}")
+                    "border-radius:4px;}"
+                    f"{browse},{browse}:hover,{browse}:pressed"
+                    f"{{background-color:{tint};border:none;border-radius:4px;}}"
+                    f"{here}{{background-color:transparent;border:none;"
+                    f"border-left:3px solid {bar};border-radius:4px;}}"
+                    f"{here}:hover,{here}:pressed{{background-color:{hover};border:none;"
+                    f"border-left:3px solid {bar};border-radius:4px;}}")
+        self.setProperty("mark", "")
         theme.keep_styled(self, lambda b: setCustomStyleSheet(b, qss(False), qss(True)))
         # the icon above the name (two labels: the button draws only its ground)
         gl = QVBoxLayout(self)
@@ -1371,8 +1490,18 @@ class GroupButton(TransparentTogglePushButton):
         self.label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         gl.addWidget(self.icon_label)
         gl.addWidget(self.label)
-        self.toggled.connect(self._ink)
         self._ink(False)
+
+    def set_marks(self, here: bool, browsed: bool):
+        """here: the open tool is in this group (bar, accent icon); browsed: its column
+        is open (tint).  Checked while either holds."""
+        mark = "both" if here and browsed else "here" if here else "browse" if browsed else ""
+        self.setChecked(here or browsed)
+        if self.property("mark") != mark:
+            self.setProperty("mark", mark)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        self._ink(here)
 
     def _ink(self, on: bool):
         """Icon in the accent and the name in text ink while checked, else text / muted."""
@@ -1421,6 +1550,10 @@ class GroupRail(QWidget):
         cv.addWidget(self.column_title)
         self.column_slot = QStackedWidget()
         cv.addWidget(self.column_slot, 1)
+        # The other route, said once where the tools are listed (owner R1, 2026-11-21)
+        self.column_hint = muted_caption("Tip: right-click a group for a quick menu")
+        self.column_hint.setWordWrap(True)
+        cv.addWidget(self.column_hint)
         self.column.hide()
         self._column_group = None
         self._lists = {}
@@ -1451,9 +1584,9 @@ class GroupRail(QWidget):
 
     def refresh(self):
         cur = self.group_of(self.host._current) if self.host is not None else None
-        mark = self._column_group if self._column_group is not None else cur
-        for g, b in self.buttons.items():      # one group marked: the open column's, else the tool's
-            b.setChecked(g == mark)
+        browsed = self._column_group if self.column.isVisible() else None
+        for g, b in self.buttons.items():       # bar: the open tool's group; tint: the column's
+            b.set_marks(g == cur, g == browsed or (browsed is None and g == cur))
 
     def _tools(self, group):
         return next(ts for g, ts in self.host.groups if g == group)
@@ -1485,7 +1618,9 @@ class GroupRail(QWidget):
         tl = self.mapTo(self.win, self.rect().topLeft())
         # under the top row (places, document bar): where the working space starts
         work = self.host.centre.mapTo(self.win, self.host.centre.rect().topLeft()).y()
-        h = min(self.win.height() - work - 16, 12 + 28 + rows + 12)
+        m = self.column.layout().contentsMargins()
+        hint_h = self.column_hint.heightForWidth(COLUMN_W - m.left() - m.right())
+        h = min(self.win.height() - work - 16, 12 + 28 + rows + 6 + hint_h + 12)
         self.column.setGeometry(tl.x() + RAIL_W + 4, work, COLUMN_W, h)
         self._column_group = btn.group
         self.column.show()
@@ -1504,16 +1639,19 @@ class GroupRail(QWidget):
     def popup(self, btn):
         if self.host is None:
             return
-        from qfluentwidgets import Action, RoundMenu
+        from qfluentwidgets import Action, CheckableMenu, MenuIndicatorType
 
         from .shell import DEFAULT_GLYPH, NAV_GLYPH
         self.close_column()
-        menu = RoundMenu(parent=self.win)
+        # The open tool ticked (owner R1, 2026-11-21: nothing marked it)
+        menu = CheckableMenu(parent=self.win, indicatorType=MenuIndicatorType.CHECK)
         reg = _registry()
         for t in self._tools(btn.group):
             e = reg.get(t)
             act = Action(theme.glyph_icon(NAV_GLYPH.get(t, DEFAULT_GLYPH), 16),
                          (plain_label(e.label) if e else t).replace("&", "&&"))
+            act.setCheckable(True)
+            act.setChecked(t == self.host._current)
             act.triggered.connect(lambda _=False, k=t: self._choose(k))
             menu.addAction(act)
         self.last_menu = menu
