@@ -28,14 +28,18 @@ class PasswordPage(ToolPage):
         self.body.addSpacing(16)
 
         # Read by both actions (changing a protected file's password, and removing
-        # it), so it comes first; each action sits under the fields it uses
-        # (critique 2026-11-21: Remove sat under Apply, 486 px above its field).
+        # it), so it comes first, and Remove Password sits right under it, apart from
+        # Apply (critique 2026-11-21: Remove sat beside Apply, 486 px above its field).
         cur = card(padding=0)
         self.body.addWidget(cur)
         self.cur_pw = _password_field("Current password")
         setting_row(cur, "Current password",
                     "Only for a file that already has a password: changing or removing "
                     "it needs the one it has now.").layout().addWidget(self.cur_pw)
+        self.remove_btn = PushButton("Remove Password")
+        self.remove_btn.setFixedHeight(CONTROL_H)
+        self.remove_btn.clicked.connect(self.unprotect)
+        setting_row(cur, "Or save without a password").layout().addWidget(self.remove_btn)
 
         self.body.addWidget(group_title("Add / Change Password"))
         add = card(padding=0)
@@ -48,16 +52,6 @@ class PasswordPage(ToolPage):
         setting_row(add, "Allow printing").layout().addWidget(self.allow_print)
         self.allow_copy = toggle_switch(True)
         setting_row(add, "Allow copying text").layout().addWidget(self.allow_copy)
-
-        self.body.addWidget(group_title("Remove Password"))
-        rm = card(padding=0)
-        self.body.addWidget(rm)
-        self.remove_btn = PushButton("Remove Password")
-        self.remove_btn.setFixedHeight(CONTROL_H)
-        self.remove_btn.clicked.connect(self.unprotect)
-        setting_row(rm, "Save without a password",
-                    "Uses Current password above when the file has one."
-                    ).layout().addWidget(self.remove_btn)
         self.body.addStretch(1)
 
         self.primary(APPLY, self.protect)

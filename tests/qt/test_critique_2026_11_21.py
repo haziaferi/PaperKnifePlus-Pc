@@ -20,8 +20,11 @@ def test_remove_password_sits_under_its_own_heading_not_beside_apply(e2win):
     assert [b.text() for b in page._buttons] == ["Apply"]        # one action on the card top
     btn = page.remove_btn
     assert btn.isVisibleTo(host.card)
-    # Current password (read by both actions) first, then Add / Change, then Remove
-    assert _y(page.cur_pw, e2win) < _y(page.pw1, e2win) < _y(page.allow_copy, e2win) < _y(btn, e2win)
+    # Current password (read by both actions) first, Remove right under it, then Add / Change
+    assert _y(page.cur_pw, e2win) < _y(btn, e2win) < _y(page.pw1, e2win)
+    assert _y(btn, e2win) - _y(page.cur_pw, e2win) < 120            # was 486 px apart
+    apply_btn = page._buttons[0]
+    assert _y(btn, e2win) - (_y(apply_btn, e2win) + apply_btn.height()) > 60   # not beside Apply
 
 
 # ── the card names its tool ──────────────────────────────────────────────────

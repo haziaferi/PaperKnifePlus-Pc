@@ -150,6 +150,7 @@ def _trim_top(area):
 
 
 MARK_ROW_PAD = 2        # a radio / switch row on the card: 32 px mark + 2 x 2 = 36 (ROW_H)
+STACK_ROW_PAD = 6       # a stacked row on the card: name, 4, control, 6 above and below
 
 
 def _stack_rows(widget):
@@ -180,8 +181,12 @@ def _stack_rows(widget):
         m = lay.contentsMargins()
         QWidget().setLayout(lay)            # the old layout leaves with a throwaway widget
         v = QVBoxLayout(row)
-        v.setContentsMargins(m)
-        v.setSpacing(6)
+        # Name over its control, a page row's 10 px above and below cut to 6: the
+        # card's name line and examples took room the tall cards did not have
+        # (critique 2026-11-21: Header / Footer scrolled even maximized).
+        v.setContentsMargins(m.left(), STACK_ROW_PAD, m.right(), STACK_ROW_PAD)
+        row.setMinimumHeight(0)
+        v.setSpacing(4)
         for it in items:
             w = it.widget()
             if w is None:

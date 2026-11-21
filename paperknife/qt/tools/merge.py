@@ -96,7 +96,7 @@ class MergePage(CollectionPage):
         sub.setWordWrap(True)
         sub.setAlignment(Qt.AlignCenter)
         sub.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        tv.addWidget(sub, 0, Qt.AlignHCenter)
+        tv.addWidget(sub)                  # the target's width, wrapped (not cut at 220 px)
         ev.addWidget(self.drop_target)
         ev.addStretch(1)
         v.addWidget(self.strip_empty, 1)
