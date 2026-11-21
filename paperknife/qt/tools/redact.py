@@ -30,8 +30,10 @@ TOOLS = {
 SUBTITLE = "Draw rectangles over sensitive content"
 BOX_ROWS = 5            # pending boxes listed before the list scrolls
 WARN_TITLE = "⚠  Redaction is permanent and irreversible once applied."
-WARN_BODY = ("Content under redaction boxes is completely destroyed — "
-             "not merely covered. Always work on a copy.")
+WARN_BODY = "Content under redaction boxes is completely destroyed — not merely covered."
+# The action makes a new file and its name says so (step 5: a new file keeps a verb
+# naming it; critique 2026-11-21: "Apply and save" read as saving this file).
+APPLY_TEXT = "Save redacted copy…"
 
 
 @register_page("RedactTool")
@@ -56,7 +58,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self.add_pages_tool()
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo last (Ctrl+Z)", self.undo, toggle=False)
-        self.primary("Apply and save", self.apply_redactions, danger=True)
+        self.primary(APPLY_TEXT, self.apply_redactions, danger=True)
         self.enable_band(lambda: ("rect", theme.hex_color("danger")), self._add_box,
                          drag_needs_doc=True)
         self.set_kind("box")

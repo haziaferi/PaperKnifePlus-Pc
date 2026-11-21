@@ -45,10 +45,25 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.add_rail_gap()
         self.add_rail("undo", GLYPH_UNDO, "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.mark_rail("find")
+        # Find first, then the bulk change, which waits for hits of the text in
+        # Find (critique 2026-11-21: Replace All led the card, before any search).
         self.secondary("Find All", self.find_all)
-        self.secondary("Replace All", self.replace_all)
+        self.replace_btn = self.secondary("Replace All", self.replace_all)
+        self.replace_btn.setEnabled(False)
         self.build_panel()
         self.show_current()
+
+    # Replace All is on while the hits shown are those of the text in Find.
+    @property
+    def _hits(self):
+        return self.__dict__.get("_hits_now", [])
+
+    @_hits.setter
+    def _hits(self, hits):
+        self.__dict__["_hits_now"] = hits
+        btn = self.__dict__.get("replace_btn")
+        if btn is not None:
+            btn.setEnabled(bool(hits))
 
     # ── panel ────────────────────────────────────────────────────────────────
     def build_panel(self):
@@ -58,6 +73,8 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.find_edit = LineEdit()
         self.find_edit.setPlaceholderText("Search text…")
         self.find_edit.returnPressed.connect(self.find_all)
+        # other text: the hits shown are not its hits (Replace All waits again)
+        self.find_edit.textEdited.connect(lambda _t: self.replace_btn.setEnabled(False))
         row.addWidget(self.find_edit, 1)
         row = self.panel_field("Replace")
         self.repl_edit = LineEdit()

@@ -184,8 +184,8 @@ def test_zoom_is_a_percentage_in_the_centre(e2win):
 
 def test_two_actions_stack_at_the_card_top_unsqueezed(e2win):
     host = host_of(e2win)
-    host.pick("PasswordTool")
-    pump(0.1)
+    host.pick("MetadataTool")          # Apply, Clear all fields (Password's Remove moved
+    pump(0.1)                          # to its own section, critique 2026-11-21)
     buttons = host.current_tool()._buttons
     assert len(buttons) == 2
     ys = sorted(b.mapTo(e2win, b.rect().topLeft()).y() for b in buttons)

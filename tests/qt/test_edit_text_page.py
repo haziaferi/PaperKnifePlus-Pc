@@ -301,8 +301,8 @@ def test_leaving_the_tool_keeps_the_document(window, tmp_path, target):
 
 # ── reflow (owner, 2026-10-11) ───────────────────────────────────────────────
 def _panel_title(page):
-    from qfluentwidgets import SubtitleLabel
-    return page._panel_box.findChildren(SubtitleLabel)[0].text()
+    from PySide6.QtWidgets import QLabel
+    return page._panel_box.findChild(QLabel, "panelTitle").text()
 
 
 def _para_pdf(path, picture=False):

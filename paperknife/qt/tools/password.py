@@ -1,13 +1,13 @@
 """Password — a single-file transform (group C): add, change or remove encryption."""
 from __future__ import annotations
 
-from qfluentwidgets import PasswordLineEdit
+from qfluentwidgets import PasswordLineEdit, PushButton
 
 from ...core import password as core
 from ...core.document import NO_PASSWORD, Protection
 from .. import dialogs
-from ..pages import (APPLY, ToolPage, card, group_title, register_page, setting_row,
-                     toggle_switch)
+from ..pages import (APPLY, CONTROL_H, ToolPage, card, group_title, register_page,
+                     setting_row, toggle_switch)
 
 
 def _password_field(placeholder: str) -> PasswordLineEdit:
@@ -27,13 +27,23 @@ class PasswordPage(ToolPage):
         self.doc_input()
         self.body.addSpacing(16)
 
+        # Read by both actions (changing a protected file's password, and removing
+        # it), so it comes first; each action sits under the fields it uses
+        # (critique 2026-11-21: Remove sat under Apply, 486 px above its field).
+        cur = card(padding=0)
+        self.body.addWidget(cur)
+        self.cur_pw = _password_field("Current password")
+        setting_row(cur, "Current password",
+                    "Only for a file that already has a password: changing or removing "
+                    "it needs the one it has now.").layout().addWidget(self.cur_pw)
+
         self.body.addWidget(group_title("Add / Change Password"))
         add = card(padding=0)
         self.body.addWidget(add)
-        self.pw1 = _password_field("Open (user) password")
+        self.pw1 = _password_field("Password")
         setting_row(add, "Open (user) password").layout().addWidget(self.pw1)
-        self.pw2 = _password_field("Owner password (blank = random)")
-        setting_row(add, "Owner password", "blank = random").layout().addWidget(self.pw2)
+        self.pw2 = _password_field("Optional")
+        setting_row(add, "Owner password", "Blank: a random one").layout().addWidget(self.pw2)
         self.allow_print = toggle_switch(True)
         setting_row(add, "Allow printing").layout().addWidget(self.allow_print)
         self.allow_copy = toggle_switch(True)
@@ -42,11 +52,14 @@ class PasswordPage(ToolPage):
         self.body.addWidget(group_title("Remove Password"))
         rm = card(padding=0)
         self.body.addWidget(rm)
-        self.cur_pw = _password_field("Current password")
-        setting_row(rm, "Current password").layout().addWidget(self.cur_pw)
+        self.remove_btn = PushButton("Remove Password")
+        self.remove_btn.setFixedHeight(CONTROL_H)
+        self.remove_btn.clicked.connect(self.unprotect)
+        setting_row(rm, "Save without a password",
+                    "Uses Current password above when the file has one."
+                    ).layout().addWidget(self.remove_btn)
         self.body.addStretch(1)
 
-        self.secondary("Remove Password", self.unprotect)
         self.primary(APPLY, self.protect)
 
     def _forget_passwords(self):
@@ -114,7 +127,7 @@ class PasswordPage(ToolPage):
                 and not self._current_password_opens_it(
                     sd, self.cur_pw.text(), "Protect",
                     "This PDF is already encrypted. Enter its password in "
-                    "“Current password” below to change it.")):
+                    "“Current password” above to change it.")):
             return
         owner = core.owner_password(self.pw2.text())
         perm = core.permissions(self.allow_print.isChecked(), self.allow_copy.isChecked())

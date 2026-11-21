@@ -61,7 +61,7 @@ def test_the_page_builds_with_its_rail_and_one_main_action(window):
     keys = [getattr(page.rail.itemAt(i).widget(), "pk_key", None)
             for i in range(page.rail.count())]
     assert [k for k in keys if k] == ["box", "search", "pages", "undo"]
-    assert [b.text() for b in page._buttons if b.pk_primary] == ["Apply and save"]
+    assert [b.text() for b in page._buttons if b.pk_primary] == ["Save redacted copy…"]
     page.set_kind("search")
     pump(0.05)
     assert page.search_edit.isVisibleTo(page)

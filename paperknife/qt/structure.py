@@ -27,8 +27,8 @@ from qfluentwidgets import (Pivot, StrongBodyLabel, SubtitleLabel, TitleLabel,
                             TransparentPushButton, TransparentTogglePushButton)
 
 from . import theme
-from .pages import (PAGE_MARGINS, SETTINGS_W, CollectionPage, MasterDetailPage, OrganiserPage,
-                    ToolPage, WorkspacePage, muted_caption, plain_label)
+from .pages import (CONTROL_H, PAGE_MARGINS, SETTINGS_W, CollectionPage, MasterDetailPage,
+                    OrganiserPage, ToolPage, WorkspacePage, muted_caption, plain_label)
 
 # The pane, measured on the reference apps (owner, 2026-10-19): PdfCraft 272,
 # Affinity's studio 264, Stirling 296, Acrobat 299 px; median about 284.  Every
@@ -149,6 +149,9 @@ def _trim_top(area):
         lay.takeAt(0)
 
 
+MARK_ROW_PAD = 2        # a radio / switch row on the card: 32 px mark + 2 x 2 = 36 (ROW_H)
+
+
 def _stack_rows(widget):
     """A form's setting rows for the 200 px details column: the name above its
     control (a narrow column takes another row, never a squeezed one).  A row
@@ -165,6 +168,11 @@ def _stack_rows(widget):
         if marks and all(isinstance(m, (QRadioButton, QCheckBox, SwitchButton)) or
                          isinstance(m.parent(), (QRadioButton, QCheckBox, SwitchButton))
                          for m in marks):
+            # One line and one mark: as tall as the mark and its line, not a page
+            # row's 64 px (critique 2026-11-21: 65 px a row pushed the cards to scroll).
+            row.setMinimumHeight(0)
+            m = lay.contentsMargins()
+            lay.setContentsMargins(m.left(), MARK_ROW_PAD, m.right(), MARK_ROW_PAD)
             continue
         items = []
         while lay.count():
@@ -186,6 +194,23 @@ def _stack_rows(widget):
                 v.addWidget(w, 0, Qt.AlignLeft)
             else:
                 v.addWidget(w)
+
+
+def _hide_repeated_heading(options, name: str):
+    """The options' first heading, when it only repeats the tool's name now on the
+    card's top line (Watermark's "Watermark", Find & Replace's "Find & Replace")."""
+    from PySide6.QtWidgets import QLabel
+    if options is None:
+        return
+    inner = options.widget() if hasattr(options, "widget") and options.widget() else options
+    if inner.objectName() == "paneEditor":
+        return                                  # an editor's heading names its mode
+    for lbl in inner.findChildren(QLabel):
+        if not lbl.isVisibleTo(inner) or not lbl.text():
+            continue
+        if lbl.text().replace("&&", "&") == name:
+            lbl.hide()
+        return                                  # only the first visible text counts
 
 
 def _field_width(ctl):
@@ -337,7 +362,11 @@ class StructureHost(QWidget):
             self.doc_bar.layout().setContentsMargins(0, 0, 0, 0)
             head.addWidget(self.doc_bar, 0, Qt.AlignVCenter)
         else:
-            head.addWidget(SubtitleLabel("Files"), 0, Qt.AlignVCenter)
+            # As tall as the document bar: the card and its action start at the same
+            # height in both workspaces (critique 2026-11-21: 114 against 119 px).
+            files_title = SubtitleLabel("Files")
+            files_title.setFixedHeight(CONTROL_H)
+            head.addWidget(files_title, 0, Qt.AlignVCenter)
         head.addStretch(1)
         self.action_slot = QStackedWidget()
         self.action_slot.addWidget(QWidget())
@@ -487,6 +516,12 @@ class StructureHost(QWidget):
         top.addWidget(self.action_slot, 0, Qt.AlignTop)            # fixed at the top
         cv.addLayout(top)
         self.card_top = top
+        # The tool's name, under the action and open or collapsed alike: nothing else
+        # on the screen named the tool Apply runs (critique 2026-11-21).
+        self.card_name = StrongBodyLabel("")
+        self.card_name.setObjectName("cardToolName")
+        self.card_name.setWordWrap(True)
+        cv.addWidget(self.card_name)
         # The slot is as tall as its current tool's actions, not the tallest stack:
         # no empty band under a single action.
         self.action_slot.currentChanged.connect(self._fit_action_slot)
@@ -528,9 +563,15 @@ class StructureHost(QWidget):
         right = self.width() - PAGE_MARGINS[2]
         y = self.centre.y() + 4
         action_w = self.card_top.sizeHint().width() + m.left() + m.right() + 2 * c.frameWidth()
+        # An open card has one width on every tool and in both workspaces, with or
+        # without options (same place, same size; critique 2026-11-21: Files' 230
+        # against 232 px); collapsed, it is the edge card.  The action row's own
+        # width still wins (a long label is never cut).
+        w = max(DETAILS_W + m.left() + m.right() + 8, action_w) if self._card_open else action_w
+        if self.card_name.text():
+            name_h = self.card_name.heightForWidth(w - m.left() - m.right() - 2 * c.frameWidth())
+            top_h += max(name_h, self.card_name.sizeHint().height()) + c.layout().spacing()
         if self.options_stack.isVisible():
-            # the action row's own width wins over the column (a long label is never cut)
-            w = max(DETAILS_W + m.left() + m.right() + 8, action_w)
             cur = self.options_stack.currentWidget()
             inner = cur.widget() if hasattr(cur, "widget") and cur.widget() is not None else cur
             lay = inner.layout()
@@ -541,7 +582,6 @@ class StructureHost(QWidget):
             want = m.top() + top_h + 9 + body_h + m.bottom() + 12
             h = min(want, self.height() - y - PAGE_MARGINS[3] - 8)
         else:
-            w = action_w
             h = m.top() + top_h + m.bottom()
         c.setGeometry(right - w, y, w, h)
         c.raise_()
@@ -729,7 +769,12 @@ class StructureHost(QWidget):
         ah.setSpacing(8)
         if not stacked:
             ah.addStretch(1)            # the buttons keep their size, at the right
-        for b in reversed(list(page._buttons)) if stacked else list(page._buttons):
+        # Stacked: the primary (added last) leads; with none, the page's own order
+        # (Find & Replace: Find All, then Replace All).
+        order = list(page._buttons)
+        if stacked and any(getattr(b, "pk_primary", False) for b in order):
+            order.reverse()
+        for b in order:
             b.setParent(actions)
             ah.addWidget(b, 0, Qt.AlignRight) if stacked else ah.addWidget(b)
         self.action_slot.addWidget(actions)
@@ -751,6 +796,7 @@ class StructureHost(QWidget):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(2)
         rail = page.rail
+        commands = []
         for i in range(rail.count()):
             w = rail.itemAt(i).widget()
             if w is None or not hasattr(w, "pk_key"):
@@ -766,15 +812,36 @@ class StructureHost(QWidget):
                 row = _row_button(False)(icon, text)
                 row.clicked.connect(lambda _=False, b=w: b.click())
             _pane_row(row)
-            bv.addWidget(row)
+            if w.isCheckable():
+                bv.addWidget(row)
+            else:
+                commands.append(row)
+        # A command (Undo) is not a mode: after a line, below the modes (critique
+        # 2026-11-21: drawn as one more mode row).
+        if commands:
+            from .pages import Divider
+            bv.addSpacing(2)
+            bv.addWidget(Divider())
+            bv.addSpacing(2)
+            for row in commands:
+                row.setObjectName("editorCommand")
+                bv.addWidget(row)
         rail.parentWidget().hide()
         page.panel_hosted = True                    # always shown: no hide / reopen
+        # The panel built before it was hosted kept its hide button: a second ">"
+        # beside the heading, cutting it ("Find & Replac", critique 2026-11-21).
+        for name in ("_panel_hide_btn", "_pages_hide_btn"):
+            btn = getattr(page, name, None)
+            if btn is not None:
+                btn.hide()
         holder = QWidget()
         holder.setMaximumWidth(0)
         panel = page.split.replaceWidget(1, holder)
         page.split.setSizes([1, 0])
         page.reopen_btn.hide()
-        bv.addSpacing(8)
+        # More room above the mode's heading than under it: it heads the options
+        # below, not the list above (critique 2026-11-21: 28 above, 30-35 below).
+        bv.addSpacing(20)
         bv.addWidget(panel, 1)
         panel.setMinimumWidth(0)
         panel.setMaximumWidth(self._opt_w())
@@ -807,6 +874,9 @@ class StructureHost(QWidget):
         t = _registry().get(key)
         name = plain_label(t.label) if t else key
         self.title_label.setText(name)
+        if self.card is not None:
+            self.card_name.setText(name)
+            _hide_repeated_heading(view.options, name)
         if self.pane is not None and not self.files and not self.right:
             gname = next(g for g, ts in self.groups if key in ts)
             self.pane_title.setText(gname)

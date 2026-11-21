@@ -1862,7 +1862,11 @@ class WorkspacePage(ToolPage):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(SubtitleLabel(title))
+        # One section-heading style on every card (critique 2026-11-21: 20 px here,
+        # 14 px semibold on the forms' cards).
+        head = StrongBodyLabel(title)
+        head.setObjectName("panelTitle")
+        top.addWidget(head)
         self.panel_info = None
         if desc:                    # the description by an "i", as every row's
             self.panel_info = info_button(title, desc, within=box)
@@ -1876,7 +1880,8 @@ class WorkspacePage(ToolPage):
             self._panel_hide_btn = hide
         bv.addLayout(top)
         self.panel_body = QVBoxLayout()
-        self.panel_body.setContentsMargins(0, 8, 0, 0)
+        # hosted on the card: the heading binds to what follows (critique 2026-11-21)
+        self.panel_body.setContentsMargins(0, 4 if self.panel_hosted else 8, 0, 0)
         self.panel_body.setSpacing(4)
         bv.addLayout(self.panel_body)
         self._panel_v.addWidget(box)
@@ -2135,12 +2140,13 @@ class WorkspacePage(ToolPage):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(SubtitleLabel(PAGES_TITLE))
+        top.addWidget(StrongBodyLabel(PAGES_TITLE))
         top.addStretch(1)
         self._pages_hide_btn = icon_button(theme.glyph_icon(0xE76C, 14))
         self._pages_hide_btn.setToolTip("Hide panel")
         self._pages_hide_btn.clicked.connect(lambda: self.show_context(False))
         top.addWidget(self._pages_hide_btn)
+        self._pages_hide_btn.setVisible(not self.panel_hosted)   # a hosted panel stays
         bv.addLayout(top)
         d = muted_caption(PAGES_DESC)
         d.setWordWrap(True)
@@ -3670,7 +3676,7 @@ class MasterDetailPage(ToolPage):
         bv = box.layout()
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(SubtitleLabel(title))
+        top.addWidget(StrongBodyLabel(title))
         self.detail_info = None
         if desc:                    # the description by an "i", as every row's
             self.detail_info = info_button(title, desc, within=box)
