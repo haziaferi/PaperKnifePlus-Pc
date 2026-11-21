@@ -25,6 +25,8 @@ from .pages import CARD_RADIUS, CONTROL_H, ToolPage, group_title, muted_caption,
 from ..recent import RECENT, thumb_image, time_ago
 
 THUMB_BOX = (100, 130)
+OPEN_TEXT = "Open PDF…"
+EMPTY_TEXT = "Open a PDF, or drop one on this window, to see it here."
 QUICK_ACTIONS = ("ReaderTool", "MergeTool", "SplitTool", "PasswordTool", "CompressTool",
                  "AnnotateTool", "OCRTool")
 
@@ -116,6 +118,7 @@ class RecentCard(CardWidget):
         if ago:
             meta.append(ago)
         self.meta_label = muted_caption("  ·  ".join(meta), self)
+        self.meta_label.setWordWrap(True)       # "… · just now" was cut to "just n"
         v.addWidget(self.meta_label)
         self.clicked.connect(lambda: on_open(self.path))
 
@@ -146,18 +149,25 @@ class HomePage(ToolPage):
         self.quick.setHorizontalSpacing(8)
         self.quick.setVerticalSpacing(8)
         self.quick_buttons: dict[str, PushButton] = {}
+        # Opening a file, first: Home had no Open of its own and said nothing of the
+        # drop it takes (critique 2026-11-21).
+        self.open_button = PushButton(theme.Glyph(0xE8E5), OPEN_TEXT)
+        self.open_button.setMinimumHeight(40)
+        self.open_button.clicked.connect(self.browse)
+        self.quick.addWidget(self.open_button)
         self.body.addWidget(qa)
 
-        # Recent files
+        # Recent files; Clear history beside its heading, not across the window
         head = QHBoxLayout()
         head.addWidget(group_title("Recent files"))
-        head.addStretch(1)
+        head.addSpacing(16)
         self.clear_button = TransparentPushButton("Clear history", self.content)
         self.clear_button.setMinimumHeight(CONTROL_H)
         self.clear_button.clicked.connect(self.clear_history)
         head.addWidget(self.clear_button, 0, Qt.AlignBottom)
+        head.addStretch(1)
         self.body.addLayout(head)
-        self.empty_label = muted_caption("Open a PDF with any tool to see it here.")
+        self.empty_label = muted_caption(EMPTY_TEXT)
         self.body.addWidget(self.empty_label)
         grid_host = QWidget(self.content)
         self.grid = FlowLayout(grid_host, needAni=False)
@@ -186,6 +196,12 @@ class HomePage(ToolPage):
     def _open_tool(self, cls: str, path: str | None = None):
         if self.window_ is not None:
             self.window_.open_tool(cls, path)
+
+    def browse(self):
+        """Open PDF…: the file dialog, then the file in the Reader (as a drop does)."""
+        path = dialogs.ask_open("Open PDF", [("PDF", "*.pdf")])
+        if path:
+            self._open_tool("ReaderTool", path)
 
     def refresh(self):
         """Rebuild the grid from RECENT; thumbnails follow one per loop turn."""

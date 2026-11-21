@@ -506,6 +506,7 @@ class StructureHost(QWidget):
         top = QHBoxLayout()
         top.setSpacing(8)
         self.card_toggle = TransparentToolButton(theme.glyph_icon(0xE76C, 14))
+        self.card_toggle.setFixedSize(CONTROL_H, CONTROL_H)        # was 36 x 30
         self.card_toggle.setToolTip("Hide options")
         self.card_toggle.clicked.connect(lambda: self.set_card_open(not self._card_open))
         # Both at the top of the row: the first action stays at one height on every
@@ -591,7 +592,10 @@ class StructureHost(QWidget):
         # not resize).
         tool = self.current_tool()
         grid = getattr(tool, "grid", None) if tool is not None else None
-        if grid is not None and not self.files and tool.layout() is not None:
+        if ((grid is not None or isinstance(tool, MasterDetailPage))
+                and not self.files and tool.layout() is not None):
+            # (Bookmarks / TOC too: the card covered its panel's "i" and heading,
+            # critique 2026-11-21)
             tool.layout().setContentsMargins(0, 0, w + 12, 0)
         elif self.files and tool is not None and tool.layout() is not None:
             # A Files tool keeps its own list at the right (Merge's file list, Batch's
@@ -733,6 +737,13 @@ class StructureHost(QWidget):
                 options = box
                 if self.float_ and getattr(page, "grid", None) is not None:
                     page.page_toolbar = PageToolbar(page)
+                # Its commands gone to the card, the hint leads the grid's top row,
+                # over the pages it speaks of (critique 2026-11-21: 700 px away).
+                bar = getattr(page, "context_bar", None)
+                hint = getattr(page, "hint_label", None)
+                if bar is not None and hint is not None:
+                    bar.removeWidget(hint)
+                    bar.insertWidget(0, hint)
         elif isinstance(page, ToolPage):
             # A form: its cards are the options; the document shows in the viewer.
             if page.drop_target is not None:
@@ -1261,8 +1272,16 @@ def follow_left(win, key, page):
         else:
             slot.setCurrentIndex(0)
     else:
+        tabs = left["tabs"]
         if key in PLACE_KEYS:
-            left["tabs"].setCurrentItem(key)
+            tabs.setCurrentItem(key)
+        else:
+            # Preferences (from the gear) is none of the places: no tab stays marked
+            # (critique 2026-11-21: Files stayed underlined).
+            tabs._currentRouteKey = None
+            for item in tabs.items.values():
+                item.setSelected(False)
+            tabs.update()
         if "rail" in left:
             left["rail"].set_host(page if isinstance(page, StructureHost) else None)
 
@@ -1270,8 +1289,11 @@ def follow_left(win, key, page):
 # ── E2 (owner, 2026-10-21): group rail, its column and pop-up, page toolbar, zoom % ──
 GROUP_GLYPH = {"Pages": 0xE8A9, "Content": 0xE8D2, "Protect & optimise": 0xEA18,
                "Convert": 0xE8AB, "": 0xE8B7}
-GROUP_SHORT = {"Protect & optimise": "Protect", "": "Files"}
+# The rail's names; "Protect & optimise" whole, on two lines (critique 2026-11-21:
+# "Protect" alone hid Compress and PDF Tools).
+GROUP_SHORT = {"Protect & optimise": "Protect &\noptimise", "": "Files"}
 RAIL_W = 64
+GROUP_H = 64            # a rail button: icon, then up to two lines of its name
 COLUMN_W = 220
 
 
@@ -1296,12 +1318,24 @@ class GroupButton(TransparentTogglePushButton):
         super().__init__()
         self.group, self.rail = group, rail
         self.setCheckable(True)
-        self.setFixedSize(RAIL_W - 8, 60)
+        self.setFixedSize(RAIL_W - 8, GROUP_H)
         self.setText("")
         self.setToolTip(group or "Files")
+        # Checked: the list's selected tint and an accent bar at the left edge, not
+        # the main action's own fill (critique 2026-11-21: a state that outweighed
+        # and imitated the action).
+        from qfluentwidgets import setCustomStyleSheet
+
+        def qss(dark):
+            tint = theme.hex_color("tint_selected", dark)
+            bar = theme.hex_color("accent", dark)
+            return ("QPushButton:checked,QPushButton:checked:hover,QPushButton:checked:pressed"
+                    f"{{background-color:{tint};border:none;border-left:3px solid {bar};"
+                    "border-radius:4px;}")
+        theme.keep_styled(self, lambda b: setCustomStyleSheet(b, qss(False), qss(True)))
         # the icon above the name (two labels: the button draws only its ground)
         gl = QVBoxLayout(self)
-        gl.setContentsMargins(0, 8, 0, 6)
+        gl.setContentsMargins(0, 6, 0, 4)
         gl.setSpacing(2)
         from PySide6.QtWidgets import QLabel
         self.icon_label = QLabel(self)
@@ -1316,11 +1350,11 @@ class GroupButton(TransparentTogglePushButton):
         self._ink(False)
 
     def _ink(self, on: bool):
-        """Name and icon in the accent's own ink while checked, else muted / text."""
+        """Icon in the accent and the name in text ink while checked, else text / muted."""
         code = GROUP_GLYPH.get(self.group, 0xE8B7)
-        ink = theme.color("on_accent") if on else theme.color("text")
+        ink = theme.color("accent") if on else theme.color("text")
         self.icon_label.setPixmap(theme.glyph_icon(code, 20, ink).pixmap(20, 20))
-        theme.label_role(self.label, "on_accent" if on else "muted")
+        theme.label_role(self.label, "text" if on else "muted")
 
     def contextMenuEvent(self, e):
         self.rail.popup(self)
@@ -1483,6 +1517,13 @@ class PageToolbar(QWidget):
             src = next((b for t, b in acts.items() if t.endswith(name) or t == name), None)
             if src is None:
                 continue
+            if name == "Delete":
+                # set apart from the turns: a slip from 90° CW no longer lands on it
+                # (critique 2026-11-21: 10 px between them)
+                from .pages import Divider
+                h.addSpacing(8)
+                h.addWidget(Divider(vertical=True))
+                h.addSpacing(8)
             b = TransparentPushButton(src.icon(), src.text())
             b.setMinimumHeight(src.minimumHeight())
             b.clicked.connect(src.click)
@@ -1542,6 +1583,10 @@ def percent_zoom(page):
     pct = TransparentPushButton(f"{sl.value()} %")
     pct.setMinimumWidth(72)
     pct.setToolTip("Choose a zoom")
+    # CONTROL_H, as the page arrows beside them (critique 2026-11-21: drawn 30 px)
+    for b in (minus, plus):
+        b.setFixedSize(CONTROL_H, CONTROL_H)
+    pct.setFixedHeight(CONTROL_H)
     lo_, hi_ = sl.minimum(), sl.maximum()
 
     def step(d):
@@ -1572,6 +1617,9 @@ def percent_zoom(page):
     lay.insertWidget(at, box)
     lay.insertStretch(at + 1, 1)
     page.zoom_box = (minus, pct, plus)
+    sync = getattr(page, "sync_footer", None)       # hidden with no file (the Reader)
+    if sync is not None:
+        sync()
 
 
 def matching_tools(q: str) -> list[str]:

@@ -46,10 +46,10 @@ def test_save_writes_every_value_to_prefs_and_the_file(window, dialogs, isolated
     dialogs.dirs.append(str(out_dir))
     page.pick_output_dir()
     page.max_recent.setValue(7)
-    page.appearance.setCurrentText("dark")
+    page.appearance.set_value("dark")
     page.ocr_dpi.setValue(300)
     page.export_dpi.setValue(240)
-    page.compress_level.setCurrentText("aggressive")
+    page.compress_level.set_value("aggressive")
     page.ocr_lang.setText("ita")
     page.save()
     want = {"output_dir": str(out_dir), "max_recent": 7, "appearance": "dark",
@@ -68,14 +68,14 @@ def test_save_writes_every_value_to_prefs_and_the_file(window, dialogs, isolated
 def test_the_colour_mode_is_applied_on_save(window, dialogs, mode, dark):
     from qfluentwidgets import isDarkTheme
     page = _page(window)
-    page.appearance.setCurrentText(mode)
+    page.appearance.set_value(mode)
     page.save()
     assert isDarkTheme() is dark
 
 
 def test_the_saved_preferences_reach_the_tools(window, dialogs):
     page = _page(window)
-    page.compress_level.setCurrentText("light")
+    page.compress_level.set_value("light")
     page.save()
     window.open_tool("CompressTool")
     pump(0.05)

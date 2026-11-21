@@ -13,8 +13,11 @@ from qfluentwidgets import ComboBox, LineEdit
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs, theme
-from ..pages import (APPLY, SAVE_NOTE, PagePickPage, RadioChoice, card, group_title, muted_caption,
-                     radio_button, register_page)
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, RadioChoice, card, example_chips,
+                     group_title, number_box, radio_button, register_page)
+
+SIZE_RANGE = (4, 72)        # pt: a header or footer line
+MARGIN_RANGE = (0, 300)     # pt from the page edge
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
           "{date} for today's date")
@@ -87,6 +90,10 @@ class HeaderFooterPage(PagePickPage):
         row = self.setting_row(group, "Content", TOKENS)
         self.content = _field("Page {page} of {total}", width=170)
         row.layout().addWidget(self.content)
+        self.content_examples = example_chips(
+            [("Page n of N", "Page {page} of {total}"), ("Page n", "{page}"),
+             ("Today's date", "{date}")], self.content.setText)
+        row.parentWidget().layout().addWidget(self.content_examples)
 
         s.addWidget(group_title("Style"))
         group = card(padding=0)
@@ -99,16 +106,14 @@ class HeaderFooterPage(PagePickPage):
         row.layout().addWidget(self.font)
         # One field per row (owner, 2026-10-31: one width for a card's fields; two
         # side by side were squeezed to 96 px).
+        # Number boxes with the unit inside, as Watermark's Font size (critique
+        # 2026-11-21: a text field with "pt" outside it, under the card's scrollbar).
         row = self.setting_row(group, "Font size")
-        self.size = _field("10", width=56)
+        self.size = number_box(row, *SIZE_RANGE, 10, " pt")
         self.size.setAccessibleName("Size")
-        row.layout().addWidget(self.size)
-        row.layout().addWidget(muted_caption("pt"))
         row = self.setting_row(group, "Margin")
-        self.margin = _field("20", width=56)
+        self.margin = number_box(row, *MARGIN_RANGE, 20, " pt")
         self.margin.setAccessibleName("Margin")
-        row.layout().addWidget(self.margin)
-        row.layout().addWidget(muted_caption("pt"))
 
         s.addWidget(group_title("Pages"))
         group = card(padding=0)
@@ -135,7 +140,7 @@ class HeaderFooterPage(PagePickPage):
             return dialogs.warning("Header/Footer", "Enter content text.")
         pos, font = self.pos, self.font_name
         try:
-            size, margin = core_hf.parse_style(self.size.text(), self.margin.text())
+            size, margin = core_hf.parse_style(str(self.size.value()), str(self.margin.value()))
         except ValueError as e:
             return dialogs.warning("Header/Footer", str(e))
         range_str = self.range_text()

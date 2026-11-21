@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFrame, QHBoxLay
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, LineEdit, PrimaryPushButton, PushButton,
                             RadioButton, Slider, SwitchButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
-                            SubtitleLabel, TitleLabel, TransparentPushButton,
+                            TitleLabel, TransparentPushButton,
                             TransparentToggleToolButton,
                             TransparentToolButton, setCustomStyleSheet)
 
@@ -443,6 +443,42 @@ def icon_button(icon) -> TransparentToolButton:
     return b
 
 
+CHOOSE_COLOUR = "Choose…"   # one label for the colour button everywhere ("Choose" / "Pick…")
+
+
+EXAMPLES_TEXT = "Examples"
+
+
+def example_chips(examples, on_pick) -> QWidget:
+    """One "Examples" button whose menu fills a field with a worked example: *examples*
+    are (label, value or a function giving it); choosing one calls on_pick(value).
+    For fields with a notation of their own (Split's ranges, Header / Footer's
+    tokens), so the notation is shown by doing, not explained (critique 2026-11-21).
+    One row: a row of buttons wrapped to three in the 200 px card.  pick(label) runs
+    an example as its menu item does; labels() lists them."""
+    from qfluentwidgets import Action, DropDownPushButton, RoundMenu
+    w = QWidget()
+    w.setObjectName("exampleChips")
+    h = QHBoxLayout(w)
+    h.setContentsMargins(0, 4, 0, 0)
+    btn = DropDownPushButton(EXAMPLES_TEXT, w)
+    btn.setFixedHeight(CONTROL_H)
+    menu = RoundMenu(parent=btn)
+    table = dict(examples)
+
+    def pick(label):
+        v = table[label]
+        on_pick(v() if callable(v) else v)
+    for label, _value in examples:
+        a = Action(label)
+        a.triggered.connect(lambda _=False, lb=label: pick(lb))
+        menu.addAction(a)
+    btn.setMenu(menu)
+    h.addWidget(btn)
+    h.addStretch(1)
+    w.button, w.menu, w.pick = btn, menu, pick
+    w.labels = lambda: [lb for lb, _v in examples]
+    return w
 FIELD_W = 160           # an input field on a tool card: text, number, language (owner, 2026-10-31)
 NUMBER_BOX_W = FIELD_W  # every number box one width: "120 pt" and its arrows
 
@@ -507,6 +543,9 @@ class LanguagePicker(QWidget):
         # 2026-10-23).  The text is shortened again at each resize.
         self.button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.button.setMaximumWidth(width)
+        # its value at the left, as every combo box's (critique 2026-11-21: centred)
+        left = "QPushButton{text-align:left;padding-left:11px;}"
+        setCustomStyleSheet(self.button, left, left)
         lay.addWidget(self.button)
         self.menu = CheckableMenu(parent=self.button, indicatorType=MenuIndicatorType.CHECK)
         self.button.setMenu(self.menu)
@@ -2744,7 +2783,9 @@ class CollectionPage(ToolPage):
         return super().accept_drop(path)        # a file card in the settings
 
 
-THUMB_BOX = (120, 150)      # organiser: the largest thumbnail, in px
+THUMB_BOX = (120, 150)      # organiser: the thumbnail box in a narrow pane, in px
+THUMB_MAX = (160, 200)      # ... in a wide one (pages render about 167 px wide at 0.28)
+FIT_CELL = 180              # a column's width when fitting thumbnails to the pane
 THUMBS_PER_TICK = 4         # thumbnails rendered per event-loop turn
 PART_ROLE = Qt.UserRole + 1     # an item's part number (1-based), 0 for none, None: no parts shown
 CUT_ROLE = Qt.UserRole + 2      # True: the grid is cut after this item
@@ -2818,8 +2859,13 @@ def _thumb_delegate(thumb_box=THUMB_BOX):
                 veil = theme.color("page_bg")
                 veil.setAlpha(170)
                 p.fillRect(img, veil)
+            label = str(index.data(Qt.DisplayRole) or "")
+            if part:
+                # the part named on its pages: its tint alone read as a selection
+                # (critique 2026-11-21)
+                label = f"{label} · Part {part}"
             p.drawText(QRect(r.x(), box.bottom() + 6, r.width(), 20),
-                       Qt.AlignHCenter | Qt.AlignTop, str(index.data(Qt.DisplayRole) or ""))
+                       Qt.AlignHCenter | Qt.AlignTop, label)
             if index.data(CUT_ROLE):
                 # The cut: a bar in the gap after the page, the height of the box.
                 o = option.rect
@@ -3027,7 +3073,8 @@ class OrganiserPage(ToolPage):
         g = QListWidget(self.grid_card)
         g.setObjectName("thumbGrid")
         g.setStyleSheet("QListWidget#thumbGrid { background: transparent; border: none; }")
-        self._delegate = _thumb_delegate()       # Qt does not own a Python delegate
+        self._box = list(THUMB_BOX)              # follows the pane (_fit_thumbs)
+        self._delegate = _thumb_delegate(self._box)  # Qt does not own a Python delegate
         g.setItemDelegate(self._delegate)
         g.setMouseTracking(True)
         g.viewport().setAttribute(Qt.WA_Hover, True)
@@ -3038,6 +3085,8 @@ class OrganiserPage(ToolPage):
         g.setSpacing(8)
         g.setIconSize(QSize(*THUMB_BOX))
         g.setGridSize(QSize(THUMB_BOX[0] + 24, THUMB_BOX[1] + 40))
+        self._fit_grid = g
+        g.installEventFilter(self)
         g.setSelectionMode(QAbstractItemView.ExtendedSelection)
         g.setMovement(QListView.Snap if drag_reorder else QListView.Static)
         g.setDragDropMode(QAbstractItemView.InternalMove if drag_reorder
@@ -3126,8 +3175,9 @@ class OrganiserPage(ToolPage):
         from PySide6.QtGui import QIcon, QPixmap
         img = self._render(key)
         pm = QPixmap.fromImage(img)
-        if pm.width() > THUMB_BOX[0] or pm.height() > THUMB_BOX[1]:
-            pm = pm.scaled(*THUMB_BOX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # kept up to THUMB_MAX: the grid draws it at the size the pane allows
+        if pm.width() > THUMB_MAX[0] or pm.height() > THUMB_MAX[1]:
+            pm = pm.scaled(*THUMB_MAX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return QIcon(pm)
 
     def _render_some(self):
@@ -3167,7 +3217,27 @@ class OrganiserPage(ToolPage):
             return row - 1
         return None
 
+    def _fit_thumbs(self):
+        """Thumbnails sized to the pane: as many FIT_CELL-wide columns as fit, each
+        page as large as its column allows, from THUMB_BOX up to THUMB_MAX
+        (critique 2026-11-21: 108 px thumbnails left 82-93 % of the pane empty)."""
+        from PySide6.QtCore import QSize
+        vp = self.grid.viewport().width()
+        if vp <= 0:
+            return
+        cols = max(1, vp // FIT_CELL)
+        w = max(THUMB_BOX[0], min(THUMB_MAX[0], vp // cols - 24 - 2 * self.grid.spacing()))
+        box = [w, w * THUMB_MAX[1] // THUMB_MAX[0]]
+        if box == self._box:
+            return
+        self._box[:] = box
+        self.grid.setIconSize(QSize(*box))
+        self.grid.setGridSize(QSize(box[0] + 24, box[1] + 40))
+        self.grid.doItemsLayout()
+
     def eventFilter(self, obj, e):
+        if obj is self.__dict__.get("_fit_grid") and e.type() == QEvent.Resize:
+            self._fit_thumbs()
         if obj is self.__dict__.get("_gap_viewport"):
             t = e.type()
             if t == QEvent.MouseMove:

@@ -7,7 +7,8 @@ from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import annotate as core_annotate
 from .. import dialogs, theme
-from ..pages import NUMBER_BOX_W, WorkspaceDoc, WorkspacePage, register_page, spin_box
+from ..pages import (CHOOSE_COLOUR, NUMBER_BOX_W, WorkspaceDoc, WorkspacePage, register_page,
+                     spin_box)
 
 # Segoe Fluent Icons code points
 GLYPHS = {"highlight": 0xE7E6, "underline": 0xE8DC, "strikeout": 0xEDE0, "rect": 0xE739,
@@ -62,7 +63,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             self.swatch.setFixedSize(32, 32)
             self._paint_swatch()
             row.addWidget(self.swatch)
-            pick = PushButton("Choose")
+            pick = PushButton(CHOOSE_COLOUR)
             pick.clicked.connect(self.pick_color)
             row.addWidget(pick)
             row.addStretch(1)

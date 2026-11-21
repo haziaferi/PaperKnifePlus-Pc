@@ -100,6 +100,17 @@ class ReaderPage(WorkspacePage):
         self.page_label.setText("—")
 
         self._fill_panel()
+        self.sync_footer()
+
+    def sync_footer(self):
+        """Page arrows, counter and zoom only with a file to page through (critique
+        2026-11-21: "← — →" and "125 %" looked live with nothing open)."""
+        on = bool(self._path)
+        for w in (self.prev_btn, self.page_label, self.next_btn):
+            w.setVisible(on)
+        box = getattr(self, "zoom_box", None)
+        if box is not None:
+            box[0].parentWidget().setVisible(on)
 
     # ── panel ────────────────────────────────────────────────────────────────
     def _fill_panel(self):
@@ -134,6 +145,7 @@ class ReaderPage(WorkspacePage):
         self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
         self._pg = 0
         self.path_label.setText(path)
+        self.sync_footer()
         self.refresh_document(announce=True)
         if new_file:
             self._fit_wide_pages()
@@ -242,6 +254,7 @@ class ReaderPage(WorkspacePage):
         self._path, self._scroll_frac = "", 0.0
         self._hint_scan(False)
         self.path_label.setText("Open a PDF…")
+        self.sync_footer()
         self.refresh_document()
 
     # ── layout: page geometry only, no rendering ─────────────────────────────
@@ -320,7 +333,9 @@ class ReaderPage(WorkspacePage):
                 sc.removeItem(self._items.pop(idx))
         self._scroll_frac = max(0.0, top) / self._total_h if self._total_h else 0.0
         self._pg = first
-        self.page_label.setText(f"{first + 1}–{last + 1} / {len(self._tops)}")
+        # one page in view reads as the editors' counter does, "1 / 4", not "1–1 / 4"
+        shown = f"{first + 1}" if first == last else f"{first + 1}–{last + 1}"
+        self.page_label.setText(f"{shown} / {len(self._tops)}")
 
     def _request_page(self, idx: int):
         key = (idx, self._zoom)

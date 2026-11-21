@@ -14,6 +14,7 @@ def _page(window):
 def _crop(window, dialogs, src, out, rng="", reset=False, **margins):
     page = _page(window)
     page.file.set_path(str(src))
+    page.unit.setCurrentText("pt")            # these cases are in points (mm is the default)
     for k, edit in page.margins.items():      # the page keeps its fields between runs
         edit.setText(str(margins.get(k, 0)))
     page.page_range.setText(rng)
@@ -182,6 +183,7 @@ def test_crop_asks_no_file_name_and_undo_takes_it_back(window, dialogs, tmp_path
     # Applied to the document (owner's sort, 2026-10-23).
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    page.unit.setCurrentText("pt")
     page.margins["top"].setText("50")
     held = page._doc
     page.run()                     # no file name asked (the harness would hand it nothing)
@@ -195,6 +197,7 @@ def test_crop_asks_no_file_name_and_undo_takes_it_back(window, dialogs, tmp_path
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    page.unit.setCurrentText("pt")
     page.margins["top"].setText("50")
     page.run()
     window.show_page("CompressTool")            # refused while the job holds the view
@@ -236,6 +239,7 @@ def test_the_selection_and_the_range_field_stay_in_step(window, dialogs, tmp_pat
     assert page.page_range.text() == "all"
     out = tmp_path / "out.pdf"
     page.page_range.setText("2, 5")
+    page.unit.setCurrentText("pt")
     page.margins["top"].setText("50")
     page.run()
     wait_job(window)

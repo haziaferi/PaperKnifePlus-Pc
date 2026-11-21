@@ -29,6 +29,8 @@ from ..pages import (SETTINGS_W, THUMB_BOX, THUMBS_PER_TICK, CollectionPage, Div
 RANGE_PLACEHOLDER = "all  or  1-3, 5, 8-end"
 HINT = ("Add PDFs in order · optionally set page ranges per file"
         " (e.g.  1-3, 5, 8-end)  ·  leave blank to include all pages")
+DROP_TEXT = "Drop PDFs here or click to add them"
+LIST_EMPTY = "No files yet."
 STRIP_HINT = "Select pages to leave out or put back · drag them to a new place"
 NOTHING_LEFT = "Every page is left out: put back at least one."
 THUMB_ZOOM = 0.28
@@ -39,7 +41,7 @@ class MergePage(CollectionPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Merge", "Combine PDFs · set per-file page ranges",
                          tool=tool, window=window, exts=(".pdf",), add_text="Add PDFs",
-                         empty_text=HINT, settings=False)
+                         empty_text=LIST_EMPTY, settings=False)
         self._docs: dict[int, fitz.Document] = {}
         self._names: dict[int, str] = {}
         self._next_fid = 0
@@ -79,10 +81,24 @@ class MergePage(CollectionPage):
         v.addWidget(self.strip_rule)
         self.strip = PageStrip(self._moved, self._strip_selection, card)
         v.addWidget(self.strip, 1)
-        self.strip_empty = muted_caption(HINT)
-        self.strip_empty.setWordWrap(True)
-        self.strip_empty.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.strip_empty.setContentsMargins(24, 48, 24, 48)
+        # The empty centre is the drop target, as the Document's is, with the hint
+        # once (critique 2026-11-21: the hint twice, and no target to aim at).
+        from ..docui import DropTarget
+        self.strip_empty = QWidget(card)
+        ev = QVBoxLayout(self.strip_empty)
+        ev.setContentsMargins(24, 24, 24, 24)
+        self.drop_target = DropTarget(None, self.strip_empty)
+        self.drop_target.choose = lambda: self.add_btn.click()
+        self.drop_target.label.setText(DROP_TEXT)
+        self.drop_target.setAccessibleName(DROP_TEXT)
+        tv = self.drop_target.layout()
+        sub = muted_caption(HINT)
+        sub.setWordWrap(True)
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        tv.addWidget(sub, 0, Qt.AlignHCenter)
+        ev.addWidget(self.drop_target)
+        ev.addStretch(1)
         v.addWidget(self.strip_empty, 1)
         self.strip_card = card
         cols.insertWidget(0, card, 1)

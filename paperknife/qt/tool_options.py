@@ -15,7 +15,7 @@ from qfluentwidgets import CaptionLabel, ComboBox, LineEdit, PushButton
 from ..core import convert as core_convert
 from ..prefs import _DEFAULTS, PREFS, pref_dpi
 from . import dialogs, theme
-from .pages import LanguagePicker, card, group_title, number_box, radio_rows
+from .pages import CHOOSE_COLOUR, LanguagePicker, card, group_title, number_box, radio_rows
 
 
 class Panel:
@@ -96,8 +96,8 @@ class WatermarkOptions(Panel):
         self.color = DEFAULT_COLOR
         self.swatch = QFrame()
         self.swatch.setObjectName("colorSwatch")
-        self.swatch.setFixedSize(36, 26)
-        self.pick_button = PushButton("Pick…")
+        self.swatch.setFixedSize(32, 32)                # as Annotate's (critique 2026-11-21)
+        self.pick_button = PushButton(CHOOSE_COLOUR)
         self.pick_button.clicked.connect(self.pick_color)
         row.layout().addWidget(self.swatch)
         row.layout().addWidget(self.pick_button)

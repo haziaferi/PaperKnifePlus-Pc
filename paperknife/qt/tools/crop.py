@@ -5,16 +5,17 @@ the margins and the range sit in the column at the right."""
 from __future__ import annotations
 
 
-from qfluentwidgets import LineEdit
+from qfluentwidgets import ComboBox, LineEdit
 
 from ...core import crop as core
 from ...pages import selected_pages
 from .. import dialogs
-from ..pages import (APPLY, SAVE_NOTE, PagePickPage, Refusal, card, group_title, muted_caption,
-                     register_page, toggle_switch)
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, Refusal, card, group_title, register_page,
+                     toggle_switch)
 
 # (key, row name), in the order the rows are shown
 EDGES = [("top", "Top"), ("left", "Left"), ("right", "Right"), ("bottom", "Bottom")]
+UNITS = {"mm": 72 / 25.4, "pt": 1.0}     # points per unit
 
 
 def crop_report(cropped: int, wanted: int):
@@ -30,18 +31,21 @@ def crop_report(cropped: int, wanted: int):
 class CropPage(PagePickPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Crop / Trim",
-                         "Adjust page crop box by specifying margins in points (1 pt = 0.353 mm)",
+                         "Cut margins off the selected pages",
                          tool=tool, window=window)
         s = self.settings
-        s.addWidget(group_title("Margins to remove (in points)"))
-        hint = muted_caption("Enter how much to cut from each edge.  "
-                             "A4 = 595 × 842 pt  ·  Letter = 612 × 792 pt  ·  "
-                             "72 pt = 1 inch = 25.4 mm")
-        hint.setWordWrap(True)
-        hint.setContentsMargins(0, 0, 0, 8)
-        s.addWidget(hint)
+        # Millimetres by default, points by choice (critique 2026-11-21: points only,
+        # with a table of paper sizes in points to work from).
+        s.addWidget(group_title("Margins to remove"))
         margins = card(padding=0)
         s.addWidget(margins)
+        self.unit = ComboBox()
+        self.unit.addItems(list(UNITS))
+        self.unit.setCurrentText("mm")
+        self._unit = "mm"
+        self.unit.currentTextChanged.connect(self._unit_changed)
+        self.setting_row(margins, "Unit", "How much to cut from each edge, in "
+                         "millimetres or points (72 pt = 25.4 mm)").layout().addWidget(self.unit)
         self.margins: dict[str, LineEdit] = {}
         for key, name in EDGES:
             e = LineEdit()
@@ -61,6 +65,17 @@ class CropPage(PagePickPage):
         s.addStretch(1)
         self.primary(APPLY, self.run)
 
+    def _unit_changed(self, unit: str):
+        """The same margins in the new unit: a number typed stays the same length."""
+        f = UNITS[self._unit] / UNITS[unit]
+        for e in self.margins.values():
+            try:
+                v = float(e.text() or "0") * f
+            except ValueError:
+                continue                    # left as typed; Apply says what is wrong
+            e.setText(f"{v:.1f}".rstrip("0").rstrip("."))
+        self._unit = unit
+
     def run(self):
         src = self.chosen_file("Crop")
         if not src or self._doc is None:
@@ -70,6 +85,7 @@ class CropPage(PagePickPage):
                                            for k in ("top", "right", "bottom", "left")))
         except ValueError as e:
             return dialogs.warning("Crop", str(e))
+        margins = tuple(m * UNITS[self._unit] for m in margins)      # in points
         range_str = self.range_text()
         reset = self.reset.isChecked()
         pages: list[int] = []

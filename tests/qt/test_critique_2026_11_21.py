@@ -1,5 +1,6 @@
 """Layout critique 2026-11-21 (critique-2026-11-21/critique.md beside the repo), E2 layout:
 each fix with a test that fails on the commit before it (structures 1e81c24)."""
+# ruff: noqa: F811  (e2win is a fixture imported from test_structure_e2)
 import pytest
 from PySide6.QtWidgets import QLabel, QWidget
 from qt_harness import make_pdf, pump
@@ -109,7 +110,6 @@ def test_a_radio_row_on_the_card_is_one_control_tall(e2win):
     host = host_of(e2win)
     host.pick("CompressTool")
     pump(0.2)
-    page = host.current_tool()
     rows = [r for r in host.card.findChildren(QWidget, "settingRow") if r.isVisibleTo(host.card)]
     from qfluentwidgets import RadioButton
     radio_rows = [r for r in rows if r.findChild(RadioButton) is not None]
@@ -152,3 +152,181 @@ def test_redact_action_names_the_new_copy(e2win):
     host.pick("RedactTool")
     pump(0.2)
     assert [b.text() for b in host.current_tool()._buttons] == ["Save redacted copy…"]
+
+
+# ── rail ─────────────────────────────────────────────────────────────────────
+def test_the_selected_group_is_tinted_not_filled_with_the_action_colour(e2win):
+    from paperknife.qt import theme
+    host = host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.2)
+    btn = rail_of(e2win).buttons["Protect & optimise"]
+    assert btn.isChecked()
+    img = btn.grab().toImage()
+    c = img.pixelColor(img.width() // 2, img.height() - 3)       # under the name
+    accent = theme.color("accent")
+    assert abs(c.red() - accent.red()) + abs(c.green() - accent.green()) \
+        + abs(c.blue() - accent.blue()) > 120
+
+
+def test_protect_and_optimise_is_named_whole_on_the_rail(e2win):
+    label = rail_of(e2win).buttons["Protect & optimise"].label.text()
+    assert "Protect" in label and "optimise" in label
+
+
+# ── Home ─────────────────────────────────────────────────────────────────────
+def test_home_offers_open_first_and_says_a_drop_works(qapp, dialogs, tmp_path):
+    from paperknife.qt.shell import MainWindow
+    from conftest import close_test_window
+    w = MainWindow()
+    w.show()
+    w.show_page("home")
+    pump(0.2)
+    home = w.current_page()
+    first = home.quick.itemAt(0).widget()
+    assert first is home.open_button and "Open" in first.text()
+    assert "drop" in home.empty_label.text().lower()
+    pdf = make_pdf(tmp_path / "a.pdf")
+    dialogs.open(pdf)
+    home.open_button.click()
+    pump(0.3)
+    assert w.document.is_open()
+    close_test_window(w)
+
+
+# ── Files ────────────────────────────────────────────────────────────────────
+def test_merge_with_no_files_shows_one_drop_target_and_the_hint_once(e2win):
+    from paperknife.qt.tools import merge
+    assert e2win.open_tool("MergeTool")
+    pump(0.3)
+    page = e2win.current_page().current_tool()
+    page.clear_rows()
+    pump(0.1)
+    assert page.drop_target.isVisibleTo(page)
+    shown = [lb.text() for lb in page.findChildren(QLabel) if lb.isVisibleTo(page)]
+    assert shown.count(merge.HINT) == 1
+
+
+# ── Rotate, Bookmarks / TOC ──────────────────────────────────────────────────
+def test_rotate_hint_leads_the_grid_row_and_delete_is_set_apart(e2win):
+    host = host_of(e2win)
+    host.pick("RotateTool")
+    pump(0.5)
+    page = host.current_tool()
+    assert page.context_bar.itemAt(0).widget() is page.hint_label
+    from paperknife.qt.pages import Divider
+    tb = page.page_toolbar
+    assert tb.findChildren(Divider), "a line before Delete"
+
+
+def test_the_bookmark_panel_keeps_clear_of_the_card(e2win):
+    host = host_of(e2win)
+    host.pick("TocTool")
+    pump(0.3)
+    page = host.current_tool()
+    assert page.layout().contentsMargins().right() >= host.card.width()
+
+
+# ── Preferences ──────────────────────────────────────────────────────────────
+def test_preferences_marks_no_place_tab_and_keeps_a_reading_width(e2win):
+    assert e2win.open_tool("MergeTool")
+    pump(0.2)
+    e2win.show_page("SettingsTool")
+    pump(0.2)
+    tabs = e2win._left["tabs"]
+    assert tabs.currentItem() is None
+    assert not any(it.isSelected for it in tabs.items.values())
+    page = e2win.current_page()
+    assert page.width() <= 800
+    assert page.compress_level.currentText() == page.compress_level.currentText().capitalize()
+
+
+# ── viewer footer, controls at CONTROL_H ─────────────────────────────────────
+def test_footer_and_card_toggle_are_control_tall(e2win):
+    from paperknife.qt.pages import CONTROL_H
+    host = host_of(e2win)
+    host.pick("CompressTool")
+    pump(0.2)
+    minus, pct, plus = host.viewer.zoom_box
+    assert {minus.height(), pct.height(), plus.height(), host.card_toggle.height()} == {CONTROL_H}
+
+
+def test_reader_counter_reads_one_page_as_the_editors_do(e2win):
+    host = host_of(e2win)
+    host.back()
+    pump(0.4)
+    shown = host.viewer.page_label.text().split(" / ")[0]
+    first, _, last = shown.partition("–")
+    assert not last or first != last              # never "1–1 / 12"
+
+
+def test_no_page_footer_with_nothing_open(qapp, dialogs, monkeypatch):
+    for k, v in E2_ENV.items():
+        monkeypatch.setenv(k, v)
+    from paperknife.qt.shell import MainWindow
+    from conftest import close_test_window
+    w = MainWindow()
+    w.resize(1280, 820)
+    w.show()
+    w.show_page("DocWorkspace")
+    pump(0.3)
+    viewer = w.current_page().viewer
+    assert not viewer.page_label.isVisibleTo(viewer)
+    assert not viewer.zoom_box[1].isVisibleTo(viewer)
+    close_test_window(w)
+
+
+# ── notation shown by examples; units ────────────────────────────────────────
+def test_split_examples_fill_the_range_field(e2win):
+    host = host_of(e2win)
+    host.pick("SplitTool")
+    pump(0.4)
+    page = host.current_tool()
+    ex = page.range_examples
+    assert ex.labels() == ["Every page", "Every 2 pages", "Page 1 apart"]
+    assert [a.text() for a in ex.menu.actions()] == ex.labels()
+    ex.menu.actions()[1].trigger()
+    assert page.ranges.text() == "1-2; 3-4; 5-6; 7-8; 9-10; 11-12"
+    ex.pick("Page 1 apart")
+    assert page.ranges.text() == "1; 2-end"
+    assert ex.height() <= 40                       # one row on the card
+
+
+def test_header_footer_examples_fill_the_content(e2win):
+    host = host_of(e2win)
+    host.pick("HeaderFooterTool")
+    pump(0.3)
+    page = host.current_tool()
+    page.content_examples.pick("Page n")
+    assert page.content.text() == "{page}"
+
+
+def test_crop_margins_default_to_millimetres_and_convert(e2win):
+    host = host_of(e2win)
+    host.pick("CropTool")
+    pump(0.3)
+    page = host.current_tool()
+    assert page.unit.currentText() == "mm"
+    page.margins["top"].setText("25.4")
+    page.unit.setCurrentText("pt")
+    assert page.margins["top"].text() == "72"
+
+
+def test_one_label_for_the_colour_button(e2win):
+    from qfluentwidgets import PushButton
+    host = host_of(e2win)
+    labels = set()
+    for key in ("WatermarkTool", "AnnotateTool"):
+        host.pick(key)
+        pump(0.2)
+        labels |= {b.text() for b in host.card.findChildren(PushButton)
+                   if b.text() in ("Choose", "Pick…", "Choose…")}
+    assert labels == {"Choose…"}
+
+
+def test_page_thumbnails_grow_with_the_pane(e2win):
+    host = host_of(e2win)
+    host.pick("WatermarkTool")
+    pump(0.5)
+    page = host.current_tool()
+    assert page.grid.iconSize().width() > 120

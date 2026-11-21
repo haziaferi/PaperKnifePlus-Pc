@@ -12,6 +12,21 @@ from ..pages import (NUMBER_BOX_W, LanguagePicker, ToolPage, card, group_title, 
 
 APPEARANCES = ["light", "dark", "system"]
 COMPRESS_LEVELS = ["light", "medium", "aggressive"]
+# The rows at a reading width, each control near its name (critique 2026-11-21:
+# labels up to 1,450 px from their controls on a wide window).
+PREFS_MAX_W = 800
+
+
+def _choices(values) -> ComboBox:
+    """A combo box showing *values* capitalised ("Medium" beside "Italian"), keeping the
+    stored value: value() / set_value()."""
+    box = ComboBox()
+    for v in values:
+        box.addItem(v.capitalize(), userData=v)
+    box.setMinimumWidth(160)
+    box.value = lambda: box.currentData()
+    box.set_value = lambda v: box.setCurrentIndex(max(0, box.findData(v)))
+    return box
 
 
 @register_page("SettingsTool")
@@ -19,6 +34,7 @@ class SettingsPage(ToolPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Preferences", "Click Save Preferences to keep changes",
                          tool=tool, window=window)
+        self.setMaximumWidth(PREFS_MAX_W)
         # General
         self.body.addWidget(group_title("General"))
         general = card(padding=0)
@@ -41,9 +57,7 @@ class SettingsPage(ToolPage):
         look = card(padding=0)
         self.body.addWidget(look)
         row = setting_row(look, "Colour mode")
-        self.appearance = ComboBox()
-        self.appearance.addItems(APPEARANCES)
-        self.appearance.setMinimumWidth(160)
+        self.appearance = _choices(APPEARANCES)
         row.layout().addWidget(self.appearance)
 
         # PDF operations
@@ -56,9 +70,7 @@ class SettingsPage(ToolPage):
         self.export_dpi = number_box(row, *core.INT_RANGES["export_dpi"][1:], PREFS.export_dpi,
                                      " DPI")
         row = setting_row(ops, "Default compress level")
-        self.compress_level = ComboBox()
-        self.compress_level.addItems(COMPRESS_LEVELS)
-        self.compress_level.setMinimumWidth(160)
+        self.compress_level = _choices(COMPRESS_LEVELS)
         row.layout().addWidget(self.compress_level)
         row = setting_row(ops, "OCR language")
         self.ocr_lang = LanguagePicker()
@@ -74,20 +86,20 @@ class SettingsPage(ToolPage):
         """Show the values PREFS holds now (unsaved changes are dropped)."""
         self.output_dir.setText(str(PREFS.get("output_dir", "")))
         self.max_recent.setValue(int(PREFS.max_recent))
-        self.appearance.setCurrentText(str(PREFS.get("appearance", APPEARANCES[0])))
+        self.appearance.set_value(str(PREFS.get("appearance", APPEARANCES[0])))
         self.ocr_dpi.setValue(int(PREFS.ocr_dpi))
         self.export_dpi.setValue(int(PREFS.export_dpi))
-        self.compress_level.setCurrentText(str(PREFS.get("compress_level", COMPRESS_LEVELS[0])))
+        self.compress_level.set_value(str(PREFS.get("compress_level", COMPRESS_LEVELS[0])))
         self.ocr_lang.setText(str(PREFS.get("ocr_lang", "")))   # "" -> the starting default
 
     def values(self) -> dict:
         return {
             "output_dir": self.output_dir.text(),
             "max_recent": self.max_recent.value(),
-            "appearance": self.appearance.currentText(),
+            "appearance": self.appearance.value(),
             "ocr_dpi": self.ocr_dpi.value(),
             "export_dpi": self.export_dpi.value(),
-            "compress_level": self.compress_level.currentText(),
+            "compress_level": self.compress_level.value(),
             # untouched, it stays "not chosen yet" (Windows' language, else English)
             "ocr_lang": self.ocr_lang.text() if self.ocr_lang.chosen() else "",
         }

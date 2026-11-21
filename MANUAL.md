@@ -98,7 +98,7 @@ If you are working with the source distribution rather than the compiled install
 
 ### 4.1 Home Screen and Window
 
-On first launch the Home page shows seven quick-action buttons (Read / Preview, Merge, Split, Password, Compress, Annotate, OCR) and an empty Recent files grid. Click a recent file to open it in Read / Preview; **Clear history** empties the list. A PDF dropped on Home also opens in Read / Preview.
+On first launch the Home page shows **Open PDF…** and seven quick-action buttons (Read / Preview, Merge, Split, Password, Compress, Annotate, OCR) and an empty Recent files grid. **Open PDF…** opens the chosen file in Read / Preview. Click a recent file to open it in Read / Preview; **Clear history**, beside the Recent files heading, empties the list. A PDF dropped on Home also opens in Read / Preview.
 
 The navigation pane on the left lists Home, then the tools in labelled groups (Read, Organise, Enhance, Convert, Content), with Preferences at the bottom; Home and Preferences are in no group. Click a group's title (or press `Enter` or `Space` on it) to fold its tools under it, and again to unfold them; the chevron at the title's right points down when the group is open and right when it is folded. Folded groups stay folded at the next start. The search box at its top filters tools by name (`Ctrl+K` or `Ctrl+F`), folded groups included, and clearing it folds them again; `Enter` opens the first match. Opening a tool from the search, a Home quick action or a file dropped on Home unfolds its group. The pane is expanded when the window is at least 900 px wide; `Ctrl+Alt+S` collapses or expands it. Collapsed to icons, it shows every tool's icon.
 
@@ -214,10 +214,10 @@ The merged file has a top-level bookmark for each input, named after its file, w
 
 ### 5.3 Split
 
-Split cuts a PDF into separate files in a folder you choose. The pages are shown as thumbnails; the parts to be written are shaded in two alternating tones and listed under **Parts** in the column at the right.
+Split cuts a PDF into separate files in a folder you choose. The pages are shown as thumbnails; the parts to be written are shaded in two alternating tones, each page labelled with its part ("p.3 · Part 2"), and listed under **Parts** in the column at the right.
 
 - Under **Cut at**, choose **Page ranges**, **Bookmarks, top level** or **Bookmarks, all levels** (the bookmark choices are off for a PDF without bookmarks). With bookmarks, each chosen bookmark starts a file that runs to the next one; bookmarks that point to no page are skipped and counted in the result message.
-- In the range field, a semicolon separates files and a comma lists pages within one: `1-3; 4, 6; 7-end` writes three files. Leave it blank to write one PDF per page.
+- In the range field, a semicolon separates files and a comma lists pages within one: `1-3; 4, 6; 7-end` writes three files. Leave it blank to write one PDF per page. The buttons under the field fill it with an example: **Every page**, **Every 2 pages**, **Page 1 apart**.
 - Click the gap between two thumbnails to cut there, or click a cut again to join the parts.
 - Select pages and click **Selected pages to one part** to make a file of pages from anywhere in the document; the rest of their parts stays as it was.
 
@@ -268,10 +268,10 @@ Choose a target size (A4, A3, A5, Letter, Legal, Tabloid), an orientation (Portr
 
 ### 5.11 Password
 
-The page has two groups.
+**Current password** comes first: fill it in only for a file that already has a password, since both changing and removing that password need it. Then two groups:
 
-- **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Apply**. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions.
-- **Remove Password:** enter the current password and click **Remove Password**.
+- **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Apply** at the top of the card. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions.
+- **Remove Password:** click **Remove Password**, under its own heading at the end of the card.
 
 Both set the document's protection, as one edit `Ctrl+Z` takes back: **Save** or **Save as** writes the file with it (the status line says so), and later saves keep it. A protected PDF is opened with its password (Section 5), so changing its password asks for nothing more; removing it asks for the current password in **Current password**. A file with an owner password only (none to open it) is changed without asking for the owner password, as before.
 
@@ -281,11 +281,11 @@ The password fields are emptied after every attempt, whatever came of it, and wh
 
 ### 5.12 Crop / Trim
 
-Enter how much to cut from each edge, in points (72 pt = 1 inch = 25.4 mm), and choose the pages on the grid or in **Apply to**. Turn on **Reset to full media box first** to undo earlier crops. Margins are measured on the page as displayed, also on rotated pages. There is no preview.
+Enter how much to cut from each edge, in millimetres, or in points if you set **Unit** to pt (72 pt = 25.4 mm; switching the unit converts the values already typed), and choose the pages on the grid or in **Apply to**. Turn on **Reset to full media box first** to undo earlier crops. Margins are measured on the page as displayed, also on rotated pages. There is no preview.
 
 ### 5.13 Header / Footer
 
-Choose one of six positions on the page outline (top or bottom; left, centre, or right), enter the text — `{page}`, `{total}`, and `{date}` are replaced — and set the font (Helvetica, Times Roman, Courier), size and margin in points; choose the pages on the grid or in **Apply to**.
+Choose one of six positions on the page outline (top or bottom; left, centre, or right), enter the text — `{page}`, `{total}`, and `{date}` are replaced; the buttons under the field (**Page n of N**, **Page n**, **Today's date**) fill it with an example — and set the font (Helvetica, Times Roman, Courier), size and margin in points (number boxes); choose the pages on the grid or in **Apply to**.
 
 ### 5.14 PDF Tools
 
@@ -313,7 +313,7 @@ Open a PDF, click a text block, edit it in the panel at the right, and click **A
 
 ### 5.17 Find & Replace
 
-Enter the text to find in the panel, click **Find All** (or press `Enter`), and step through matches with **◀ Prev / Next ▶**. **Replace All** replaces every match on all pages. Matching is case-sensitive, and a phrase broken across a line counts as one match. `Ctrl+Z` undoes the last Replace All; **Save** in the document bar (or `Ctrl+S`) writes the file.
+Enter the text to find in the panel, click **Find All** (or press `Enter`), and step through matches with **◀ Prev / Next ▶**. **Replace All**, under **Find All** on the card, turns on once a search has found matches of the text in **Find** (typing other text turns it off again) and replaces every match on all pages. Matching is case-sensitive, and a phrase broken across a line counts as one match. `Ctrl+Z` undoes the last Replace All; **Save** in the document bar (or `Ctrl+S`) writes the file.
 
 ### 5.18 Annotate
 
