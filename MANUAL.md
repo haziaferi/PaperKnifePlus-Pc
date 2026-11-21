@@ -268,10 +268,10 @@ Choose a target size (A4, A3, A5, Letter, Legal, Tabloid), an orientation (Portr
 
 ### 5.11 Password
 
-**Current password** comes first: fill it in only for a file that already has a password, since both changing and removing that password need it. Then two groups:
+**Current password** comes first: fill it in only for a file that already has a password, since both changing and removing that password need it.
 
+- **Remove Password:** the button right under **Current password** saves the file without a password.
 - **Add / Change Password:** enter an open (user) password, optionally an owner password, and turn off **Allow printing** or **Allow copying text** to deny those rights, then click **Apply** at the top of the card. A blank owner password is replaced by a random one, so the open password alone does not lift the restrictions.
-- **Remove Password:** click **Remove Password**, under its own heading at the end of the card.
 
 Both set the document's protection, as one edit `Ctrl+Z` takes back: **Save** or **Save as** writes the file with it (the status line says so), and later saves keep it. A protected PDF is opened with its password (Section 5), so changing its password asks for nothing more; removing it asks for the current password in **Current password**. A file with an owner password only (none to open it) is changed without asking for the owner password, as before.
 
