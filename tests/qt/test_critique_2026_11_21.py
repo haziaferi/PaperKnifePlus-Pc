@@ -333,3 +333,39 @@ def test_page_thumbnails_grow_with_the_pane(e2win):
     pump(0.5)
     page = host.current_tool()
     assert page.grid.iconSize().width() > 120
+
+
+# ── owner, 2026-11-21, option B: the editors' page gets room beside the card ──
+@pytest.mark.parametrize("key", ["RedactTool", "AnnotateTool", "FindReplaceTool", "EditTextTool"])
+def test_an_editors_page_scrolls_clear_of_the_open_card(e2win, key):
+    from PySide6.QtCore import QPoint
+    host = host_of(e2win)
+    host.pick(key)
+    pump(0.6)
+    view = host.current_tool().view
+    card_x = host.card.mapTo(e2win, QPoint(0, 0)).x()
+    vp = view.viewport()
+    assert vp.mapTo(e2win, QPoint(vp.width(), 0)).x() <= card_x       # the view stops short of it
+    zoom_before = view.zoom
+    hbar = view.horizontalScrollBar()
+    hbar.setValue(hbar.maximum())
+    pump(0.2)
+    page = view.scene().itemsBoundingRect()
+    right = vp.mapTo(e2win, view.mapFromScene(page.bottomRight())).x()
+    assert right <= card_x                                              # the line ends reachable
+    assert view.zoom == zoom_before                                     # the page keeps its size
+    host.set_card_open(False)
+    pump(0.2)
+    assert view.viewportMargins().right() == 0                         # collapsed: full width back
+    host.set_card_open(True)
+
+
+def test_leaving_the_editor_gives_its_view_the_full_width_back(e2win):
+    host = host_of(e2win)
+    host.pick("RedactTool")
+    pump(0.4)
+    view = host.current_tool().view
+    assert view.viewportMargins().right() > 0
+    host.pick("CompressTool")
+    pump(0.3)
+    assert view.viewportMargins().right() == 0

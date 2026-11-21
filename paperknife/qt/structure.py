@@ -150,6 +150,7 @@ def _trim_top(area):
 
 
 MARK_ROW_PAD = 2        # a radio / switch row on the card: 32 px mark + 2 x 2 = 36 (ROW_H)
+EDITOR_ROOM_GAP = 12    # between an editor's page view and the open card (as the grids')
 STACK_ROW_PAD = 6       # a stacked row on the card: name, 4, control, 6 above and below
 
 
@@ -593,8 +594,12 @@ class StructureHost(QWidget):
         c.raise_()
         # A page grid keeps clear of the card (a covered page could not be reached),
         # and with it the row above it and the empty-state target (their hint was cut
-        # under the card, 2026-10-22); a single page stays put under it (owner: cover,
-        # not resize).
+        # under the card, 2026-10-22).  A single page keeps its size (owner: cover, not
+        # resize) but, in an editor, no longer stays put under the open card: its view
+        # leaves the card's room, so the page scrolls sideways to its edge (owner,
+        # 2026-11-21, option B: at 1280 x 820 and 150 % the card hid 181 px of every
+        # line, reachable only by collapsing the card and its tool list).
+        self._clear_editor_page(c)
         tool = self.current_tool()
         grid = getattr(tool, "grid", None) if tool is not None else None
         if ((grid is not None or isinstance(tool, MasterDetailPage))
@@ -609,6 +614,21 @@ class StructureHost(QWidget):
         rail = (getattr(self.window_, "_left", None) or {}).get("rail") if self.window_ else None
         if rail is not None:
             rail.refresh()
+
+    def _clear_editor_page(self, c):
+        """An editor's page view leaves room for the open card at its right (a
+        viewport margin: the page keeps its size and scrolls sideways into the
+        room left); a collapsed card, or another tool, gives the width back."""
+        for v in self._views.values():
+            view = getattr(v.page, "view", None) if isinstance(v.page, WorkspacePage) else None
+            if view is None:
+                continue
+            over = 0
+            if v.page is self.current_tool() and self._card_open and c.isVisible():
+                view_right = view.mapTo(self, view.rect().topRight()).x()
+                over = max(0, view_right - c.x() + EDITOR_ROOM_GAP)
+            if view.viewportMargins().right() != over:
+                view.setViewportMargins(0, 0, over, 0)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
