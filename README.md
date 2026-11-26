@@ -33,6 +33,10 @@ L'OCR richiede il programma Tesseract, da installare a parte: <https://github.co
 
 Preferenze e file recenti stanno in `C:\Users\<utente>\.paperknifepluspc\`. L'app non usa la rete (MANUAL.md, sezione 10).
 
+## Come arrivano le modifiche (how changes land)
+
+Pull request verso `main` su GitHub; il proprietario le rivede e le unisce. Nessun push diretto su `main`, nessun tag di versione per ora. Ogni push passa prima `publish_check.py` (nessun dato personale).
+
 ## Licenza
 
 GNU Affero General Public License v3.0 — vedi [LICENSE](LICENSE) e MANUAL.md, sezione 12.
