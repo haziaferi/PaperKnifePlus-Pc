@@ -1,7 +1,27 @@
 .venv/
+venv/
 dist/
 build/
 __pycache__/
 *.pyc
 *.egg-info/
 *-Setup.exe
+
+# Private and local: never published
+.env
+.env.*
+*.local.json
+.claude/settings.local.json
+*.log
+*.jsonl.bak
+*.bak
+*.pfx
+*.p12
+*.key
+# app data, recovery copies and preferences written by local runs
+.paperknifepluspc/
+PaperKnifePlusPC-data/
+recovery/
+# screenshots, walk logs and measurement runs stay beside the repo
+shots/
+_*/
