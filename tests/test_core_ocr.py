@@ -50,8 +50,9 @@ def test_tesseract_is_given_the_page_in_grey(tmp_path, tess):
     page sooner.  It is not contrast-stretched (ScanKnife+, question 8): see
     test_ocr_with_real_tesseract_reads_a_page_of_one_line."""
     src = make_pdf(tmp_path / "in.pdf", pages=2)
-    assert core.ocr_pdf(fitz.open(src), str(tmp_path / "out.pdf"), "eng", 72, False,
-                        threading.Event(), lambda v: None) == 2
+    read = core.ocr_pdf(fitz.open(src), str(tmp_path / "out.pdf"), "eng", 72, False,
+                        threading.Event(), lambda v: None)      # closes the document
+    assert read == 2
     assert tess["osd"] == 2 and tess["pages"] == 2
     assert tess["modes"] == {"L"}
 

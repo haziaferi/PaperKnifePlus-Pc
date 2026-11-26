@@ -130,7 +130,8 @@ def test_remove_pages_keeps_the_rest_in_order(tmp_path):
     d.saveIncr()
     d.close()
     out = tmp_path / "out.pdf"
-    assert pdftools.remove_pages(fitz.open(src), str(out), [1]) == 1
+    removed = pdftools.remove_pages(fitz.open(src), str(out), [1])   # closes the document
+    assert removed == 1
     with fitz.open(out) as d:
         assert len(d) == 2 and d.get_toc() == [[1, "Last", 2]]
 

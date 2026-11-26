@@ -1,4 +1,6 @@
 """The Qt Annotate page: the document-workspace pilot."""
+from pathlib import Path
+
 import pymupdf as fitz
 import pytest
 
@@ -120,10 +122,11 @@ def test_save_over_the_open_file(window, dialogs, tmp_path):
     page, src = _open(window, tmp_path)
     page.set_kind("rect")
     _drag(page, (100, 100), (200, 200))
-    before = open(src, "rb").read()
+    before = Path(src).read_bytes()
     page.save()                         # the window's Save: over the file, no dialog
     wait_job(window)
-    assert open(src, "rb").read().startswith(before)     # a note only adds: appended
+    after = Path(src).read_bytes()
+    assert after.startswith(before)     # a note only adds: appended
     with fitz.open(src) as d:
         pg = d[0]
         assert len(list(pg.annots())) == 1

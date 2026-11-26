@@ -1,4 +1,6 @@
 """SharedDocument: one open document, edits on one history, Save over its file, Save as."""
+from pathlib import Path
+
 import pymupdf as fitz
 import pytest
 
@@ -85,7 +87,7 @@ def test_replace_takes_a_tools_output_as_one_edit(tmp_path):
     src = make_pdf(tmp_path / "in.pdf", pages=3)
     other = make_pdf(tmp_path / "out.pdf", pages=1, text="Out")
     sd, _ = _opened(src)
-    sd.replace(fitz.open("pdf", open(other, "rb").read()), "Compress")
+    sd.replace(fitz.open("pdf", Path(other).read_bytes()), "Compress")
     assert len(sd.doc) == 1 and sd.dirty
     sd.undo()
     assert len(sd.doc) == 3
@@ -104,13 +106,14 @@ def test_save_writes_over_the_file_and_clears_dirty(tmp_path):
 
 def test_save_appends_edits_that_only_add(tmp_path):
     src = make_pdf(tmp_path / "in.pdf", pages=1)
-    before = open(src, "rb").read()
+    before = Path(src).read_bytes()
     sd, _ = _opened(src)
     sd.begin("Note")
     sd.doc[0].add_text_annot((72, 72), "a note")
     sd.changed(adds=True)
     assert sd.save() == "incremental"
-    assert open(src, "rb").read().startswith(before)
+    after = Path(src).read_bytes()
+    assert after.startswith(before)
 
 
 def test_one_edit_that_does_not_only_add_writes_the_file_whole(tmp_path):

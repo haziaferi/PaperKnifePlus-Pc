@@ -1,5 +1,6 @@
 """The Qt Metadata page: fields only, in the single-file form."""
 import os
+from pathlib import Path
 
 import pymupdf as fitz
 import pytest
@@ -91,13 +92,14 @@ def test_a_date_field_is_converted_to_a_pdf_date(window, dialogs, tmp_path, key)
 def test_an_unreadable_date_is_refused_and_nothing_is_saved(window, dialogs, tmp_path):
     page = _page(window)
     src = make_pdf(tmp_path / "d.pdf", pages=1)
-    before = open(src, "rb").read()
+    before = Path(src).read_bytes()
     page.file.set_path(src)
     page.fields["modDate"].setText("next tuesday")
     page.save()
     kind, title, text = dialogs.msgs[-1]
     assert (kind, title) == ("error", "Metadata") and text.startswith("Modified date: use YYYY-MM-DD")
-    assert window._current_job is None and open(src, "rb").read() == before
+    after = Path(src).read_bytes()
+    assert window._current_job is None and after == before
     assert page.has_pending()                       # what was typed stays
 
 

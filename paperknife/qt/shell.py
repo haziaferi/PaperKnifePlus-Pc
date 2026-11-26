@@ -947,7 +947,7 @@ class MainWindow(FluentWindow):
             try:
                 RECENT.push(sd.path, len(sd.doc))
             except (OSError, ValueError):
-                pass
+                pass    # the recent list is a convenience: the file is saved either way
             self.set_status(f"✓  Saved → {Path(out).name}", "success")
             if callable(after):
                 after()
