@@ -1,0 +1,76 @@
+# PaperKnife+ PC spec history
+
+Not a source of current rules: `SPEC.md` is. One line per change, newest at the bottom. Retired wording is in git.
+
+- 2026-10-02 · R04 · added · O: Offline · owner
+- 2026-10-02 · R07 · added · O: Uninstall leaves other folders alone · owner
+- 2026-10-02 · R52 · added · D: Online features · owner
+- 2026-10-02 · R54 · added · D: Other systems · owner
+- 2026-10-07 · R42 · added · O: Redaction removes, at the box edge · owner
+- 2026-10-09 · R14 · added · O: No password on disk · owner
+- 2026-10-09 · R35 · added · O: Colours and status · owner
+- 2026-10-09 · R45 · added · D: Batch input · builder
+- 2026-10-11 · R43 · added · D: Text rewrite unit · owner
+- 2026-10-12 · R05 · added · D: Library pins · builder
+- 2026-10-12 · R17 · added · O: Append saves · owner
+- 2026-10-12 · R18 · added · D: Whole writes never leave half a file · builder
+- 2026-10-12 · R22 · added · O: Crash recovery · owner
+- 2026-10-15 · R51 · added · D: Release path · owner
+- 2026-10-17 · R26 · added · D: Page ranges · owner
+- 2026-10-17 · R34 · added · O: Same place, same size · owner
+- 2026-10-21 · R28 · added · O: Action fixed at the card top · owner
+- 2026-10-23 · R15 · added · O: One document per window · owner
+- 2026-10-23 · R16 · added · O: Save and Save as · owner
+- 2026-10-23 · R19 · added · D: Unsaved question · owner
+- 2026-10-23 · R20 · added · D: Undo · owner
+- 2026-10-23 · R24 · added · O: Destructive steps make new files · owner
+- 2026-10-23 · R25 · added · D: Passwords · owner
+- 2026-10-23 · R41 · added · D: Compress levels · builder
+- 2026-10-31 · R23 · added · O: Apply and new-file verbs · owner
+- 2026-10-31 · R33 · added · O: Card details · owner
+- 2026-11-01 · R39 · added · D: OCR defaults · owner
+- 2026-11-01 · R40 · added · Q: Remaining OCR items · owner
+- 2026-11-21 · R29 · added · O: Card collapses, the page keeps clear · owner
+- 2026-11-21 · R30 · added · O: Group rail · owner
+- 2026-11-21 · R31 · added · O: Document bar and Save after Apply · owner
+- 2026-11-21 · R32 · added · O: Card width · owner
+- 2026-11-22 · R50 · added · D: Gate · builder
+- 2026-11-26 · R01 · added · D: Jobs and how often · owner
+- 2026-11-26 · R02 · added · D: Who it is for · owner
+- 2026-11-26 · R03 · added · D: Windows versions · owner
+- 2026-11-26 · R06 · added · D: Installer · owner
+- 2026-11-26 · R08 · added · D: Licence and credits · owner
+- 2026-11-26 · R09 · added · D: Interface languages · owner
+- 2026-11-26 · R10 · added · Q: Date in Header / Footer · builder
+- 2026-11-26 · R11 · added · Q: Italian manual · builder
+- 2026-11-26 · R12 · added · D: Data folder · owner
+- 2026-11-26 · R13 · added · Q: Recovery copies in a roaming profile · builder
+- 2026-11-26 · R21 · added · Q: Undo on large files · builder
+- 2026-11-26 · R27 · added · Q: Window layout · owner
+- 2026-11-26 · R36 · added · D: Start screen · owner
+- 2026-11-26 · R37 · added · Q: Quick actions · builder
+- 2026-11-26 · R38 · added · D: Recent files never stall Home · builder
+- 2026-11-26 · R44 · added · Q: Find & Replace case · builder
+- 2026-11-26 · R46 · added · D: Save to a file another program holds · builder
+- 2026-11-26 · R47 · added · Q: File changed on disk while open · builder
+- 2026-11-26 · R48 · added · Q: Ctrl+S on Preferences · builder
+- 2026-11-26 · R49 · added · I: Two windows · builder
+- 2026-11-26 · R53 · added · D: Saving in a helper process · owner
+- 2026-11-26 · R10 · kind · Q → D · owner
+- 2026-11-26 · R11 · kind · Q → D · owner
+- 2026-11-26 · R13 · kind · Q → D · owner
+- 2026-11-26 · R21 · kind · Q → D · owner
+- 2026-11-26 · R37 · kind · Q → D · owner
+- 2026-11-26 · R44 · kind · Q → D · owner
+- 2026-11-26 · R47 · kind · Q → D · owner
+- 2026-11-26 · R48 · kind · Q → D · owner
+- 2026-11-26 · R12 · changed · recovery copies leave the data folder for R13's folder · owner
+- 2026-11-26 · R20 · changed · step count set by R21 · owner
+- 2026-11-26 · R07 · changed · the recovery folder survives an uninstall · owner
+- 2026-11-26 · R14 · changed · the check covers the recovery folder · owner
+- 2026-11-26 · R08 · changed · credit in both manuals · owner
+- 2026-11-26 · R40 · kind · Q → D · owner
+- 2026-11-26 · R40 · changed · Auto only until measured; low-confidence handwriting warning after a run · owner
+- 2026-11-26 · R13 · changed · folder name PaperKnifePlusPC-data confirmed · owner
+- 2026-11-26 · R40 · changed · measured: Auto stays default; Tables = mode 4, Receipts = mode 6 menu; warning cut-off unmeasured · owner
+- 2026-11-26 · R40 · changed · warning reworded to "low confidence: check its text"; cut-off mean confidence < 89, measured · owner
