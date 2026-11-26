@@ -373,15 +373,15 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 ### O-R22 · Crash recovery
 
-**Rule:** While the document holds unsaved edits or a tool holds marks or typed input, a recovery copy is refreshed within 10 seconds of a change. Save, "Discard" and a normal exit delete it. After a crash the next start asks "Recover unsaved changes?" with "Recover" and "Discard"; closing the question asks again at the next start.
+**Rule:** While the document holds unsaved edits or a tool holds marks or typed input, a recovery copy is refreshed within 10 seconds of a change. Save, "Discard" and a normal exit delete it. After a crash the next start asks "Recover unsaved changes?" with "Recover" and "Discard" (a protected document's copy then asks for its open password, R14); closing the question asks again at the next start.
 
 **Why:** A crash or a power cut must not lose an afternoon's edits.
 
-**Evidence:** `paperknife/qt/shell.py:57` `RECOVERY_MS = 10_000`; `paperknife/core/recovery.py`.
+**Evidence:** `paperknife/qt/shell.py:57` `RECOVERY_MS = 10_000`; `paperknife/core/recovery.py`; `shell.py` `open_pdf_data` asks the password of a recovered encrypted copy. Not checked: a 300 MB document rewrites its whole copy after each change.
 
 **Acceptance:** Killing the process 11 seconds after an edit, then starting again, offers the edit back in the tool it was made in.
 
-**Since:** 2026-10-12 · owner · migrated
+**Since:** 2026-11-26 · owner · agreed rewording
 
 ### O-R23 · Apply and new-file verbs
 
@@ -412,13 +412,13 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 ### O-R24 · Destructive steps make new files
 
-**Rule:** Merge and Redact write new files and never touch their sources; closing the window with redaction boxes drawn and not applied asks "n redaction boxes drawn and not applied will be lost. Close anyway?"
+**Rule:** Merge and Redact write new files and never touch their sources; closing the window with redaction boxes drawn and not applied asks "n redaction boxes drawn and not applied will be lost. Close anyway?", after R19's question when both apply.
 
 **Why:** A redaction or a merge that went wrong must leave the original to start again from.
 
 **Acceptance:** After "Save redacted copy…" the open file's bytes are unchanged; closing with two unapplied boxes shows the question.
 
-**Since:** 2026-10-23 · owner · migrated
+**Since:** 2026-11-26 · owner · agreed rewording
 
 ### D-R25 · Passwords
 
@@ -612,7 +612,7 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 ### D-R40 · OCR page layout and low-confidence warning
 
-**Rule:** OCR's card has a "Page layout" menu whose options read pages with the Tesseract mode their row gives; "Auto" is the default. After a run, each page whose mean word confidence is below 89 is named in one status line: "⚠ Page n was read with low confidence: check its text (handwriting, faint print and dotted lines read poorly)"; several pages are listed in one line.
+**Rule:** OCR's card has a "Page layout" menu whose options read pages with the Tesseract mode their row gives; "Auto" is the default. After a run in "Auto", the run's result line names every page whose mean word confidence is below 89, as a page range (R26): "⚠ Page 3 was read with low confidence: check its text (handwriting, faint print and dotted lines read poorly)", or for several pages "⚠ Pages 3-5, 9 were read with low confidence: check their text (handwriting, faint print and dotted lines read poorly)". "Tables" and "Receipts" show no warning.
 
 **Why:** R39's defaults were chosen by measurement; the measurement of 2026-11-26 found fixed modes that read tables and receipts better than "Auto" but read two-column pages across their columns, so they are the user's choice per job and never the default. A warning shown when it applies says more than a note behind the "i".
 
@@ -624,11 +624,11 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 | "Tables" | 4 | tables without rules 99.5 against 89.6; ruled tables 97.6 against 98.1 |
 | "Receipts" | 6 | receipts 96.2 against 89.1; words found 90 to 92 % against 75 to 84 % |
 
-**Evidence:** `_qt-2026-10-09/_ocr-layout-2026-11-26/report.md`: 62 pages (generated tables, price lists, receipts, text, two-column text; 18 pages of PDFs shipped with installed programs), simulated scans at 200 and 300 ppi, clean and worn, read at 200 DPI grey; score = words found, junk, character errors, row order (weight 1 each) and speed (0.5). Of 1,120 rules (one mode, or two modes kept by confidence or word count), none beat "Auto" without breaking two-column pages: mode 4 and mode 6 keep 1 % of their row order, because neither confidence nor word count drops when a line is read across two columns. The cut-off (`cutoff.py`, `cutoff.log`, mode 3, 248 page readings) was chosen on seed-1 pages to separate readings with under 80 % of words right: it warns on 23 of 24 such pages there and 17 of 25 on the seed-2 pages, with 13 of 116 and 6 of 83 good readings warned. It warns on every price-list and Segoe Script page, on no plain-text, two-column, mixed, plain or striped table page, and on 2 of 16 ruled-table readings; the other false warnings are receipts and real pages. Not checked: real handwriting and real scans. Ink Free and Segoe Print read like print (94 % and 99 % of words found) and draw no warning.
+**Evidence:** `_qt-2026-10-09/_ocr-layout-2026-11-26/report.md`: 62 pages (generated tables, price lists, receipts, text, two-column text; 18 pages of PDFs shipped with installed programs), simulated scans at 200 and 300 ppi, clean and worn, read at 200 DPI grey; score = words found, junk, character errors, row order (weight 1 each) and speed (0.5). Of 1,120 rules (one mode, or two modes kept by confidence or word count), none beat "Auto" without breaking two-column pages: mode 4 and mode 6 keep 1 % of their row order, because neither confidence nor word count drops when a line is read across two columns. The cut-off (`cutoff.py`, `cutoff.log`, mode 3, 248 page readings) was chosen on seed-1 pages to separate readings with under 80 % of words right: it warns on 23 of 24 such pages there and 17 of 25 on the seed-2 pages, with 13 of 116 and 6 of 83 good readings warned. It warns on every price-list and Segoe Script page, on no plain-text, two-column, mixed, plain or striped table page, and on 2 of 16 ruled-table readings; the other false warnings are receipts and real pages. In "Receipts" confidence does not tell good readings from poor ones (one with 95 % of words right reads at 68.7, the two poor ones at 79.6 and 80.8), and the same cut-off would warn on 19 of 32 receipt readings, 17 of them good; in "Tables" no reading was poor. Not checked: real handwriting, real scans, and DPI settings other than 200. Ink Free and Segoe Print read like print (94 % and 99 % of words found) and draw no warning.
 
-**Acceptance:** A fresh profile shows "Auto"; each option reads with its row's mode; in "Auto", the test pages `pricelist-eng-1.pdf` and `hand-segoescript-eng-1.pdf` at 200 ppi show the warning naming their page, and `text-eng-1.pdf` and `columns-eng-1.pdf` show none.
+**Acceptance:** A fresh profile shows "Auto"; each option reads with its row's mode; in "Auto", the generated test pages `pricelist-eng-1.pdf` and `hand-segoescript-eng-1.pdf` (`_ocr-layout-2026-11-26/gen_corpus.py`; mean confidence 34 and 75) each show the warning naming their page, and `text-eng-1.pdf` and `columns-eng-1.pdf` (96) show "✓"; in "Receipts" a receipt page shows no warning.
 
-**Not:** "Tables" or "Receipts" as the default, or a rule that switches modes by itself: on a two-column page both read across the columns, and no runtime signal measured tells such a reading apart. A warning that names handwriting as the cause: printed price lists and a white-on-dark page read at lower confidence (34 to 50) than handwriting-style fonts. A note behind the card's "i": it is read once and missed when it applies.
+**Not:** "Tables" or "Receipts" as the default, or a rule that switches modes by itself: on a two-column page both read across the columns, and no runtime signal measured tells such a reading apart. A warning that names handwriting as the cause: printed price lists and a white-on-dark page read at lower confidence (34 to 50) than handwriting-style fonts. The same cut-off in "Tables" and "Receipts": in "Receipts" it would warn on most good receipts, the pages that option is chosen for. A note behind the card's "i": it is read once and missed when it applies.
 
 **Since:** 2026-11-26 · owner · agreed rewording
 
@@ -672,7 +672,7 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 ### D-R44 · Find & Replace case
 
-**Rule:** Find & Replace has a "Match case" switch, off by default: with it off a search finds every case form of the text; with it on, only the exact one.
+**Rule:** Find & Replace has a "Match case" switch, off by default: with it off a search finds every case form of the text; with it on, only the exact one. The replacement is written as typed, whatever the case of the text it replaces.
 
 **Why:** A search for "iva" must find "IVA" and "Iva", which in Italian documents are common forms of one word.
 
@@ -686,27 +686,38 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 ### D-R45 · Batch input
 
-**Rule:** Batch processes every `*.pdf` directly in the chosen folder, not in its subfolders, and skips password-protected files with an error.
+**Rule:** Batch processes every `*.pdf` directly in the chosen folder, not in its subfolders, and skips with an error each file that needs an open password; a file with only an owner password is processed, as in R25.
 
-**Acceptance:** A folder with a subfolder PDF and a protected PDF reports the protected one as an error and leaves the subfolder's file untouched.
+**Evidence:** `paperknife/core/batch.py:21` skips on `doc.needs_pass`.
 
-**Since:** 2026-10-09 · builder · migrated
+**Acceptance:** A folder with a subfolder PDF, a PDF with an open password and a PDF with only an owner password reports the first protected one as an error, processes the owner-password one and leaves the subfolder's file untouched.
+
+**Since:** 2026-11-26 · builder · migrated
 
 ## 9. Real-world cases
 
 ### D-R46 · Save to a file another program holds
 
-**Rule:** When Save cannot replace the file because another program holds it open (a PDF viewer, a preview pane, a sync client), the status line says "✗ name is open in another program: close it, or use Save as", the document keeps its unsaved edits, and no temporary file is left beside it.
+**Rule:** When Save cannot write the file, the status line gives the cause from the rows below, the document keeps its unsaved edits, and no temporary or backup file is left beside it.
 
-**Evidence:** Not checked: the message shown today when `os.replace` in `paperknife/job_queue.py` raises `PermissionError`.
+**Values:**
 
-**Acceptance:** With the file held open by another process with no shared delete access, Save shows the message, the `*` stays, and no `.part` file remains.
+| Cause | Status line |
+|---|---|
+| another program holds it open (a PDF viewer, a preview pane, a sync client) | "✗ name is open in another program: close it, or use Save as" |
+| the file is read-only | "✗ name is read-only: use Save as" |
+| the folder cannot be written (a read-only share, a protected folder) | "✗ This folder cannot be written: use Save as" |
+| the disk is full | "✗ Not enough free space to save name" |
+
+**Evidence:** Not checked: the messages shown today when `os.replace` in `paperknife/job_queue.py` or the append in `paperknife/core/doc_state.py` fails.
+
+**Acceptance:** For each row's cause (a process holding the file with no shared delete access, the read-only attribute, a folder denying write, a full test volume) Save shows that row's line, the `*` stays, and no `.part` or `.bak` file remains.
 
 **Since:** 2026-11-26 · builder · migrated
 
 ### D-R47 · File changed on disk while open
 
-**Rule:** Save compares the file's size and modification time with those at open or at the last save; if they differ it asks "name changed on disk since you opened it" with "Overwrite", "Save as…" and "Cancel".
+**Rule:** Save compares the file's size and modification time with those at open or at the last save; if they differ it asks "name changed on disk since you opened it" with "Overwrite", "Save as…" and "Cancel". A recovered document (R22) compares with the values its recovery copy recorded, so a change made while the app was down is caught too.
 
 **Why:** In a shared or synced folder a colleague's newer version must not be overwritten without a word.
 
@@ -815,13 +826,13 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 - R37 · Quick actions: Home shows exactly these seven quick actions in this order, and each opens its tool.
 - R38 · Recent files never stall Home: With a recent entry on `\\offline-host\share\a.pdf`, Home is shown and responds within one second of the window appearing.
 - R39 · OCR defaults: A fresh profile shows 200 in OCR's DPI box and the display language ticked; an upside-down test page is read with its words where the page shows them.
-- R40 · OCR page layout and low-confidence warning: A fresh profile shows "Auto"; each option reads with its row's mode; in "Auto", the test pages `pricelist-eng-1.pdf` and `hand-segoescript-eng-1.pdf` at 200 ppi show the warning naming their page, and `text-eng-1.pdf` and `columns-eng-1.pdf` show none.
+- R40 · OCR page layout and low-confidence warning: A fresh profile shows "Auto"; each option reads with its row's mode; in "Auto", the generated test pages `pricelist-eng-1.pdf` and `hand-segoescript-eng-1.pdf` (`_ocr-layout-2026-11-26/gen_corpus.py`; mean confidence 34 and 75) each show the warning naming their page, and `text-eng-1.pdf` and `columns-eng-1.pdf` (96) show "✓"; in "Receipts" a receipt page shows no warning.
 - R41 · Compress levels: `tests/qt/test_compress_page.py` passes; Compress of an already compressed file shows the warning and leaves no `*`.
 - R42 · Redaction removes, at the box edge: In a redacted copy no character, image pixel or path point lies inside a box, and the phrase is absent from the file's bytes.
 - R43 · Text rewrite unit: `tests/qt/test_find_replace_page.py` and `tests/qt/test_edit_text_page.py` pass; a replacement on a page with a table row is listed as skipped.
 - R44 · Find & Replace case: With the switch off, "iva" finds "iva", "Iva" and "IVA"; with it on, only "iva"; a fresh profile shows it off.
-- R45 · Batch input: A folder with a subfolder PDF and a protected PDF reports the protected one as an error and leaves the subfolder's file untouched.
-- R46 · Save to a file another program holds: With the file held open by another process with no shared delete access, Save shows the message, the `*` stays, and no `.part` file remains.
+- R45 · Batch input: A folder with a subfolder PDF, a PDF with an open password and a PDF with only an owner password reports the first protected one as an error, processes the owner-password one and leaves the subfolder's file untouched.
+- R46 · Save to a file another program holds: For each row's cause (a process holding the file with no shared delete access, the read-only attribute, a folder denying write, a full test volume) Save shows that row's line, the `*` stays, and no `.part` or `.bak` file remains.
 - R47 · File changed on disk while open: A file touched by another process after opening shows the question on Save; "Cancel" leaves both the file and the `*` as they were; an untouched file saves with no question.
 - R48 · Ctrl+S on Preferences: With an unsaved document and Preferences shown, `Ctrl+S` removes the `*` and leaves the preferences unsaved.
 

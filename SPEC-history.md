@@ -74,3 +74,10 @@ Not a source of current rules: `SPEC.md` is. One line per change, newest at the 
 - 2026-11-26 · R13 · changed · folder name PaperKnifePlusPC-data confirmed · owner
 - 2026-11-26 · R40 · changed · measured: Auto stays default; Tables = mode 4, Receipts = mode 6 menu; warning cut-off unmeasured · owner
 - 2026-11-26 · R40 · changed · warning reworded to "low confidence: check its text"; cut-off mean confidence < 89, measured · owner
+- 2026-11-26 · R40 · changed · warning in "Auto" only; pages named as a page range; Receipts confidence measured · owner
+- 2026-11-26 · R45 · changed · skip only files needing an open password (code: needs_pass) · builder
+- 2026-11-26 · R46 · changed · Values table: held open, read-only, folder not writable, disk full · builder
+- 2026-11-26 · R47 · changed · a recovered document compares with its recovery copy's values · owner
+- 2026-11-26 · R24 · changed · boxes question comes after R19's question (as built) · owner
+- 2026-11-26 · R22 · changed · a protected copy asks its password before it opens (as built) · owner
+- 2026-11-26 · R44 · changed · replacement written as typed · owner
