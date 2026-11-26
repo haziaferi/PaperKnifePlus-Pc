@@ -1,17 +1,19 @@
 # PaperKnife+ PC — v4.0.0
 
+Basato su PaperKnife di potatameister (github/potatameister), autore del progetto originale.
+
 Toolkit PDF locale al 100% per **Windows 10 e 11**. Nessun cloud, nessun account, nessun dato che lascia il tuo computer. Dalla 4.0.0 l'interfaccia usa PySide6 (Qt 6) e QFluentWidgets, nello stile Fluent di Windows 11.
 
 Il manuale completo, in inglese, è **[MANUAL.md](MANUAL.md)**: strumenti, scorciatoie, preferenze, risoluzione dei problemi, compilazione e changelog. Questo file è solo un riassunto in italiano.
 
 ## Cosa fa
 
-26 strumenti in sei sezioni (MANUAL.md, sezione 5):
+23 strumenti in cinque gruppi, più le Preferenze (MANUAL.md, sezione 5):
 
 - **Leggi:** anteprima.
-- **Organizza:** unisci, dividi, ruota e riordina, dividi per segnalibri, segnalibri / indice, batch.
-- **Migliora:** password, comprimi, filigrana, normalizza pagine, intestazione / piè di pagina, ritaglia, strumenti PDF.
-- **Converti:** immagini → PDF, PDF → immagini, estrai immagini, PDF → documento / testo, documento / testo → PDF.
+- **Organizza:** unisci, dividi (per intervalli di pagine o per segnalibri), ruota e riordina, segnalibri / indice, batch.
+- **Migliora:** password, comprimi, filigrana, normalizza pagine, intestazione / piè di pagina, ritaglia, strumenti PDF (ripara, pulisci, appiattisci, togli le pagine bianche).
+- **Converti:** altro → PDF (immagini e documenti), estrai immagini, PDF → altro (testo, documenti, immagini).
 - **Contenuto:** modifica testo, trova e sostituisci, annota, oscura (redazione), OCR, metadati.
 - **Preferenze.**
 
@@ -24,6 +26,16 @@ Serve Python 3.10 o superiore.
 3. Fai doppio clic su **`run.bat`** per avviare l'app (oppure: `python -m paperknife.qt`).
 
 Installazione manuale e installer NSIS: MANUAL.md, sezioni 3 e 9.
+
+## Test
+
+Dopo `setup.bat`: `.venv\Scripts\python.exe -m pip install -r requirements-dev.txt`, poi (core e Qt in due esecuzioni separate):
+
+```
+.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider tests --ignore=tests/qt
+.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider tests/qt
+.venv\Scripts\python.exe -m ruff check paperknife tests --select F,E9,B
+```
 
 ## OCR
 

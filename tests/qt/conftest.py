@@ -86,6 +86,19 @@ def isolated_store(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_pk_env():
+    """The PK_* layout switches as they were before each test: a structure window
+    sets PK_BATCH=C for itself (structure.FilesWorkspace), and a later test that
+    builds Batch's default mode must not inherit it."""
+    saved = {k: v for k, v in os.environ.items() if k.startswith("PK_")}
+    yield
+    for k in [k for k in os.environ if k.startswith("PK_")]:
+        if k not in saved:
+            del os.environ[k]
+    os.environ.update(saved)
+
+
+@pytest.fixture(autouse=True)
 def ocr_languages(monkeypatch):
     """The same OCR languages on every machine: a fixed installed list and no Windows
     display language (so the first-time default is English); tests change either."""

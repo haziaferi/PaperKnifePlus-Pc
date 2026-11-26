@@ -170,9 +170,9 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 **Rule:** The NSIS installer installs per user into `%LOCALAPPDATA%\PaperKnifePlusPC` with no elevation, adds a desktop shortcut and a Start Menu entry, supports `/S`, and stops without changing anything (exit code 2) while the app runs. It is not code-signed until a public release.
 
-**Evidence:** `installer.nsi`; `phase7/install_check.ps1` 23/23 on 2026-10-10.
+**Evidence:** `installer.nsi`; `tools/install_check.ps1` 23/23 on 2026-10-10.
 
-**Acceptance:** `phase7/install_check.ps1` passes in a sandbox; a silent install over a running app exits 2 and leaves the old files.
+**Acceptance:** `tools/install_check.ps1` passes in a sandbox; a silent install over a running app exits 2 and leaves the old files.
 
 **Not:** Signing before a public release: a yearly certificate cost before anyone else uses the app.
 
@@ -192,7 +192,7 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 **Rule:** The app is licensed AGPL-3.0 and credits potatameister as the author of the upstream PaperKnife in both manuals (R11), the README and the app's About text. The registry key `HKCU\Software\potatameister\PaperKnifePlusPC` stays for upgrade continuity.
 
-**Evidence:** `LICENSE`; the MANUAL header reads "github/potatameister". Not checked: the README and the app show no credit; the app has no About text.
+**Evidence:** `LICENSE`; the MANUAL header reads "github/potatameister". The README credits potatameister (2026-11-26). Not checked: the app shows no credit; it has no About text.
 
 **Acceptance:** The README, both manuals and Preferences' About line each name potatameister as the upstream author.
 
@@ -604,11 +604,11 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 **Why:** 200 DPI read the most words on simulated scans (2026-10-22); grey read as many words 0.7 to 1.1 s a page sooner (2026-11-01).
 
-**Evidence:** `paperknife/prefs.py:17`; `phase13/ocr-check.md`.
+**Evidence:** `paperknife/prefs.py:17`; `docs/ocr-check-2026-11-01.md`.
 
 **Acceptance:** A fresh profile shows 200 in OCR's DPI box and the display language ticked; an upside-down test page is read with its words where the page shows them.
 
-**Since:** 2026-11-01 · owner · migrated
+**Since:** 2026-11-26 · owner · migrated
 
 ### D-R40 · OCR page layout and low-confidence warning
 
@@ -624,7 +624,7 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 | "Tables" | 4 | tables without rules 99.5 against 89.6; ruled tables 97.6 against 98.1 |
 | "Receipts" | 6 | receipts 96.2 against 89.1; words found 90 to 92 % against 75 to 84 % |
 
-**Evidence:** `_qt-2026-10-09/_ocr-layout-2026-11-26/report.md`: 62 pages (generated tables, price lists, receipts, text, two-column text; 18 pages of PDFs shipped with installed programs), simulated scans at 200 and 300 ppi, clean and worn, read at 200 DPI grey; score = words found, junk, character errors, row order (weight 1 each) and speed (0.5). Of 1,120 rules (one mode, or two modes kept by confidence or word count), none beat "Auto" without breaking two-column pages: mode 4 and mode 6 keep 1 % of their row order, because neither confidence nor word count drops when a line is read across two columns. The cut-off (`cutoff.py`, `cutoff.log`, mode 3, 248 page readings) was chosen on seed-1 pages to separate readings with under 80 % of words right: it warns on 23 of 24 such pages there and 17 of 25 on the seed-2 pages, with 13 of 116 and 6 of 83 good readings warned. It warns on every price-list and Segoe Script page, on no plain-text, two-column, mixed, plain or striped table page, and on 2 of 16 ruled-table readings; the other false warnings are receipts and real pages. In "Receipts" confidence does not tell good readings from poor ones (one with 95 % of words right reads at 68.7, the two poor ones at 79.6 and 80.8), and the same cut-off would warn on 19 of 32 receipt readings, 17 of them good; in "Tables" no reading was poor. Not checked: real handwriting, real scans, and DPI settings other than 200. Ink Free and Segoe Print read like print (94 % and 99 % of words found) and draw no warning.
+**Evidence:** `docs/ocr-layout-2026-11-26.md`: 62 pages (generated tables, price lists, receipts, text, two-column text; 18 pages of PDFs shipped with installed programs), simulated scans at 200 and 300 ppi, clean and worn, read at 200 DPI grey; score = words found, junk, character errors, row order (weight 1 each) and speed (0.5). Of 1,120 rules (one mode, or two modes kept by confidence or word count), none beat "Auto" without breaking two-column pages: mode 4 and mode 6 keep 1 % of their row order, because neither confidence nor word count drops when a line is read across two columns. The cut-off (that file's last section, mode 3, 248 page readings) was chosen on seed-1 pages to separate readings with under 80 % of words right: it warns on 23 of 24 such pages there and 17 of 25 on the seed-2 pages, with 13 of 116 and 6 of 83 good readings warned. It warns on every price-list and Segoe Script page, on no plain-text, two-column, mixed, plain or striped table page, and on 2 of 16 ruled-table readings; the other false warnings are receipts and real pages. In "Receipts" confidence does not tell good readings from poor ones (one with 95 % of words right reads at 68.7, the two poor ones at 79.6 and 80.8), and the same cut-off would warn on 19 of 32 receipt readings, 17 of them good; in "Tables" no reading was poor. Not checked: real handwriting, real scans, and DPI settings other than 200. Ink Free and Segoe Print read like print (94 % and 99 % of words found) and draw no warning.
 
 **Acceptance:** A fresh profile shows "Auto"; each option reads with its row's mode; in "Auto", the generated test pages `pricelist-eng-1.pdf` and `hand-segoescript-eng-1.pdf` (`_ocr-layout-2026-11-26/gen_corpus.py`; mean confidence 34 and 75) each show the warning naming their page, and `text-eng-1.pdf` and `columns-eng-1.pdf` (96) show "✓"; in "Receipts" a receipt page shows no warning.
 
