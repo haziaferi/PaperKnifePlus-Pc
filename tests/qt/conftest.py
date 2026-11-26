@@ -61,8 +61,26 @@ def remove_home(home: str = _HOME) -> None:
     print(f"warning: could not remove the test HOME {home}", file=sys.stderr)
 
 
+_EXIT: dict[str, int] = {}
+
+
 def pytest_sessionfinish(session, exitstatus):
     remove_home()
+    _EXIT["status"] = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    """End the process with pytest's own status once its report is written.
+    Python's shutdown then tears down the QApplication and the Fluent widgets
+    in whatever order the garbage collector picks, and that sometimes crashes
+    after a green run (exit 1 on GitHub's runner, 127 here), turning a passed
+    suite into a failed one. Nothing of the run is lost: every test, fixture
+    teardown and the summary have finished by now."""
+    if "status" in _EXIT:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_EXIT["status"])
 
 
 @pytest.fixture(autouse=True)
