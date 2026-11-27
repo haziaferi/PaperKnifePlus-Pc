@@ -142,3 +142,34 @@ def test_remove_pages_never_removes_every_page(tmp_path):
     with pytest.raises(ValueError, match="at least one page"):
         pdftools.remove_pages(fitz.open(src), str(out), [0, 1])
     assert not out.exists()
+
+
+def _scan(doc, level=248, marks=(), dpi=150):
+    """A page holding one JPEG of A4 paper at *dpi*: grain around *level*, and
+    each (box, grey) of *marks* drawn on it."""
+    import io
+    from PIL import Image, ImageDraw
+    size = (round(8.27 * dpi), round(11.69 * dpi))
+    im = Image.effect_noise(size, 3).point(lambda v: max(0, min(255, v - 128 + level)))
+    draw = ImageDraw.Draw(im)
+    for box, grey in marks:
+        draw.rectangle(box, fill=grey)
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "JPEG", quality=75)
+    page = doc.new_page(width=595.28, height=841.89)
+    page.insert_image(page.rect, stream=buf.getvalue())
+
+
+def test_a_scanned_page_of_empty_paper_is_blank_and_one_with_a_mark_is_not(tmp_path):
+    """2026-11-27: every page holding an image was refused, so the back of a
+    scanned sheet was never found.  A short pen stroke (0.3 x 3 mm) keeps its page."""
+    doc = fitz.open()
+    _scan(doc)                                              # empty paper
+    _scan(doc, level=205)                                   # grey recycled paper
+    _scan(doc, marks=[((600, 800, 602, 820), 40)])          # one short pen stroke
+    _scan(doc, marks=[((560, 800, 640, 806), 165)])         # a light pencil line
+    _scan(doc, level=40)                                    # a dark page: not paper
+    _scan(doc, marks=[((200, 300, 1000, 1400), 120)])       # a picture on the page
+    assert pdftools.blank_pages(doc) == [0, 1]
+    assert pdftools.is_scan(doc[0]) and not pdftools.is_scan(fitz.open().new_page())
+    doc.close()

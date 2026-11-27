@@ -286,3 +286,41 @@ def test_extract_images_a_write_error_is_raised_not_counted_as_failed(tmp_path, 
         core.extract_images(doc, str(tmp_path), "Original", 50, threading.Event(),
                             lambda v: None)
     assert doc.is_closed
+
+
+# Image page size (2026-11-27): a scanner's resolution gives the sheet's size; a
+# phone photo or a screenshot (72, 96 or no resolution) fits A4, never enlarged.
+@pytest.mark.parametrize("px, dpi, size", [
+    ((4000, 3000), (72, 72), (793.7, 595.3)),        # phone photo, landscape: A4 on its side
+    ((3000, 4000), None, (595.3, 793.7)),            # phone photo, portrait: A4's width
+    ((2480, 3508), (300, 300), (595.2, 841.9)),      # A4 scanned at 300 DPI: A4
+    ((1654, 2339), (200, 200), (595.3, 841.9)),      # A4 scanned at 200 DPI: A4
+    ((1920, 1080), (96, 96), (841.9, 473.6)),        # a screenshot: A4 across
+    ((300, 200), None, (300.0, 200.0)),              # a small image: its own size
+    ((600, 300), (150, 150), (288.0, 144.0)),        # a small scan: its real size
+])
+def test_an_image_page_is_sized_by_its_scan_resolution_and_fits_a4(px, dpi, size):
+    assert core.image_page_size(*px, dpi) == pytest.approx(size, abs=0.1)
+
+
+def test_a_phone_photo_becomes_an_a4_page_not_a_141_cm_one(tmp_path):
+    from PIL import Image
+    src = tmp_path / "photo.jpg"
+    Image.new("RGB", (4000, 3000), "white").save(src, "JPEG", dpi=(72, 72))
+    out = tmp_path / "out.pdf"
+    core.files_to_pdf([str(src)], str(out), threading.Event())
+    with fitz.open(out) as d:
+        assert (round(d[0].rect.width), round(d[0].rect.height)) == (794, 595)
+        assert d[0].get_images(full=True)[0][2:4] == (4000, 3000)    # every pixel kept
+
+
+def test_a_photo_turned_by_its_exif_fits_a4_upright(tmp_path):
+    from PIL import Image
+    src = tmp_path / "turned.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6                                   # shown turned a quarter clockwise
+    Image.new("RGB", (4000, 3000), "white").save(src, "JPEG", exif=exif, dpi=(72, 72))
+    out = tmp_path / "out.pdf"
+    core.files_to_pdf([str(src)], str(out), threading.Event())
+    with fitz.open(out) as d:
+        assert (round(d[0].rect.width), round(d[0].rect.height)) == (595, 794)

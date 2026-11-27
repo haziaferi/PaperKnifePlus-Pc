@@ -135,9 +135,9 @@ Fifteen common jobs walked through the code as it is, both layouts unless one is
 - **OCR a scanned receipt, then search it:** OCR, Apply, then Find & Replace's Find All, which matches capitals as typed, so "total" misses "TOTAL". Read / Preview has no search, and `Ctrl+F` searches the tool names (question 5).
 - **Combine a PDF with three phone photos:** Other → PDF for the photos, then Merge, with a file in between (question 6).
 
-**Found, to fix** (defects, not choices; not fixed in this change):
-- **Remove blank pages never finds a blank scanned page.** `core.pdftools.is_blank` refuses every page that holds an image, and a scanned page is an image. The common case for the tool (a scanner's empty back sides) is the one it misses.
-- **Photos become pages as wide as their pixels.** Other → PDF makes a page one point per pixel (`core.convert`): a 4000 × 3000 photo is a page about 141 cm wide, so photos of a paper document need Normalise Pages afterwards. HEIC, a common phone format, is not accepted.
+**Found and fixed** (2026-11-27, `docs/blank-scans-2026-11-27.md`):
+- **Remove blank pages missed every blank scanned page:** it refused any page holding an image. It now finds a scanned page that shows only empty paper, and keeps one with any mark (R55).
+- **Photos became pages as wide as their pixels:** a 4000 × 3000 photo made a page about 141 cm wide. A scan's page now takes the scanner's resolution, and a page larger than A4 is scaled down to fit it (R56). HEIC, a common phone format, is still not accepted: it needs a new library (question 7).
 
 **Not in the app:** filling in or signing a form. Nothing writes form-field values, and Annotate has no ink, signature or image stamp; the nearest is a text box. SPEC.md neither lists it as a job (R01) nor rules it out (question 4).
 
@@ -164,3 +164,4 @@ Fifteen common jobs walked through the code as it is, both layouts unless one is
 4. **Forms and signatures:** add filling in and signing a form as a job (R01), or rule it out (Out of scope)?
 5. **Search in the document:** give Read / Preview a find (`Ctrl+F` in the document, ignoring capitals), or keep finding text to Find & Replace and Redact?
 6. **PDFs and images in one job:** let Other → PDF take PDFs too (or Merge take images), or keep the two lists apart?
+7. **HEIC photos:** accept them in Other → PDF? It needs the `pillow-heif` library in the app and the installer.

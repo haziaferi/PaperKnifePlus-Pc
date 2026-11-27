@@ -30,6 +30,7 @@ SANITISE = [("javascript", "JavaScript"), ("embedded", "Embedded files"),
             ("xmp", "XMP metadata"), ("actions", "Links that run actions")]
 FLATTEN = [("comments", "Comments"), ("fields", "Form fields")]
 NO_BLANK = "No blank page was found."
+SCANNED_BLANK = " Scanned pages count when they show only empty paper."
 
 
 def repair_report(repaired: bool) -> str:
@@ -156,8 +157,10 @@ class PdfToolsPage(ToolPage):
                 raise ValueError(KEEP_ONE)
             what = pages_phrase([i + 1 for i in blanks])
             why = "It has" if len(blanks) == 1 else "They have"
+            # A scanned blank holds a picture: say what made it count (2026-11-27).
+            scans = SCANNED_BLANK if any(core.is_scan(doc[i]) for i in blanks) else ""
             return dialogs.ask_yes_no(ACTION["blank"],
-                                      f"Remove {what}? {why} no text or drawing.")
+                                      f"Remove {what}? {why} no text or drawing.{scans}")
 
         self.run_on_file("PDF Tools",
                          lambda doc, out, stop, _p: core.remove_pages(doc, out, blanks),

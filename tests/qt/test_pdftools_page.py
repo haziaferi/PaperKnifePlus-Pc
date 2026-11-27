@@ -197,3 +197,26 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     shared = window.document.doc
     assert opened and all(d.is_closed for d in opened if d is not shared)
     assert shared.page_count == 3 and not shared.is_closed
+
+
+def test_a_scanned_blank_page_is_found_and_the_question_says_why(window, dialogs, tmp_path):
+    import io
+    from PIL import Image
+    src = tmp_path / "scan.pdf"
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), "one", fontsize=12)
+    im = Image.effect_noise((1240, 1754), 3).point(lambda v: v + 120).convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=75)
+    page = doc.new_page()
+    page.insert_image(page.rect, stream=buf.getvalue())     # the back of a scanned sheet
+    doc.save(str(src))
+    doc.close()
+    tool = _page(window)
+    tool.radios["blank"].click()
+    tool.file.set_path(str(src))
+    dialogs.asks.append(False)
+    tool.run()
+    assert ("ask_yes_no", "Remove blank pages",
+            "Remove page 2? It has no text or drawing. "
+            "Scanned pages count when they show only empty paper.") in dialogs.msgs

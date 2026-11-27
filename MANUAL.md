@@ -294,7 +294,7 @@ Choose a tool under **Tool**, then click **Apply**; the circled **i** beside a t
 - **Repair** uses the file as MuPDF opened it (it rebuilds a damaged cross-reference table while opening) and cleans it, without compressing its images. The status line says whether damage was found. Pages that cannot be recovered are lost.
 - **Sanitise** removes, as its switches choose (all on): **JavaScript** (the document's scripts and those of its links and fields), **Embedded files** (attachments and file-attachment comments), **XMP metadata**, and **Links that run actions** (launch a program or a file). Web links and what the pages show are kept. The message lists what was removed.
 - **Flatten** draws **Comments** and **Form fields** (switches, both on) into the pages, so they can no longer be edited; a field's value becomes page content.
-- **Remove blank pages** finds the pages with no text, no image, no drawing that shows, no comment and no form field, names them in a question, and removes them once you confirm. It says so when no page is blank, and keeps at least one page.
+- **Remove blank pages** finds the pages with no text, no drawing that shows, no comment and no form field, names them in a question, and removes them once you confirm. A scanned page counts when it shows only empty paper: white, cream or grey paper, or the back's text faintly showing through. A page with any mark on it, even a page number, a tick or a few specks of dust, is kept. It says so when no page is blank, and keeps at least one page.
 
 ### 5.15 OCR
 
@@ -329,7 +329,7 @@ Shows Title, Author, Subject, Keywords, Creator, Producer, Creation date, and Mo
 
 ### 5.21 Other → PDF
 
-Add images (JPG, PNG, WEBP, BMP, TIFF, GIF) and documents (TXT, HTML, XML, RTF, DOCX, PPTX, XLSX) with **Add Files** (or drop them on the list), order them with **Up / Down** (or `Alt+Up` / `Alt+Down`), and click **Convert to PDF**: they become one PDF, in that order. Each image is one page of its own size, upright according to its EXIF orientation, with transparency flattened onto white. Each document adds its pages: text formats are typeset on A4 pages; DOCX keeps headings and tables (needs python-docx); PPTX gives one page per slide's text (needs python-pptx); XLSX is laid out as plain-text tables on landscape A4 (needs openpyxl). A file's format comes from its extension. The list stays while you visit other tools and empties after a finished conversion. (Image → PDF and Doc / Text → PDF until 4.0.0.)
+Add images (JPG, PNG, WEBP, BMP, TIFF, GIF) and documents (TXT, HTML, XML, RTF, DOCX, PPTX, XLSX) with **Add Files** (or drop them on the list), order them with **Up / Down** (or `Alt+Up` / `Alt+Down`), and click **Convert to PDF**: they become one PDF, in that order. Each image is one page, upright according to its EXIF orientation, with transparency flattened onto white. A scan's page is the size of the scanned sheet (from the resolution the scanner wrote, 100 DPI or more); any other image, such as a phone photo or a screenshot, is one point per pixel, and a page larger than A4 is scaled down to fit A4, every pixel kept. Each document adds its pages: text formats are typeset on A4 pages; DOCX keeps headings and tables (needs python-docx); PPTX gives one page per slide's text (needs python-pptx); XLSX is laid out as plain-text tables on landscape A4 (needs openpyxl). A file's format comes from its extension. The list stays while you visit other tools and empties after a finished conversion. (Image → PDF and Doc / Text → PDF until 4.0.0.)
 
 ### 5.22 (PDF → Images)
 

@@ -129,18 +129,60 @@ def _white(fill) -> bool:
     return fill is not None and all(c >= 0.99 for c in fill)
 
 
+# A page that holds images (a scan) is blank when, rendered, nothing on it
+# stands out from the paper.  Measured 2026-11-27 on simulated scans at 200 and
+# 300 DPI, colour and grey (docs/blank-scans-2026-11-27.md): empty paper, cream
+# or recycled paper, text showing through from the back and a 1 % edge shadow
+# all count 0 pixels; the smallest content, a single 9 pt "x", counts 14.  A
+# few specks of dust can count as many as that small mark, so a dusty page is
+# kept: a blank page left in is harmless, a page with a mark removed is not.
+_SCAN_DPI = 72          # render resolution of the look (13 ms a page)
+_SCAN_CROP = 0.02       # each edge left out: a scanner's shadow along the sheet
+_SCAN_DIFF = 40         # grey levels from the paper that make a pixel a mark
+_SCAN_MARKS = 4         # more marked pixels than this: the page holds something
+_SCAN_PAPER = 160       # a page darker than this overall is not empty paper
+
+
+def _shows_only_paper(page) -> bool:
+    """True when the rendered page is one even light tone (paper) with at most
+    _SCAN_MARKS pixels standing out from it, darker or lighter."""
+    from PIL import Image
+    pix = page.get_pixmap(matrix=fitz.Matrix(_SCAN_DPI / 72, _SCAN_DPI / 72),
+                          colorspace=fitz.csGRAY, alpha=False)
+    im = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+    cy, cx = int(pix.height * _SCAN_CROP), int(pix.width * _SCAN_CROP)
+    hist = im.crop((cx, cy, pix.width - cx, pix.height - cy)).histogram()
+    half, run, paper = sum(hist) / 2, 0, 255
+    for value, n in enumerate(hist):
+        run += n
+        if run >= half:
+            paper = value
+            break
+    if paper < _SCAN_PAPER:
+        return False
+    marks = sum(hist[:max(0, paper - _SCAN_DIFF)]) + sum(hist[paper + _SCAN_DIFF + 1:])
+    return marks <= _SCAN_MARKS
+
+
 def is_blank(page) -> bool:
-    """No text, no image, no drawing that shows (a white fill with no
-    outline does not), no comment and no form field."""
+    """No text, no drawing that shows (a white fill with no outline does
+    not), no comment and no form field; and when it holds images, they show
+    only empty paper (_shows_only_paper), as the back of a scanned sheet does."""
     if page.get_text("text").strip():
         return False
-    if page.get_images(full=False) or page.first_annot is not None \
-            or page.first_widget is not None:
+    if page.first_annot is not None or page.first_widget is not None:
         return False
     for d in page.get_drawings():
         if d.get("color") is not None or not _white(d.get("fill")):
             return False
+    if page.get_images(full=False):
+        return _shows_only_paper(page)
     return True
+
+
+def is_scan(page) -> bool:
+    """The page holds images (blank_pages' question names such pages apart)."""
+    return bool(page.get_images(full=False))
 
 
 def blank_pages(doc, stop=None) -> list[int]:

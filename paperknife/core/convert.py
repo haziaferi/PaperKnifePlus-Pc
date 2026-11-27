@@ -86,9 +86,33 @@ def pages_to_zip(path, doc, dpi, fmt, quality, stop, progress, pages=None) -> No
                 zf.writestr(f"page_{i + 1:04d}.png", pix.tobytes("png"))
 
 
+# An image's page size (2026-11-27).  A scanner writes its real resolution
+# (150, 200, 300 DPI...) into the file, so the page comes out the size of the
+# sheet.  Phones and screenshots write 72 or 96 or nothing: at one point per
+# pixel a 4000 x 3000 photo made a page about 141 cm wide.  So a resolution
+# below SCANNER_DPI counts as none, and a page larger than A4 is scaled down to
+# fit A4 in the image's own orientation; a small image is never enlarged.
+SCANNER_DPI = 100
+A4_PT = (595.28, 841.89)    # ISO 216 exactly: fitz.paper_rect rounds to 595 x 842
+
+
+def image_page_size(px_w: int, px_h: int, dpi=None) -> tuple[float, float]:
+    """The page size in points for an image of *px_w* x *px_h* pixels with
+    the resolution *dpi* ((x, y), as PIL reports it, or None)."""
+    dx, dy = (dpi if dpi else (0, 0))[:2]
+    if not (dx >= SCANNER_DPI and dy >= SCANNER_DPI):
+        dx = dy = 72
+    w, h = px_w * 72 / dx, px_h * 72 / dy
+    aw, ah = A4_PT if h >= w else A4_PT[::-1]
+    s = min(1.0, aw / w, ah / h)
+    return w * s, h * s
+
+
 def image_page(doc, path) -> None:
-    """Append a page sized to the image at *path*, upright, transparency flattened onto white."""
+    """Append a page for the image at *path* (sized by image_page_size),
+    upright, transparency flattened onto white."""
     with Image.open(path) as src:
+        dpi = src.info.get("dpi")
         im = ImageOps.exif_transpose(src)
         if src.format == "JPEG" and src.getexif().get(0x0112, 1) == 1:
             data = Path(path).read_bytes()        # already upright: embed without recompressing
@@ -103,7 +127,9 @@ def image_page(doc, path) -> None:
             buf = io.BytesIO()
             im.save(buf, "PNG")
             data = buf.getvalue()
-        w, h = im.size
+        if dpi and im.size != src.size:
+            dpi = (dpi[1], dpi[0])            # turned a quarter: the axes swap
+        w, h = image_page_size(*im.size, dpi)
     page = doc.new_page(width=w, height=h)
     page.insert_image(page.rect, stream=data)
 
