@@ -8,7 +8,7 @@ Il manuale completo, in inglese, è **[MANUAL.md](MANUAL.md)**: strumenti, scorc
 
 ## Cosa fa
 
-23 strumenti in cinque gruppi, più le Preferenze (MANUAL.md, sezione 5):
+22 strumenti in cinque gruppi, più le Preferenze (MANUAL.md, sezione 5):
 
 - **Leggi:** anteprima.
 - **Organizza:** unisci, dividi (per intervalli di pagine o per segnalibri), ruota e riordina, segnalibri / indice, batch.

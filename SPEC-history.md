@@ -85,3 +85,4 @@ Not a source of current rules: `SPEC.md` is. One line per change, newest at the 
 - 2026-11-26 · R39 · changed · evidence cited at docs/ocr-check-2026-11-01.md (moved into the repo) · builder
 - 2026-11-26 · R40 · changed · evidence + test pages in the repo; price list reads at 48 as generated (34 was a simulated scan) · builder
 - 2026-11-26 · R08 · changed · the README credits potatameister · builder
+- 2026-11-27 · R01 · changed · evidence cites docs/purpose-map.md (refreshed purpose map) · builder
