@@ -242,3 +242,23 @@ def test_up_down_and_remove_match_the_same_buttons_on_other_screens(window):
     got = [(b.text(), b.width(), b.height()) for b in (page.up_btn, page.down_btn, page.remove_btn)]
     assert got == want and [t for t, _, _ in got] == ["Up", "Down", "Remove"]
     assert page.up_btn.parentWidget() is not page.add_btn.parentWidget()     # its own row
+
+
+def test_the_open_document_is_merged_as_it_is_now(window, dialogs, tmp_path):
+    # One document per window (2026-10-23): its unsaved edits go into the merge.
+    import pymupdf as fitz
+    a, b = make_pdf(tmp_path / "a.pdf", pages=2), make_pdf(tmp_path / "b.pdf", pages=1)
+    assert window.open_document(a)
+    window.document.edit("Stamp", lambda d: d[0].insert_text((72, 300), "EDITED", fontsize=12))
+    assert window.open_tool("MergeTool")
+    page = window.current_page()
+    page.add_paths([a, b])
+    out = tmp_path / "merged.pdf"
+    dialogs.save(out)
+    page.run()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+    with fitz.open(out) as d:
+        assert d.page_count == 3 and "EDITED" in d[0].get_text()
+    with fitz.open(a) as d:
+        assert "EDITED" not in d[0].get_text()          # the file itself is untouched

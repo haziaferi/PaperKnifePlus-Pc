@@ -4,13 +4,12 @@ the options sit in the column at the right, the pages not chosen keep their
 size."""
 from __future__ import annotations
 
-from pathlib import Path
 
 from qfluentwidgets import ComboBox
 
 from ...core import enhance as core_enhance
 from ...pages import selected_pages
-from ..pages import PagePickPage, card, group_title, radio_rows, register_page
+from ..pages import APPLY, SAVE_NOTE, PagePickPage, card, group_title, radio_rows, register_page
 
 SIZES = ["A4", "A3", "A5", "Letter", "Legal", "Tabloid"]
 ORIENTATIONS = ["Portrait", "Landscape", "Keep original"]
@@ -53,7 +52,7 @@ class NormalisePage(PagePickPage):
         self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
         s.addStretch(1)
-        self.primary("Normalise Pages", self.run)
+        self.primary(APPLY, self.run)
 
     @property
     def orient(self) -> str:
@@ -80,8 +79,6 @@ class NormalisePage(PagePickPage):
                                               pages=pages)
 
         self.run_on_file(
-            "Normalise", work, "Normalising pages…",
-            lambda _r, out: ("success", f"✓  Normalised → {Path(out).name}",
-                             "Done", f"Normalised PDF saved:\n{out}"),
-            src=src, save=("normalised.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-            open_doc=self.job_copy)
+            "Normalise", work, "Normalising pages…", None, src=src, prepare=prepare,
+            open_doc=self.job_copy, in_place="Normalise pages",
+            applied=lambda _r: ("success", "✓  Pages normalised" + SAVE_NOTE, None, True))

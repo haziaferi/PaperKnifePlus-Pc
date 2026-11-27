@@ -35,21 +35,21 @@ import os
 from pathlib import Path
 
 import pymupdf as fitz
-from PySide6.QtCore import (QEasingCurve, QEvent, QItemSelectionModel, QObject, QPoint, Qt, QTimer,
-                            QVariantAnimation, Signal)
+from PySide6.QtCore import (QEasingCurve, QEvent, QItemSelectionModel, QObject, QPoint, QSize, Qt,
+                            QTimer, QVariantAnimation, Signal)
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QFrame, QHBoxLayout, QLayout, QListView,
                                QListWidget, QListWidgetItem, QSizePolicy, QVBoxLayout, QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, IconWidget, LineEdit, PrimaryPushButton, PushButton,
                             RadioButton, Slider, SwitchButton,
                             SimpleCardWidget, SingleDirectionScrollArea, StrongBodyLabel,
-                            SubtitleLabel, TitleLabel, TransparentPushButton,
+                            TitleLabel, TransparentPushButton,
                             TransparentToggleToolButton,
                             TransparentToolButton, setCustomStyleSheet)
 
 from . import dialogs
 from . import theme
-from ..core.doc_state import UNDO_DEPTH, DocHolder
+from ..core.doc_state import DocHolder
 from ..core.password import OpenPassword, open_password_of, shared_open_password
 
 # ── Registry ──────────────────────────────────────────────────────────────────
@@ -77,6 +77,15 @@ def action_placement() -> str:
     "bar" (a command bar at the bottom), from env PK_ACTION."""
     v = os.environ.get("PK_ACTION", "header").strip().lower()
     return v if v in ("header", "bar") else "header"
+
+
+def batch_prototype() -> str:
+    """Which Batch prototype runs (owner, 2026-10-18; env PK_BATCH): "A"
+    Batch as it is (the default), "B" a folder input on Compress, Watermark,
+    OCR and PDF → Other (no Batch screen), "C" Batch with each tool's full
+    settings."""
+    v = os.environ.get("PK_BATCH", "A").strip().upper()
+    return v if v in ("A", "B", "C") else "A"
 
 
 # Layout constants (4 px grid)
@@ -185,8 +194,61 @@ def group_title(text: str) -> StrongBodyLabel:
     return lbl
 
 
+def info_button(title: str, text: str, within: QWidget | None = None) -> QWidget:
+    """A circled "i" that shows *text* in a small card just under it, inside the
+    card or row that holds it, until a click elsewhere (owner, 2026-10-31:
+    descriptions as overlay cards, not lines under the name; 2026-11-01: every
+    description).  *within*: the box the card opens inside, when it is not the
+    tool card or setting row around the "i" (a side panel).  set_info(text)
+    changes the text, for a description that follows a choice."""
+    from qfluentwidgets import Flyout, FlyoutAnimationType, FlyoutView
+    from qfluentwidgets import FluentIcon as FIF
+    b = TransparentToolButton(FIF.INFO)
+    b.setFixedSize(INFO_SIZE, INFO_SIZE)
+    b.setIconSize(QSize(16, 16))
+    b.setToolTip(f"About {title}")              # the text itself is the card's
+    b.setAccessibleName(f"About {title}")
+    b.info_text = text
+
+    def set_info(new: str):
+        b.info_text = new
+    b.set_info = set_info
+
+    def show():
+        # What holds it: the floating tool card, else its setting row.
+        def holder(name):
+            w = b.parentWidget()
+            while w is not None and w.objectName() != name:
+                w = w.parentWidget()
+            return w
+        box = holder("toolCard") or within or holder("settingRow") or b.window()
+        width = min(INFO_W, box.width() - 2 * INFO_INSET)
+        view = FlyoutView(title, b.info_text)
+        view.iconWidget.hide()          # no icon: its empty column was a blank band
+        # The library wraps the text by a character count taken from the screen's
+        # width (one long line on a wide screen): the card takes *width* and its
+        # labels wrap inside it.
+        view.contentLabel.setWordWrap(True)
+        view.titleLabel.setWordWrap(True)
+        view.setFixedWidth(width)
+        fl = Flyout(view, b.window(), isDeleteOnClose=True)
+        at = QPoint(box.mapToGlobal(QPoint(INFO_INSET, 0)).x(),
+                    b.mapToGlobal(QPoint(0, b.height() + 2)).y())
+        b.flyout = fl
+        fl.exec(at, FlyoutAnimationType.FADE_IN)
+        fl.move(at - view.mapTo(fl, QPoint(0, 0)))  # the view, not its shadow, at *at*
+    b.clicked.connect(show)
+    return b
+
+
+INFO_SIZE = CONTROL_H   # the "i" beside a name: no control is shorter (owner's rule)
+INFO_W = 280            # its card at most; never wider than what holds the "i"
+INFO_INSET = 8          # the card's edge inside what holds the "i"
+
+
 def setting_row(group: QWidget, title: str, desc: str = "",
-                label_width: int | None = None, path: bool = False) -> QWidget:
+                label_width: int | None = None, path: bool = False,
+                info: bool = True) -> QWidget:
     """Add a Windows 11 settings row to *group* (a card()) and return the
     container for its control: the name and description sit in a fixed-width
     column on the left, the control right-aligned, rows split by thin lines.
@@ -197,7 +259,10 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     label_width: the name column's width (LABEL_COLUMN by default); 0 lets it
     take the room the control leaves, for a narrow column such as a
     CollectionPage's settings.  path: the description is a file path, one
-    line shortened in the middle (ElidedCaption) instead of wrapped.
+    line shortened in the middle (ElidedCaption) instead of wrapped.  info (the
+    default): the description is not shown under the name but by a circled "i"
+    beside it, in a small overlay card (control.info_button).  A path, and the
+    hint of a row without a name, stay lines: they are the row's content.
 
     The control also carries the row's labels and the line above it:
     control.title_label, control.desc_label (None without *desc*) and
@@ -231,9 +296,20 @@ def setting_row(group: QWidget, title: str, desc: str = "",
         # A settings column's row: a long name wraps rather than push the
         # control past the column's edge.
         name.setWordWrap(True)
-    tv.addWidget(name)
-    d = None
-    if desc:
+    d = info_btn = None
+    info = bool(info and desc and title and not path)
+    if info:
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(4)
+        line.addWidget(name)
+        info_btn = info_button(title, desc)
+        line.addWidget(info_btn, 0, Qt.AlignVCenter)
+        line.addStretch(1)
+        tv.addLayout(line)
+    else:
+        tv.addWidget(name)
+    if desc and not info:
         if path:
             d = muted_path(desc, texts)
         else:
@@ -254,6 +330,7 @@ def setting_row(group: QWidget, title: str, desc: str = "",
     lay.addWidget(row)
     group.setProperty("pk_rows", rows + 1)
     control.title_label, control.desc_label, control.divider = name, d, divider
+    control.info_button = info_btn
     return control
 
 
@@ -366,27 +443,56 @@ def icon_button(icon) -> TransparentToolButton:
     return b
 
 
-def labelled_slider(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
-                    width: int = 220, label_width: int = 64, fixed: bool = True):
-    """A horizontal Slider from *lo* to *hi* at *value* and, beside it, a
-    label of fixed *label_width* showing the value and *unit* (s.value_label),
-    both added to *row* (a setting_row's control).  The slider is *width*
-    wide, or at least that wide when not *fixed*."""
-    s = TallSlider(Qt.Horizontal)
-    s.setRange(lo, hi)
-    if fixed:
-        s.setFixedWidth(width)
-    else:
-        s.setMinimumWidth(width)
-    lbl = BodyLabel()
-    lbl.setFixedWidth(label_width)
-    s.valueChanged.connect(lambda v: lbl.setText(f"{v}{unit}"))
-    s.setValue(value)
-    lbl.setText(f"{s.value()}{unit}")
-    s.value_label = lbl
-    row.layout().addWidget(s)
-    row.layout().addWidget(lbl)
-    return s
+CHOOSE_COLOUR = "Choose…"   # one label for the colour button everywhere ("Choose" / "Pick…")
+
+
+EXAMPLES_TEXT = "Examples"
+
+
+def example_chips(examples, on_pick) -> QWidget:
+    """One "Examples" button whose menu fills a field with a worked example: *examples*
+    are (label, value or a function giving it); choosing one calls on_pick(value).
+    For fields with a notation of their own (Split's ranges, Header / Footer's
+    tokens), so the notation is shown by doing, not explained (critique 2026-11-21).
+    One row: a row of buttons wrapped to three in the 200 px card.  pick(label) runs
+    an example as its menu item does; labels() lists them."""
+    from qfluentwidgets import Action, DropDownPushButton, RoundMenu
+    w = QWidget()
+    w.setObjectName("exampleChips")
+    h = QHBoxLayout(w)
+    h.setContentsMargins(0, 4, 0, 0)
+    btn = DropDownPushButton(EXAMPLES_TEXT, w)
+    btn.setFixedHeight(CONTROL_H)
+    menu = RoundMenu(parent=btn)
+    table = dict(examples)
+
+    def pick(label):
+        v = table[label]
+        on_pick(v() if callable(v) else v)
+    for label, _value in examples:
+        a = Action(label)
+        a.triggered.connect(lambda _=False, lb=label: pick(lb))
+        menu.addAction(a)
+    btn.setMenu(menu)
+    h.addWidget(btn)
+    h.addStretch(1)
+    w.button, w.menu, w.pick = btn, menu, pick
+    w.labels = lambda: [lb for lb, _v in examples]
+    return w
+FIELD_W = 160           # an input field on a tool card: text, number, language (owner, 2026-10-31)
+NUMBER_BOX_W = FIELD_W  # every number box one width: "120 pt" and its arrows
+
+
+def number_box(row: QWidget, lo: int, hi: int, value: int, unit: str, *,
+               width: int = NUMBER_BOX_W):
+    """A number typed in (owner, 2026-10-23: Font size and Opacity as boxes, not
+    sliders, so an exact value can be typed): a spin_box from *lo* to *hi* at
+    *value*, *unit* after the number, added to *row* (a setting_row's control)."""
+    sb = spin_box(lo, hi, value, width=width)
+    sb.setFixedWidth(width)
+    sb.setSuffix(unit)
+    row.layout().addWidget(sb)
+    return sb
 
 
 def spin_box(lo: int, hi: int, value: int, width: int = 160):
@@ -411,6 +517,111 @@ def spin_box(lo: int, hi: int, value: int, width: int = 160):
     sb.setValue(value)
     sb.setMinimumWidth(width)
     return sb
+
+
+class LanguagePicker(QWidget):
+    """The OCR language(s) (owner, 2026-10-22: one button reading "Italian + English",
+    opening a ticked list of the languages Tesseract has installed).  text() / setText()
+    carry Tesseract's form, "ita+eng", in the order ticked: the first leads.  At least
+    one stays ticked.  A language saved but not installed stays listed, so a choice
+    made elsewhere is not lost."""
+    changed = Signal(str)
+
+    def __init__(self, value: str = "", width: int = 160, installed=None, parent=None):
+        from qfluentwidgets import CheckableMenu, DropDownPushButton, MenuIndicatorType
+        from ..core import ocr as core_ocr
+        super().__init__(parent)
+        self._installed = list(core_ocr.installed_languages() if installed is None else installed)
+        self._chosen: list[str] = []
+        self._width = width
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.button = DropDownPushButton(self)
+        # As wide as it is given, up to *width*: a stacked row (the 200 px card) sizes
+        # a control by its hint, and the button's own hint is its text, so it shrank to
+        # "Italian" and cut "Italian + English" to "Italian ..." (the live check,
+        # 2026-10-23).  The text is shortened again at each resize.
+        self.button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.button.setMaximumWidth(width)
+        # its value at the left, as every combo box's (critique 2026-11-21: centred)
+        left = "QPushButton{text-align:left;padding-left:11px;}"
+        setCustomStyleSheet(self.button, left, left)
+        lay.addWidget(self.button)
+        self.menu = CheckableMenu(parent=self.button, indicatorType=MenuIndicatorType.CHECK)
+        self.button.setMenu(self.menu)
+        self.setText(value)
+
+    def chosen(self) -> bool:
+        """A language was given or ticked, not only the starting default shown."""
+        return self._chosen_explicitly
+
+    def _order(self) -> list[str]:
+        """The chosen first (in their order), then Windows' language, English, the rest
+        by name."""
+        from ..core import ocr as core_ocr
+        win = core_ocr.windows_language()
+        rest = [c for c in self._installed if c not in self._chosen]
+        rest.sort(key=lambda c: (c != win, c != "eng", core_ocr.lang_name(c)))
+        return self._chosen + rest
+
+    def _rebuild(self):
+        from qfluentwidgets import Action
+        from ..core import ocr as core_ocr
+        self.menu.clear()
+        self.actions_by_code = {}
+        for code in self._order():
+            a = Action(core_ocr.lang_name(code), checkable=True)
+            a.setChecked(code in self._chosen)
+            a.toggled.connect(lambda on, c=code: self._toggle(c, on))
+            self.menu.addAction(a)
+            self.actions_by_code[code] = a
+        self._relabel()
+
+    def _full_label(self) -> str:
+        from ..core import ocr as core_ocr
+        return " + ".join(core_ocr.lang_name(c) for c in self._chosen)
+
+    def _relabel(self):
+        full = self._full_label()
+        fm = self.button.fontMetrics()
+        room = self.button.width() - 44                  # the arrow and the padding
+        self.button.setText(fm.elidedText(full, Qt.ElideRight, max(40, room)))
+        self.button.setToolTip(full)
+
+    def sizeHint(self):
+        return QSize(self._width, self.button.sizeHint().height())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._relabel()
+
+    def _toggle(self, code: str, on: bool):
+        self._chosen_explicitly = True
+        if on and code not in self._chosen:
+            self._chosen.append(code)
+        elif not on and code in self._chosen:
+            if len(self._chosen) == 1:                   # the last one stays
+                QTimer.singleShot(0, self._rebuild)
+                return
+            self._chosen.remove(code)
+        QTimer.singleShot(0, self._rebuild)              # not while the menu emits
+        self.changed.emit(self.text())
+
+    def text(self) -> str:
+        return "+".join(self._chosen)
+
+    def setText(self, value: str):
+        """Tesseract's form ("ita+eng"); "" shows the starting default (core.ocr.default_lang)."""
+        from ..core import ocr as core_ocr
+        codes = [c for c in (value or "").replace(" ", "").split("+") if c]
+        self._chosen_explicitly = bool(codes)
+        if not codes:
+            codes = core_ocr.default_lang(self._installed).split("+")
+        self._chosen = list(dict.fromkeys(codes)) or ["eng"]
+        for c in self._chosen:
+            if c not in self._installed:
+                self._installed.append(c)
+        self._rebuild()
 
 
 def _fmt_size(n: int) -> str:
@@ -591,24 +802,206 @@ def ask_keep_password(*docs) -> OpenPassword | None:
     return None
 
 
-class HeldDoc(DocHolder):
-    """A page that keeps its input's (self.file) document open in
-    self._doc; self._src is the file it was read from."""
+def shared_copy(win, path: str):
+    """A job's own copy of the window's document when *path* is its file
+    (unsaved edits and the open password go with it), else None."""
+    sd = getattr(win, "document", None)
+    if sd is None or not sd.is_open() or not same_path(sd.path, path):
+        return None
+    from ..core.password import carry_open_password
+    copy = fitz.open("pdf", sd.doc.tobytes())
+    carry_open_password(sd.doc, copy)
+    return copy
+
+
+class SharedDocPage(DocHolder):
+    """A page that works on the window's one document (window.document, a
+    core.document.SharedDocument; owner's decision 2026-10-23) instead of a
+    copy of its own: self._doc is that document while the page shows it
+    (borrow), None otherwise.  Closing it here only lets it go: the window
+    opens and closes it.  The page's edits are the document's: _dirty and
+    is_dirty() read it, _push_undo puts a step on its one history (with the
+    page's undo_state(), handed back to restore_step on undo), and setting
+    _dirty after an edit marks it changed.
+
+    Hooks: undo_state() / restore_step(state) for a page's own state on a
+    step; document_replaced() redraws after another tool's edit or an undo
+    (sync_document calls it once per change); document_moved(path) after
+    Save as; recovery_extra() / restore_extra() / drop_marks() for marks a
+    page keeps beside the document (Redact's boxes).
+
+    A page without a window (none of the app's) holds its own document."""
+
+    def _shared(self):
+        w = getattr(self, "window_", None)
+        return getattr(w, "document", None) if w is not None else None
+
+    @property
+    def _doc(self):
+        sd = self._shared()
+        if sd is None:
+            return self.__dict__.get("_own_doc")
+        return sd._doc if self.__dict__.get("_attached") else None
+
+    @_doc.setter
+    def _doc(self, value):
+        sd = self._shared()
+        if sd is None:
+            self.__dict__["_own_doc"] = value
+        elif value is None:
+            self.__dict__["_attached"] = False
+        else:                               # a new content (_replace_doc) for every tool
+            sd._doc = value
+            self.__dict__["_attached"] = True
+
+    def _close_doc(self) -> None:
+        if self._shared() is None:
+            return DocHolder._close_doc(self)
+        self.__dict__["_attached"] = False
+
+    def borrow(self, path: str):
+        """The window's document, made *path* first when it is another file
+        (after the unsaved-edits question); None when it cannot be."""
+        win, sd = self.window_, self._shared()
+        if sd is None:
+            return None
+        if not win.adopt(path, ask=True):
+            return None
+        self.__dict__["_attached"] = True
+        self.__dict__["_seen_edits"] = sd.edits
+        win.note_document_page(self)
+        return sd._doc
+
+    def shows_document(self) -> bool:
+        sd = self._shared()
+        return sd is not None and bool(self.__dict__.get("_attached")) and sd.is_open()
+
+    @property
+    def _dirty(self) -> bool:
+        sd = self._shared()
+        if sd is not None and self.shows_document():
+            return sd.dirty
+        return self.__dict__.get("_dirty_flag", False)
+
+    @_dirty.setter
+    def _dirty(self, value: bool):
+        sd = self._shared()
+        if sd is None or not self.shows_document():
+            self.__dict__["_dirty_flag"] = value
+            return
+        if value:
+            sd.changed(adds=self.__dict__.pop("_adds_pending", False))
+            self.__dict__["_seen_edits"] = sd.edits
+
+    def is_dirty(self) -> bool:
+        """Unsaved: the document's edits, or input typed here not applied yet."""
+        return self.shows_document() and (self._dirty or self.has_pending())
+
+    def has_pending(self) -> bool:
+        """Input typed on this page and not applied to the document yet
+        (Metadata's fields): Save applies it first (commit_edits)."""
+        return False
+
+    def commit_edits(self) -> bool:
+        """Apply the pending input as an edit; False when it cannot be (the
+        page said why)."""
+        return True
+
+    def edit_document(self, label: str, fn, *, adds: bool = False):
+        """Run fn(doc) as one undoable edit of the window's document, with
+        this page's undo_state() on the step; its result."""
+        res = self._shared().edit(label, fn, {"page": self.page_key(), "state": self.undo_state()},
+                                  adds=adds)
+        self.__dict__["_seen_edits"] = self._shared().edits
+        return res
+
+    def is_parked(self) -> bool:
+        return False        # the window holds the document: nothing to reopen
+
+    def park_document(self):
+        """Left: the window keeps the document open, so nothing to close."""
+
+    def page_key(self) -> str:
+        t = getattr(self, "tool", None)
+        return getattr(t, "name", "") or type(self).__name__
+
+    # ── the one history ──
+    def _push_undo(self, label: str | None = None, state=None) -> None:
+        """Before an edit made in place: a step on the window's history, with
+        *state* (else undo_state()) for restore_step."""
+        sd = self._shared()
+        if sd is None:
+            return DocHolder._push_undo(self)
+        sd.begin(label or self.title_label.text(),
+                 {"page": self.page_key(),
+                  "state": self.undo_state() if state is None else state}, pg=self._pg)
+
+    def _pop_undo(self) -> None:
+        """An edit begun with _push_undo failed: the document as it was."""
+        sd = self._shared()
+        if sd is None:
+            return DocHolder._pop_undo(self)
+        sd.abandon()
+
+    def _drop_undo(self) -> None:
+        """An edit begun with _push_undo changed nothing: its step goes."""
+        sd = self._shared()
+        if sd is not None:
+            sd.drop_step()
+
+    def undo(self):
+        """Ctrl+Z: the document's last edit, whichever tool made it (the window's)."""
+        return self.window_.undo() if self.window_ is not None else False
+
+    def undo_state(self):
+        """The page's own state to keep on a history step (none by default)."""
+        return None
+
+    def restore_step(self, state) -> None:
+        """Undo reached a step this page made: *state* is its undo_state() then."""
+
+    def sync_document(self) -> None:
+        """Redraw once when the document changed since this page last showed it."""
+        sd = self._shared()
+        if sd is None or not self.shows_document():
+            return
+        if self.__dict__.get("_seen_edits") != sd.edits:
+            self.__dict__["_seen_edits"] = sd.edits
+            self._pg = max(0, min(self._pg, len(sd.doc) - 1))
+            self.document_replaced()
+
+    def document_replaced(self) -> None:
+        """The document's content changed under the page (another tool, an undo)."""
+
+    def document_moved(self, path: str) -> None:
+        """Save as: the document belongs to *path* now."""
+
+    def drop_marks(self) -> None:
+        """The unsaved edits were discarded: marks held beside them go too."""
+
+
+class HeldDoc(SharedDocPage):
+    """A page that works on its input's (self.file) document: the window's
+    (SharedDocPage); self._src is the file it belongs to."""
     _src: str = ""
 
     def open_held(self, path: str, title: str | None = None):
-        """Open *path* as the held document and close the one before (the
-        page's subtitle names it: refresh_document).  When it cannot be opened
-        the document already open stays and the input goes back to its file.
-        The new document, or None.  *title* is not used any more."""
-        doc = self.window_.open_pdf_safe(path)
+        """Show *path* as the held document (the page's subtitle names it:
+        refresh_document).  When it cannot be opened the document shown
+        stays and the input goes back to its file.  The document, or None.
+        *title* is not used any more."""
+        doc = self.borrow(path)
         if doc is None:
             self.file.set_path(self._src if self._doc is not None else "", notify=False)
             return None
-        self._close_doc()
-        self._doc, self._src = doc, path
-        self._dirty = False
+        self._src = str(path)
         return doc
+
+    def document_moved(self, path: str) -> None:
+        if self._src:
+            self._src = str(path)
+            if isinstance(getattr(self, "file", None), DocInput):
+                self.file.set_path(path, notify=False)
 
     def release_held(self, title: str | None = None, subtitle: str = ""):
         """Close the held document and empty the input (*title* and
@@ -622,144 +1015,62 @@ class HeldDoc(DocHolder):
         """Whether *out* is a file other than the one the document came from."""
         return not same_path(out, self._src)
 
-    def park_document(self):
-        """The page is left: a document with no unsaved edits is closed, so
-        its file is free for other tools to overwrite; the input keeps the
-        path and the page reopens it when shown (MainWindow._follow)."""
-        if self._doc is not None and not self.is_dirty():
-            self._close_doc()
-
-    def is_parked(self) -> bool:
-        return self._doc is None and bool(self.file.path())
-
-    # ── crash recovery: the edits are the page's own, the file is unchanged ──
-    def recovery_state(self) -> dict | None:
-        """The unsaved edits as JSON-able data (None: nothing to recover)."""
-        return None
-
-    def apply_recovery(self, state: dict) -> bool:
-        """Put the edits *state* back on the file just opened; whether it fits."""
-        return False
-
-    def recovery_token(self):
-        state = self.recovery_state() if self.is_dirty() else None
-        return None if state is None else json.dumps(state, sort_keys=True)
-
-    def recovery_snapshot(self):
-        return self.recovery_state(), None
-
-    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
-        """Open the file again and put the edits back on it."""
-        if not os.path.isfile(path) or not self.load_document(path) or self._doc is None:
-            return False
-        try:
-            return bool(self.apply_recovery(state))
-        except (KeyError, TypeError, ValueError):
-            return False
+    def document_replaced(self) -> None:
+        """Another tool's edit or an undo: the page shows the document again
+        (a page of thumbnails renders them anew)."""
+        load = getattr(self, "load", None)
+        if callable(load) and self._src:
+            load(self._src)
 
 
-class WorkspaceDoc(DocHolder):
-    """The document a WorkspacePage edits, held in self._doc."""
+class WorkspaceDoc(SharedDocPage):
+    """The document a WorkspacePage edits: the window's (SharedDocPage)."""
 
     _src_path: str = ""
 
     def open_document(self, path: str, title: str = ""):
-        """Open *path* in place of the document shown, at page 1 with no undo
-        history and no unsaved edits; it becomes the current document.  The
-        new document, or None (the old one stays) when it cannot be opened.
-        *title* is not used any more (the subtitle names the file).  A
-        recovered copy (restore_recovery) is opened in place of the file."""
-        doc = self.__dict__.pop("_incoming_doc", None) or self.window_.open_pdf_safe(path)
+        """Show *path* (made the window's document first when it is another
+        file), at page 1; it becomes the current document.  The document, or
+        None (the one shown stays) when it cannot be opened.  *title* is not
+        used any more (the subtitle names the file)."""
+        doc = self.borrow(path)
         if doc is None:
             return None
-        self._close_doc()
-        self._doc, self._pg, self._undo_stack = doc, 0, []
-        self._src_path, self._dirty = str(path), False
-        self._pages_changed = self._pages_cut = False
+        self._pg = 0
+        self._src_path = str(path)
         self.refresh_document(announce=True)
         return doc
 
     def save(self, after=None):
-        """Ctrl+S: save the document to a file the user chooses (save_name
-        offered); the box says "<saved_what> saved".  after(): run once it
-        is saved (the unsaved-edits question's Save)."""
-        if self._doc is None:
-            return dialogs.warning("Save", "Open a PDF first.")
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        kept = ask_keep_password(self._doc)
-        win = self.window_
+        """Save (Ctrl+S, the page's Save): the window's Save, over the file."""
+        return self.window_.save(after)
 
-        def done(kind, _value):
-            # A save over the open file goes on from an in-memory copy of it.
-            self.show_current()
-            if kind == "done":
-                self._dirty = False
-                win.set_status(f"✓  Saved → {Path(out).name}", "success")
-                dialogs.info("Saved", f"{self.saved_what} saved:\n{out}")
-                if not same_path(out, self._src_path):
-                    self.offer_output(out)
-                if callable(after):
-                    after()
+    def document_moved(self, path: str) -> None:
+        if self._src_path:
+            self._src_path = str(path)
+            self.refresh_document()
 
-        appends = self.appends_only()
-        # garbage=1: a whole file drops what the edits left unused (a deleted
-        # note, a replaced content stream), so its old text does not stay in it.
-        win.run_job(lambda stop: self._save_doc(out, incremental=appends, garbage=1, deflate=True),
-                    f"Saving {Path(out).name}…",
-                    lock=True, then=done, cancellable=False, keep_password=(kept, [out]))
+    def document_replaced(self) -> None:
+        self._strip_doc = None
+        self.on_page()
+        self.show_current()
 
-    def appends_only(self) -> bool:
-        """Whether the edits since the file was opened only add to it, so a
-        save over it may append them (owner's choice 2026-10-12): none of
-        the editors that replace or remove content does."""
-        return False
+    def restore_step(self, state) -> None:
+        """A page change undone: the tool's page-bound state as it was."""
+        if isinstance(state, tuple) and len(state) == 2 and state[0] == "pages":
+            self.restore_page_state(state[1])
 
-    # ── crash recovery: the edits are in the document itself ──
+    def undo(self):
+        """Ctrl+Z, the rail's Undo: the document's last edit (the window's)."""
+        return self.window_.undo()
+
+    # ── marks beside the document (crash recovery copies them with it) ──
     def recovery_extra(self) -> dict:
         """Unsaved state beyond the document (a page's own, e.g. Redact's boxes)."""
         return {}
 
     def restore_extra(self, state: dict) -> None:
         """Put back what recovery_extra() returned."""
-
-    def recovery_token(self):
-        if not self.is_dirty():
-            return None
-        return self._edits, json.dumps(self.recovery_extra(), sort_keys=True)
-
-    def recovery_snapshot(self):
-        """The document as it is, under its open password when it has one,
-        so a protected file is not left readable in the recovery folder."""
-        kept = open_password_of(self._doc)
-        if kept is None:
-            data = self._doc.tobytes()
-        else:
-            data = self._doc.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256,
-                                     user_pw=kept.user_pw, owner_pw=kept.user_pw)
-        return {"page": self._pg, **self.recovery_extra()}, data
-
-    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
-        if pdf is None:
-            return False
-        doc = self.window_.open_pdf_data(pdf, Path(path).name)
-        if doc is None:
-            return False
-        self._incoming_doc = doc
-        self.open_path(path)        # the page's own open, on the recovered copy
-        if self._doc is not doc:
-            self.__dict__.pop("_incoming_doc", None)
-            doc.close()
-            return False
-        pg = state.get("page", 0)
-        if isinstance(pg, int) and 0 < pg < len(doc):
-            self._pg = pg
-            self.on_page()
-        self.restore_extra(state)
-        self._dirty = True
-        self.show_current()
-        return True
 
 
 class Refusal(Exception):
@@ -911,8 +1222,6 @@ class ToolPage(QWidget):
             f.clear()
         self.refresh_document()
 
-    _edits = 0      # counts each edit (each time _dirty is set): crash recovery's cue
-
     @property
     def _dirty(self) -> bool:
         return self.__dict__.get("_dirty_flag", False)
@@ -920,25 +1229,10 @@ class ToolPage(QWidget):
     @_dirty.setter
     def _dirty(self, value: bool):
         self.__dict__["_dirty_flag"] = value
-        if value:
-            self._edits += 1
 
     def is_dirty(self) -> bool:
-        """Edits since the last save or open (the editing screens)."""
-        return False
-
-    # ── crash recovery (MainWindow keeps a copy of the unsaved edits) ──
-    def recovery_token(self):
-        """Something equal as long as the unsaved edits are the same; None:
-        this page has nothing to recover."""
-        return None
-
-    def recovery_snapshot(self) -> tuple[dict, bytes | None]:
-        """The unsaved edits: (state, the edited PDF or None)."""
-        raise NotImplementedError
-
-    def restore_recovery(self, path: str, state: dict, pdf: bytes | None) -> bool:
-        """Show the edits recovered for *path* as unsaved; whether it could."""
+        """Edits since the last save or open (the editing screens: the
+        window's document, SharedDocPage)."""
         return False
 
     def park_document(self):
@@ -969,7 +1263,8 @@ class ToolPage(QWidget):
 
     def _show_target(self, empty: bool):
         if self.drop_target is not None:
-            self.drop_target.setVisible(empty)
+            fm = self.__dict__.get("_folder_mode")
+            self.drop_target.setVisible(empty and not (fm is not None and fm.on))
 
     def showEvent(self, e):
         super().showEvent(e)
@@ -1043,14 +1338,15 @@ class ToolPage(QWidget):
             self.window_.open_document(out)
 
     def start_over(self):
-        """This tool and the current document are cleared."""
+        """This tool and the current document are cleared (after the
+        unsaved-edits question)."""
         win = self.window_
-        if win is not None and not win.settle_unsaved(self, self.start_over):
+        if win is not None:
+            if win.clear_current_document():
+                self.dismiss_offer()
             return
         self.dismiss_offer()
         self.clear_document()
-        if win is not None:
-            win.set_current_document(None)
 
     def leave_offer(self):
         """The page is left with the question open: as Continue with it."""
@@ -1126,7 +1422,7 @@ class ToolPage(QWidget):
     def run_on_file(self, title: str, work, label, report, *, src: str | None = None,
                     save: tuple | None = None, prepare=None, open_doc=None, ended=None,
                     cancellable: bool = True, warning_box: bool = False,
-                    parts: bool = False):
+                    parts: bool = False, in_place: str | None = None, applied=None):
         """Run *work* on the chosen file: the file card's (or *src*, already
         checked), opened, prepare(doc), the output asked for, then
         work(doc, out, stop, progress) in a job (it closes doc) and, when the
@@ -1137,7 +1433,8 @@ class ToolPage(QWidget):
         save: (default name, extension, filters) asks for a file; None asks
         for a folder.  label: the job's label, or a callable giving it after
         prepare.  prepare(doc): a ValueError's message is shown as an error,
-        a Refusal's as a warning; either closes doc and stops.  open_doc(src)
+        a Refusal's as a warning; either closes doc and stops, as does a
+        return of False (prepare has said why, or asked and been told no).  open_doc(src)
         -> doc | None replaces window.open_pdf_safe.  ended(kind) runs however
         the job ended, before report.
 
@@ -1147,6 +1444,14 @@ class ToolPage(QWidget):
         ".pdf") puts the after-job question up (offer_output); a folder of
         outputs asks nothing.
 
+        in_place (owner's sort, 2026-10-23: the tools applied with OK): the
+        edit's label.  The file is made the window's document first (after
+        the unsaved-edits question), the work writes a temporary file, and
+        that takes the document's place as one undoable edit: no save
+        dialog, no after-job question, *report* is not used.  applied(result)
+        -> (role, status, box text or None, take it) says how it went; take
+        it False leaves the document as it was (Compress: no smaller).
+
         The job, or None when none was started (no file, a refusal, a
         cancelled save dialog, another job running)."""
         if src is None:
@@ -1154,12 +1459,20 @@ class ToolPage(QWidget):
             if not src:
                 return None
         win = self.window_
-        doc = open_doc(src) if open_doc is not None else win.open_pdf_safe(src)
+        if in_place and not win.adopt(src, ask=True):
+            return None
+        if open_doc is not None:
+            doc = open_doc(src)
+        else:
+            doc = shared_copy(win, src) or win.open_pdf_safe(src)
         if doc is None:
             return None
         if prepare is not None:
             try:
-                prepare(doc)
+                go_on = prepare(doc)
+                if go_on is False:          # prepare said why (or the user said no)
+                    doc.close()
+                    return None
             except Refusal as e:
                 doc.close()
                 dialogs.warning(title, str(e))
@@ -1168,17 +1481,31 @@ class ToolPage(QWidget):
                 doc.close()
                 dialogs.error(title, str(e))
                 return None
-        out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
-        if not out:
-            doc.close()
-            return None
-        pdf_out = parts or (save is not None and save[1].lower() == ".pdf")
-        kept = ask_keep_password(doc) if pdf_out else None
+        if in_place:
+            import tempfile
+            tmp_dir = tempfile.mkdtemp(prefix="pk-apply-")
+            out = os.path.join(tmp_dir, "applied.pdf")
+            kept = None                 # the document keeps its own password
+        else:
+            out = dialogs.ask_save(*save) if save is not None else dialogs.ask_dir()
+            if not out:
+                doc.close()
+                return None
+            pdf_out = parts or (save is not None and save[1].lower() == ".pdf")
+            kept = ask_keep_password(doc) if pdf_out else None
         progress = win.progress_callback()
 
         def then(kind, result):
             if ended is not None:
                 ended(kind)
+            if in_place:
+                try:
+                    if kind == "done":
+                        self._take_output(out, in_place, result, applied, title, warning_box)
+                finally:
+                    import shutil
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                return
             if kind != "done":
                 return
             role, status, box_title, text = report(result, out)
@@ -1194,7 +1521,30 @@ class ToolPage(QWidget):
                           keep_password=(kept, out if parts else [out]))
         if job is None:
             doc.close()
+            if in_place:
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         return job
+
+    def _take_output(self, out: str, label: str, result, applied, title: str,
+                     warning_box: bool):
+        """An in-place run ended: its output becomes the document's content
+        (the open password goes with it) as one undoable edit."""
+        win = self.window_
+        role, status, box, take = (applied(result) if applied is not None else
+                                   ("success", f"✓  {label} applied · Save writes it to the file",
+                                    None, True))
+        if take:
+            sd = win.document
+            with open(out, "rb") as f:
+                new = fitz.open("pdf", f.read())
+            from ..core.password import carry_open_password
+            carry_open_password(sd.doc, new)
+            key = getattr(getattr(self, "tool", None), "name", "") or type(self).__name__
+            sd.replace(new, label, {"page": key})
+        win.set_status(status, role)
+        if box:
+            (dialogs.warning if warning_box and role == "warning" else dialogs.info)(title, box)
 
     # ── shell hooks ──
     def open(self):
@@ -1209,7 +1559,11 @@ class ToolPage(QWidget):
     def accept_drop(self, path: str) -> bool:
         """A dropped PDF becomes the current document (a single-input page,
         through the window: unsaved edits are asked about), else the first
-        visible file card that takes it gets it."""
+        visible file card that takes it gets it.  With a folder input
+        (prototype B, folder_mode), a dropped folder becomes its input."""
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.accept_drop(path):
+            return True
         f = getattr(self, "file", None)
         if isinstance(f, DocInput):
             if not f.accepts(path):
@@ -1290,16 +1644,6 @@ def _rearrange(doc, order) -> None:
     organise.rearrange(doc, list(order))
 
 
-class PagesStep:
-    """A page change on an editor's undo list: the whole document before it,
-    the page shown then, and the tool's own page-bound state (page_state);
-    *after* is what the tool keeps to tell later edits from it (pages_after)."""
-    __slots__ = ("pg", "data", "state", "after")
-
-    def __init__(self, pg: int, data: bytes, state):
-        self.pg, self.data, self.state, self.after = pg, data, state, None
-
-
 class WorkspacePage(ToolPage):
     """Group A, document workspace (Annotate, Redact, Edit Text, Find & Replace,
     Reader): a slim tool rail at the left, the page in the centre (PageView),
@@ -1319,10 +1663,9 @@ class WorkspacePage(ToolPage):
     the panel.  A click goes to the page; Ctrl / Shift click selects several;
     a drag moves them.  add_pages_tool() puts "Pages" in the rail: the panel
     then shows Rotate left / right and Delete for the selection.  A page
-    change goes on the tool's _undo_stack as a PagesStep (whole document);
-    the tool's undo() calls undo_page_change() first, and a tool with state
-    tied to page numbers keeps it in step (page_state, restore_page_state,
-    remap_pages, pages_after)."""
+    change is a step on the window's one history (SharedDocPage), and a
+    tool with state tied to page numbers keeps it in step (page_state,
+    restore_page_state, remap_pages)."""
 
     def __init__(self, title: str, subtitle: str = "", *, tool=None, window=None,
                  view_cls=None, rail: bool = True, page_strip: bool = False):
@@ -1558,20 +1901,26 @@ class WorkspacePage(ToolPage):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(SubtitleLabel(title))
+        # One section-heading style on every card (critique 2026-11-21: 20 px here,
+        # 14 px semibold on the forms' cards).
+        head = StrongBodyLabel(title)
+        head.setObjectName("panelTitle")
+        top.addWidget(head)
+        self.panel_info = None
+        if desc:                    # the description by an "i", as every row's
+            self.panel_info = info_button(title, desc, within=box)
+            top.addWidget(self.panel_info, 0, Qt.AlignVCenter)
         top.addStretch(1)
-        hide = icon_button(theme.glyph_icon(0xE76C, 14))
-        hide.setToolTip("Hide panel")
-        hide.clicked.connect(lambda: self.show_context(False))
-        top.addWidget(hide)
-        self._panel_hide_btn = hide
+        if not self.panel_hosted:
+            hide = icon_button(theme.glyph_icon(0xE76C, 14))
+            hide.setToolTip("Hide panel")
+            hide.clicked.connect(lambda: self.show_context(False))
+            top.addWidget(hide)
+            self._panel_hide_btn = hide
         bv.addLayout(top)
-        if desc:
-            d = muted_caption(desc)
-            d.setWordWrap(True)
-            bv.addWidget(d)
         self.panel_body = QVBoxLayout()
-        self.panel_body.setContentsMargins(0, 8, 0, 0)
+        # hosted on the card: the heading binds to what follows (critique 2026-11-21)
+        self.panel_body.setContentsMargins(0, 4 if self.panel_hosted else 8, 0, 0)
         self.panel_body.setSpacing(4)
         bv.addLayout(self.panel_body)
         self._panel_v.addWidget(box)
@@ -1584,6 +1933,8 @@ class WorkspacePage(ToolPage):
         return _field_row(self.panel_body, label)
 
     def _clamp(self, *_):
+        if self.panel_hosted:
+            return
         w = self.split.sizes()[1]
         if 0 < w < PANEL_MIN:
             self.show_context(False)
@@ -1604,12 +1955,14 @@ class WorkspacePage(ToolPage):
         return True
 
     def context_shown(self) -> bool:
-        return self.split.sizes()[1] > 0
+        return self.panel_hosted or self.split.sizes()[1] > 0
 
     def context_width(self) -> int:
         return self.split.sizes()[1]
 
     def show_context(self, on: bool):
+        if self.panel_hosted:                   # in a host's pane: always shown
+            return
         target = self._panel_w if on else 0
         # One slide at a time: a second call within SLIDE_MS takes over from
         # where the running one is instead of fighting it over setSizes.
@@ -1642,8 +1995,7 @@ class WorkspacePage(ToolPage):
     _strip_doc = None       # the document the strip shows (None: load it again)
     _pages_box = None
     _pages_hide_btn = None
-    _pages_changed = False  # pages moved, turned or deleted since the file was opened
-    _pages_cut = False      # pages deleted since the file was opened (a save writes it whole)
+    panel_hosted = False    # the context panel moved into a host's pane (structure.py)
 
     def _build_strip(self) -> QWidget:
         """The strip and the panel's splitter in one splitter of their own."""
@@ -1827,12 +2179,13 @@ class WorkspacePage(ToolPage):
         bv.setContentsMargins(0, 0, 0, 0)
         bv.setSpacing(4)
         top = QHBoxLayout()
-        top.addWidget(SubtitleLabel(PAGES_TITLE))
+        top.addWidget(StrongBodyLabel(PAGES_TITLE))
         top.addStretch(1)
         self._pages_hide_btn = icon_button(theme.glyph_icon(0xE76C, 14))
         self._pages_hide_btn.setToolTip("Hide panel")
         self._pages_hide_btn.clicked.connect(lambda: self.show_context(False))
         top.addWidget(self._pages_hide_btn)
+        self._pages_hide_btn.setVisible(not self.panel_hosted)   # a hosted panel stays
         bv.addLayout(top)
         d = muted_caption(PAGES_DESC)
         d.setWordWrap(True)
@@ -1894,10 +2247,6 @@ class WorkspacePage(ToolPage):
         """The pages changed: *mapping* old index -> new index (None: deleted);
         *turned* the indices turned (their page space changed)."""
 
-    def pages_after(self):
-        """Kept on the page change's step after remap_pages (PagesStep.after)."""
-        return None
-
     def rotate_pages(self, deg: int):
         rows = self.thumbs.selected_rows() if self.thumbs is not None else []
         if not rows or getattr(self, "_doc", None) is None:
@@ -1935,31 +2284,32 @@ class WorkspacePage(ToolPage):
 
     def _page_change(self, apply, mapping: dict, *, turned=(), cut: bool = False):
         """apply(doc) changes the open document's pages in place; on the
-        tool's undo list goes the whole document as it was (PagesStep)."""
+        window's history goes the whole document as it was."""
         doc = self._doc
         turned = set(turned)
         icons = self.thumbs.icons()
         sel = [self.thumbs.item(r).data(Qt.UserRole) for r in self.thumbs.selected_rows()]
-        step = PagesStep(self._pg, doc.tobytes(), self.page_state())
+        # On the window's one history (SharedDocPage) with the tool's
+        # page-bound state, which restore_step hands back on undo.
+        self._push_undo(PAGES_TITLE, ("pages", self.page_state()))
         try:
             apply(doc)
         except Exception as e:
             # Half done: the document as it was.
-            self._replace_doc(fitz.open("pdf", step.data))
+            self._pop_undo()
             self._strip_doc = None
             self.show_current()
             return dialogs.error(PAGES_TITLE, f"The pages could not be changed:\n{e}")
-        self._push_step(step)
         self.remap_pages(mapping, turned)
-        step.after = self.pages_after()
+        # A turn or a move removes nothing: Save may append it; a delete is
+        # written whole (owner's choice 2026-10-12).
+        self._adds_pending = not cut
         new_pg = mapping.get(self._pg)
         if new_pg is None:
             # The page shown was deleted: the next one kept, else the last.
             later = [mapping[k] for k in sorted(mapping) if k > self._pg and mapping[k] is not None]
             new_pg = later[0] if later else len(self._doc) - 1
         self._pg = new_pg
-        self._pages_changed = True
-        self._pages_cut = self._pages_cut or cut
         self._strip_icons = {mapping[k]: ic for k, ic in icons.items()
                              if mapping.get(k) is not None and k not in turned}
         self._strip_reselect = sorted(mapping[k] for k in sel if mapping.get(k) is not None)
@@ -1970,36 +2320,9 @@ class WorkspacePage(ToolPage):
         if self.window_ is not None:
             self.window_.set_status("Pages changed — use Save to write to disk", "success")
 
-    def _push_step(self, step: PagesStep):
-        """Onto the undo list, keeping at most UNDO_DEPTH whole-document copies."""
-        stack = list(getattr(self, "_undo_stack", [])) + [step]
-        copies = [i for i, e in enumerate(stack)
-                  if isinstance(e, PagesStep)
-                  or (isinstance(e, tuple) and len(e) == 2 and isinstance(e[1], bytes))]
-        if len(copies) > UNDO_DEPTH:
-            stack = stack[copies[-UNDO_DEPTH]:]
-        self._undo_stack = stack
-
-    def page_step_on_top(self) -> bool:
-        """The last thing done (to undo first) is a page change."""
-        stack = getattr(self, "_undo_stack", None)
-        return bool(stack) and isinstance(stack[-1], PagesStep)
-
     def undo_page_change(self) -> bool:
-        """Undo the last page change when it is the last thing done; whether it was."""
-        if getattr(self, "_doc", None) is None or not self.page_step_on_top():
-            return False
-        step = self._undo_stack.pop()
-        self._pg = step.pg
-        self._replace_doc(fitz.open("pdf", step.data))
-        self.restore_page_state(step.state)
-        self._strip_doc = None
-        self._dirty = True
-        self.on_page()
-        self.show_current()
-        if self.window_ is not None:
-            self.window_.set_status("Undo applied", "success")
-        return True
+        """Kept for the tools' undo: page changes are on the window's history now."""
+        return False
 
     # ── document ──
     _src_path = ""
@@ -2217,9 +2540,16 @@ class CollectionRow(QWidget):
         h.addLayout(texts, 1)
         self.note = muted_caption("")
         self.note.hide()
-        h.addWidget(self.note, 0, Qt.AlignVCenter)
-        if extra is not None:
-            h.addWidget(extra, 0, Qt.AlignVCenter)
+        if getattr(page, "rows_stacked", False):
+            # a narrow column (structure prototype, PK_DETAILS=right): the note and
+            # the control under the name
+            texts.addWidget(self.note)
+            if extra is not None:
+                texts.addWidget(extra, 0, Qt.AlignLeft)
+        else:
+            h.addWidget(self.note, 0, Qt.AlignVCenter)
+            if extra is not None:
+                h.addWidget(extra, 0, Qt.AlignVCenter)
         self.set_selected(False)
 
     def set_number(self, n: int):
@@ -2453,7 +2783,9 @@ class CollectionPage(ToolPage):
         return super().accept_drop(path)        # a file card in the settings
 
 
-THUMB_BOX = (120, 150)      # organiser: the largest thumbnail, in px
+THUMB_BOX = (120, 150)      # organiser: the thumbnail box in a narrow pane, in px
+THUMB_MAX = (160, 200)      # ... in a wide one (pages render about 167 px wide at 0.28)
+FIT_CELL = 180              # a column's width when fitting thumbnails to the pane
 THUMBS_PER_TICK = 4         # thumbnails rendered per event-loop turn
 PART_ROLE = Qt.UserRole + 1     # an item's part number (1-based), 0 for none, None: no parts shown
 CUT_ROLE = Qt.UserRole + 2      # True: the grid is cut after this item
@@ -2527,8 +2859,13 @@ def _thumb_delegate(thumb_box=THUMB_BOX):
                 veil = theme.color("page_bg")
                 veil.setAlpha(170)
                 p.fillRect(img, veil)
+            label = str(index.data(Qt.DisplayRole) or "")
+            if part:
+                # the part named on its pages: its tint alone read as a selection
+                # (critique 2026-11-21)
+                label = f"{label} · Part {part}"
             p.drawText(QRect(r.x(), box.bottom() + 6, r.width(), 20),
-                       Qt.AlignHCenter | Qt.AlignTop, str(index.data(Qt.DisplayRole) or ""))
+                       Qt.AlignHCenter | Qt.AlignTop, label)
             if index.data(CUT_ROLE):
                 # The cut: a bar in the gap after the page, the height of the box.
                 o = option.rect
@@ -2713,8 +3050,9 @@ class OrganiserPage(ToolPage):
         bar = QWidget()
         bar.setObjectName("contextBar")
         # As tall with or without its buttons: the grid starts at the same
-        # place on every organiser screen (Compress shows no actions).
+        # place on every organiser screen.
         bar.setMinimumHeight(CONTROL_H)
+        self.context_bar_widget = bar
         self.context_bar = QHBoxLayout(bar)
         self.context_bar.setContentsMargins(0, 0, 0, 0)
         self.context_bar.setSpacing(4)
@@ -2727,6 +3065,7 @@ class OrganiserPage(ToolPage):
 
         cols = QHBoxLayout()
         cols.setSpacing(16)
+        self.columns = cols
         self.grid_card = plain_card()
         gv = QVBoxLayout(self.grid_card)
         gv.setContentsMargins(8, 8, 8, 8)
@@ -2734,7 +3073,8 @@ class OrganiserPage(ToolPage):
         g = QListWidget(self.grid_card)
         g.setObjectName("thumbGrid")
         g.setStyleSheet("QListWidget#thumbGrid { background: transparent; border: none; }")
-        self._delegate = _thumb_delegate()       # Qt does not own a Python delegate
+        self._box = list(THUMB_BOX)              # follows the pane (_fit_thumbs)
+        self._delegate = _thumb_delegate(self._box)  # Qt does not own a Python delegate
         g.setItemDelegate(self._delegate)
         g.setMouseTracking(True)
         g.viewport().setAttribute(Qt.WA_Hover, True)
@@ -2745,6 +3085,8 @@ class OrganiserPage(ToolPage):
         g.setSpacing(8)
         g.setIconSize(QSize(*THUMB_BOX))
         g.setGridSize(QSize(THUMB_BOX[0] + 24, THUMB_BOX[1] + 40))
+        self._fit_grid = g
+        g.installEventFilter(self)
         g.setSelectionMode(QAbstractItemView.ExtendedSelection)
         g.setMovement(QListView.Snap if drag_reorder else QListView.Static)
         g.setDragDropMode(QAbstractItemView.InternalMove if drag_reorder
@@ -2833,8 +3175,9 @@ class OrganiserPage(ToolPage):
         from PySide6.QtGui import QIcon, QPixmap
         img = self._render(key)
         pm = QPixmap.fromImage(img)
-        if pm.width() > THUMB_BOX[0] or pm.height() > THUMB_BOX[1]:
-            pm = pm.scaled(*THUMB_BOX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # kept up to THUMB_MAX: the grid draws it at the size the pane allows
+        if pm.width() > THUMB_MAX[0] or pm.height() > THUMB_MAX[1]:
+            pm = pm.scaled(*THUMB_MAX, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return QIcon(pm)
 
     def _render_some(self):
@@ -2874,7 +3217,27 @@ class OrganiserPage(ToolPage):
             return row - 1
         return None
 
+    def _fit_thumbs(self):
+        """Thumbnails sized to the pane: as many FIT_CELL-wide columns as fit, each
+        page as large as its column allows, from THUMB_BOX up to THUMB_MAX
+        (critique 2026-11-21: 108 px thumbnails left 82-93 % of the pane empty)."""
+        from PySide6.QtCore import QSize
+        vp = self.grid.viewport().width()
+        if vp <= 0:
+            return
+        cols = max(1, vp // FIT_CELL)
+        w = max(THUMB_BOX[0], min(THUMB_MAX[0], vp // cols - 24 - 2 * self.grid.spacing()))
+        box = [w, w * THUMB_MAX[1] // THUMB_MAX[0]]
+        if box == self._box:
+            return
+        self._box[:] = box
+        self.grid.setIconSize(QSize(*box))
+        self.grid.setGridSize(QSize(box[0] + 24, box[1] + 40))
+        self.grid.doItemsLayout()
+
     def eventFilter(self, obj, e):
+        if obj is self.__dict__.get("_fit_grid") and e.type() == QEvent.Resize:
+            self._fit_thumbs()
         if obj is self.__dict__.get("_gap_viewport"):
             t = e.type()
             if t == QEvent.MouseMove:
@@ -2950,6 +3313,9 @@ class OrganiserPage(ToolPage):
 
 
 # ── Tools that act on chosen pages (owner, 2026-10-17) ───────────────────────
+# A tool applied in place: its status ends so (the edit is unsaved, 2026-10-23).
+SAVE_NOTE = " · Save writes it to the file"
+APPLY = "Apply"         # the card's action on a tool that changes the open document (step 5 E)
 ALL_PAGES = "all"
 NO_PAGES = "Select at least one page."
 PICK_HINT = "Click pages to choose them · Ctrl / Shift for several"
@@ -3010,6 +3376,9 @@ class PagePickPage(HeldDoc, OrganiserPage):
         super()._selection_changed()
         if not hasattr(self, "all_btn"):
             return
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.on:
+            return                          # a folder is the input: no page to choose
         n, total = len(self.grid.selectedItems()), self.grid.count()
         if self.page_range is not None and not self._syncing and total:
             from ..pages import ranges_text as _rt
@@ -3376,11 +3745,14 @@ class MasterDetailPage(ToolPage):
         self._detail_box = box
         bv = box.layout()
         bv.setSpacing(4)
-        bv.addWidget(SubtitleLabel(title))
-        if desc:
-            d = muted_caption(desc)
-            d.setWordWrap(True)
-            bv.addWidget(d)
+        top = QHBoxLayout()
+        top.addWidget(StrongBodyLabel(title))
+        self.detail_info = None
+        if desc:                    # the description by an "i", as every row's
+            self.detail_info = info_button(title, desc, within=box)
+            top.addWidget(self.detail_info, 0, Qt.AlignVCenter)
+        top.addStretch(1)
+        bv.addLayout(top)
         self.detail = QVBoxLayout()
         self.detail.setContentsMargins(0, 4, 0, 0)
         self.detail.setSpacing(4)

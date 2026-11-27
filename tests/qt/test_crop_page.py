@@ -2,7 +2,7 @@
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, wait_job
+from qt_harness import make_pdf, pump, save_as, wait_job
 
 
 def _page(window):
@@ -14,13 +14,14 @@ def _page(window):
 def _crop(window, dialogs, src, out, rng="", reset=False, **margins):
     page = _page(window)
     page.file.set_path(str(src))
+    page.unit.setCurrentText("pt")            # these cases are in points (mm is the default)
     for k, edit in page.margins.items():      # the page keeps its fields between runs
         edit.setText(str(margins.get(k, 0)))
     page.page_range.setText(rng)
     page.reset.setChecked(reset)
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     return page
 
 
@@ -73,9 +74,8 @@ def test_each_margin_cuts_its_own_edge(window, dialogs, tmp_path, edge, size, sh
         wa, wb = a[0].get_text("words")[0], b[0].get_text("words")[0]
     assert wb[4] == "Page"
     assert (round(wb[0] - wa[0]), round(wb[1] - wa[1])) == shift
-    assert dialogs.msgs[-1] == ("info", "Done", f"Cropped PDF saved:\n{out}")
-    assert window.status_text() == "✓  Cropped 2 page(s) → out.pdf"
-    assert window.status_role == "success"
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
+    assert window.applied_status == "✓  Cropped 2 page(s) · Save writes it to the file"
 
 
 def test_crop_top_cuts_the_visible_top_of_a_rotated_page(window, dialogs, tmp_path):
@@ -94,7 +94,7 @@ def test_the_page_range_crops_only_the_pages_it_names(window, dialogs, tmp_path)
     out = tmp_path / "out.pdf"
     _crop(window, dialogs, src, out, rng="2, 4-end", top=50)
     assert [h for _, h in _sizes(out)] == [842, 792, 842, 792]
-    assert window.status_text() == "✓  Cropped 2 page(s) → out.pdf"
+    assert window.applied_status == "✓  Cropped 2 page(s) · Save writes it to the file"
 
 
 def test_crop_overlapping_ranges_crop_once(window, dialogs, tmp_path):
@@ -134,9 +134,9 @@ def test_a_page_smaller_than_its_margins_is_skipped_with_a_warning(window, dialo
     out = tmp_path / "out.pdf"
     _crop(window, dialogs, tmp_path / "in.pdf", out, top=60, bottom=60)
     assert _sizes(out) == [(595, 722), (100, 100)]
-    assert window.status_text() == (
-        "⚠  Cropped 1 page(s) · 1 skipped (margins larger than the page) → out.pdf")
-    assert window.status_role == "warning"
+    assert window.applied_status == (
+        "⚠  Cropped 1 page(s) · 1 skipped (margins larger than the page) · Save writes it to "
+        "the file")
 
 
 def test_margins_larger_than_every_page_are_refused_without_saving(window, dialogs, tmp_path):
@@ -153,11 +153,10 @@ def test_margins_larger_than_every_page_are_refused_without_saving(window, dialo
         edit.setText("150")
     page.page_range.setText("")
     page.reset.setChecked(False)
-    dialogs.save(out)
     page.run()
     wait_job(window)
-    assert not out.exists()
-    assert dialogs.saves == [str(out)], "the save dialog was not needed"
+    save_as(window, dialogs, out)
+    assert not out.exists() and not window.document.dirty      # nothing changed
     assert not [m for m in dialogs.msgs if m[0] == "info"]
     assert dialogs.warnings() == [
         ("warning", "Crop", "No page was cropped: the margins are larger than every "
@@ -180,27 +179,33 @@ def test_a_dropped_pdf_fills_the_file_card_and_others_are_refused(window, tmp_pa
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_crop_asks_no_file_name_and_undo_takes_it_back(window, dialogs, tmp_path):
+    # Applied to the document (owner's sort, 2026-10-23).
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    page.unit.setCurrentText("pt")
     page.margins["top"].setText("50")
     held = page._doc
-    page.run()                     # no save path queued: the dialog returns ""
-    assert window._current_job is None and page._doc is held and not held.is_closed
+    page.run()                     # no file name asked (the harness would hand it nothing)
+    wait_job(window)
+    assert round(page._doc[0].rect.height) == 792 and window.document.dirty
+    assert held.is_closed          # the content was replaced: the old one is let go
+    assert window.undo() and round(page._doc[0].rect.height) == 842
+    assert not window.document.dirty
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    page.unit.setCurrentText("pt")
     page.margins["top"].setText("50")
-    held = page._doc
-    out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
-    window.show_page("CompressTool")
+    window.show_page("CompressTool")            # refused while the job holds the view
     wait_job(window)
-    assert held.is_closed and page._doc is None      # left: the file is let go
-    assert [h for _, h in _sizes(out)] == [792, 792, 792]
+    assert window.show_page("CompressTool")
+    # left: the window keeps the one document, cropped (2026-10-23)
+    assert [round(p.rect.height) for p in window.document.doc] == [792, 792, 792]
+    assert not window.document.doc.is_closed
 
 
 # ── the pages on screen (owner, 2026-10-17) ─────────────────────────────────
@@ -234,10 +239,11 @@ def test_the_selection_and_the_range_field_stay_in_step(window, dialogs, tmp_pat
     assert page.page_range.text() == "all"
     out = tmp_path / "out.pdf"
     page.page_range.setText("2, 5")
+    page.unit.setCurrentText("pt")
     page.margins["top"].setText("50")
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     assert [h for _, h in _sizes(out)] == [842, 792, 842, 842, 792]
 
 

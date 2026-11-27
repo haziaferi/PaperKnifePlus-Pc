@@ -9,13 +9,16 @@ from .recent import APPDIR, write_json_atomic
 
 PREFS_PATH = APPDIR / "prefs.json"
 
-DPI_RANGE = (72, 600)     # what Settings accepts for default_dpi
+DPI_RANGE = (72, 600)     # what Settings accepts for ocr_dpi / export_dpi
+OLD_DEFAULT_DPI = 150     # the one "default_dpi" before 2026-10-22, shared by OCR and export
 
 _DEFAULTS: dict = {
     "output_dir":      "",        # default save-as directory (empty = last used)
-    "default_dpi":     150,       # OCR / PDF→image default DPI
+    "ocr_dpi":         200,       # OCR and Batch → OCR (measured best, 2026-10-22)
+    "export_dpi":      200,       # PDF → Other's images and slides (owner, 2026-10-22)
     "compress_level":  "medium",  # light / medium / aggressive
-    "ocr_lang":        "eng",     # Tesseract language code
+    "ocr_lang":        "",        # Tesseract code(s), "ita+eng"; "" = not chosen yet:
+                                  # Windows' display language, else English
     "max_recent":      12,        # max recent-file cards on home screen
     "window_geometry": "",        # last window geometry string (WxH+X+Y)
     "qt_window_geometry": "",     # the Qt window's saveGeometry(), base64
@@ -67,6 +70,15 @@ class Prefs:
         for key, value in stored.items():
             if key in _DEFAULTS and _valid(key, value):
                 self._data[key] = value
+        # The shared "default_dpi" became two keys.  Saved at the old default it was
+        # almost certainly never touched (every save writes every key): the new
+        # defaults apply.  Any other value was chosen: both keys keep it.
+        old = stored.get("default_dpi")
+        if (isinstance(old, int) and not isinstance(old, bool) and old != OLD_DEFAULT_DPI
+                and DPI_RANGE[0] <= old <= DPI_RANGE[1]):
+            for key in ("ocr_dpi", "export_dpi"):
+                if key not in stored:
+                    self._data[key] = old
 
     def save(self):
         """Persist atomically.  Raises OSError if the file cannot be written."""
@@ -90,9 +102,10 @@ class Prefs:
         return self._data.get(key, default)
 
 
-def pref_dpi(lo: int, hi: int) -> int:
-    """The default DPI preference clamped to a tool's own slider range."""
-    return min(hi, max(lo, PREFS.default_dpi))
+def pref_dpi(lo: int, hi: int, key: str) -> int:
+    """The *key* DPI preference ("ocr_dpi" or "export_dpi") clamped to a tool's own
+    slider range."""
+    return min(hi, max(lo, PREFS.get(key, _DEFAULTS[key])))
 
 
 PREFS = Prefs()

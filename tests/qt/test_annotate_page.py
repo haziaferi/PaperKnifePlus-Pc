@@ -1,4 +1,6 @@
 """The Qt Annotate page: the document-workspace pilot."""
+from pathlib import Path
+
 import pymupdf as fitz
 import pytest
 
@@ -64,7 +66,7 @@ def test_panel_follows_the_tool(window, tmp_path):
     page, _ = _open(window, tmp_path)
     page.set_kind("highlight")
     pump(0.05)                             # widgets added to a shown panel show next turn
-    slider = page.opacity_slider
+    slider = page.opacity_box
     assert slider.isVisibleTo(page)
     page.set_kind("note")
     pump(0.05)
@@ -73,7 +75,7 @@ def test_panel_follows_the_tool(window, tmp_path):
     assert not _shown(slider, page), "the highlight's opacity row is still shown for a note"
     page.set_kind("highlight")
     pump(0.05)
-    assert page.opacity_slider.isVisibleTo(page)
+    assert page.opacity_box.isVisibleTo(page)
     assert not _shown(text_edit, page), "the note's text row is still shown for a highlight"
 
 
@@ -109,7 +111,7 @@ def test_save_runs_as_a_job_and_writes_the_annotations(window, dialogs, tmp_path
     _drag(page, (100, 100), (200, 200))
     out = tmp_path / "out.pdf"
     dialogs.save(out)
-    page.save()
+    window.save_as()
     wait_job(window)
     with fitz.open(out) as d:
         pg = d[0]
@@ -120,9 +122,11 @@ def test_save_over_the_open_file(window, dialogs, tmp_path):
     page, src = _open(window, tmp_path)
     page.set_kind("rect")
     _drag(page, (100, 100), (200, 200))
-    dialogs.save(src)
-    page.save()
+    before = Path(src).read_bytes()
+    page.save()                         # the window's Save: over the file, no dialog
     wait_job(window)
+    after = Path(src).read_bytes()
+    assert after.startswith(before)     # a note only adds: appended
     with fitz.open(src) as d:
         pg = d[0]
         assert len(list(pg.annots())) == 1
@@ -159,8 +163,32 @@ def test_context_panel_collapses_below_its_minimum(window, tmp_path):
     assert page.context_width() > 0
 
 
-def test_leaving_the_tool_closes_the_document(window, tmp_path):
+def test_leaving_the_tool_keeps_the_document(window, tmp_path):
     page, _ = _open(window, tmp_path)
     doc = page._doc
     window.show_page("home")
-    assert doc.is_closed and page._doc is None
+    assert not doc.is_closed and window.document.doc is doc
+
+
+@pytest.mark.parametrize("kind", ["highlight", "underline", "strikeout"])
+def test_a_drag_along_a_line_marks_that_line(window, tmp_path, kind):
+    """Dragging straight along a line spans no height: PyMuPDF refused it as "bad
+    quads entry" and the status showed an error (the live walk, 2026-10-22).  The
+    mark keeps the drag's width and takes the line's height; along empty paper a
+    drag adds nothing and says why."""
+    page, _ = _open(window, tmp_path)
+    page.set_kind(kind)
+    pg = page._doc[0]
+    word = pg.search_for("Page 1")[0]
+    y = (word.y0 + word.y1) / 2
+    _drag(page, (60, y), (140, y))
+    annots = list(pg.annots())
+    assert len(annots) == 1, window.status_text()
+    flat = [c for v in annots[0].vertices for c in v]
+    xs, ys = flat[0::2], flat[1::2]
+    assert (min(xs), max(xs)) == (pytest.approx(60, abs=0.5), pytest.approx(140, abs=0.5))
+    assert min(ys) == pytest.approx(word.y0, abs=1) and max(ys) == pytest.approx(word.y1, abs=1)
+    assert "error" not in window.status_text().lower()
+    _drag(page, (300, 600), (400, 600))                    # empty paper: nothing added
+    assert len(list(pg.annots())) == 1
+    assert "No text under the drag" in window.status_text()

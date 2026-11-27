@@ -73,8 +73,12 @@ def test_annotate_failed_add_then_undo_keeps_existing(window, tmp_path):
     # test_content.py::test_annotate_failed_add_then_undo_keeps_existing
     page = _open(window, "AnnotateTool", _annot_pdf(tmp_path / "a.pdf", note=True))
     page.set_kind("highlight")
-    _drag(page, (100, 300), (250, 300))     # zero height: add_highlight_annot fails
-    assert window.status_role == "danger"
+    # A drag along blank paper adds nothing (it used to fail inside add_highlight_annot;
+    # since 2026-10-22 it is refused with a warning): Undo must not take the old note.
+    n = len(list(page._doc[0].annots()))
+    _drag(page, (100, 300), (250, 300))
+    assert window.status_role == "warning"
+    assert len(list(page._doc[0].annots())) == n
     page.undo()
     pg = page._doc[0]
     contents = [a.info["content"] for a in pg.annots()]
@@ -129,10 +133,11 @@ def test_redact_box_drawn_over_the_word_on_a_rotated_page_removes_it(window, dia
     page.set_fill("Black")
     dialogs.asks.append(True)
     dialogs.save(tmp_path / "out.pdf")
-    page.save()
+    page.apply_redactions()             # a new redacted copy (owner, 2026-10-23)
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
-    assert "TOPSECRET" not in page._doc[0].get_text()
+    with fitz.open(tmp_path / "out.pdf") as d:
+        assert "TOPSECRET" not in d[0].get_text()
 
 
 # ── Find & Replace progress (tests/test_content.py) ──────────────────────────
@@ -204,6 +209,8 @@ def tess_off_path(monkeypatch, tmp_path):
     monkeypatch.setattr(pytesseract, "image_to_pdf_or_hocr", only_at_exe(image_to_pdf_or_hocr))
     monkeypatch.setattr(pytesseract, "image_to_string",
                         only_at_exe(lambda img, lang=None, **k: "text"))
+    monkeypatch.setattr(pytesseract, "image_to_osd",
+                        only_at_exe(lambda img, **k: {"rotate": 0, "orientation_conf": 0.0}))
     return exe
 
 
@@ -222,14 +229,11 @@ def test_ocr_finds_tesseract_in_its_default_folder_off_path(window, dialogs, tmp
     assert window.open_tool("OCRTool")
     pump(0.05)
     page = window.current_page()
-    out = tmp_path / "off_path.pdf"
     page.file.set_path(_source_pdf(tmp_path / "s.pdf"))
-    dialogs.save(out)
-    page.run()
+    page.run()                          # a text layer on the document (2026-10-23)
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
-    with fitz.open(out) as doc:
-        assert "Smith" in doc[0].get_text()
+    assert "Smith" in window.document.doc[0].get_text()
 
 
 def test_batch_ocr_finds_tesseract_in_its_default_folder_off_path(window, dialogs, tmp_path,

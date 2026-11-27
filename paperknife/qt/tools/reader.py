@@ -19,13 +19,15 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPen, QPixmap
 from ...core import reader as core_reader
 from .. import bridge
 from ..pageview import GroundView
-from ..pages import ElidedLabel, WorkspacePage, register_page
+from ..pages import ElidedLabel, WorkspacePage, register_page, same_path, shared_copy
 
 TITLE = "Read / Preview"
 SUBTITLE = "Continuous smooth-scroll viewer — view-only"
 ZOOM_DEFAULT = 1.25
 ZOOM_MIN, ZOOM_MAX = 0.5, 3.0
 WORKER_IDLE_S = 2.0      # the render worker ends after this long with nothing to do
+# A file with pictures and no text (owner's wording, 2026-10-22, after PDF X's banner)
+SCAN_TITLE, SCAN_TEXT, SCAN_BUTTON = "Scanned PDF", "No searchable text.", "Run OCR"
 
 
 class ContinuousView(GroundView):
@@ -72,6 +74,8 @@ class ReaderPage(WorkspacePage):
         self._doc_lock = None
         self._path = ""
         self._zoom = ZOOM_DEFAULT
+        self.scan_bar = None                        # the "Scanned PDF" hint, while shown
+        self._hinted: set[str] = set()              # files the hint was shown for
         self._pg = 0
         self._page_rects: list = []
         self._tops: list[int] = []
@@ -96,6 +100,17 @@ class ReaderPage(WorkspacePage):
         self.page_label.setText("—")
 
         self._fill_panel()
+        self.sync_footer()
+
+    def sync_footer(self):
+        """Page arrows, counter and zoom only with a file to page through (critique
+        2026-11-21: "← — →" and "125 %" looked live with nothing open)."""
+        on = bool(self._path)
+        for w in (self.prev_btn, self.page_label, self.next_btn):
+            w.setVisible(on)
+        box = getattr(self, "zoom_box", None)
+        if box is not None:
+            box[0].parentWidget().setVisible(on)
 
     # ── panel ────────────────────────────────────────────────────────────────
     def _fill_panel(self):
@@ -110,24 +125,73 @@ class ReaderPage(WorkspacePage):
         self._load(path)
 
     def _load(self, path: str) -> bool:
-        doc = self.window_.open_pdf_safe(path)
+        """Read *path*: the window's document (made *path* first, after the
+        unsaved-edits question, when it is another file), in a copy of its
+        own for the render thread, so unsaved edits show."""
+        win = self.window_
+        sd = win.document
+        if not win.adopt(path, ask=True):
+            return False
+        doc = shared_copy(win, path)
         if doc is None:
             return False
+        self._seen_edits = sd.edits
         old_doc, old_lock = self._doc, self._doc_lock
         # Sizes are read once here, before the worker can see this document, so
         # layout never walks the Document while a render holds it.
         self._page_rects = [page.rect for page in doc]
         self._gen += 1
+        new_file = path != self._path
         self._doc, self._doc_lock, self._path = doc, threading.Lock(), path
         self._pg = 0
         self.path_label.setText(path)
+        self.sync_footer()
         self.refresh_document(announce=True)
+        if new_file:
+            self._fit_wide_pages()
+            self._hint_scan(core_reader.looks_scanned(doc))
         self._relayout()
         self.view.verticalScrollBar().setValue(0)
         self._update_viewport()
         if old_doc is not None:
             core_reader.close_when_idle(old_doc, old_lock)
         return True
+
+    def _hint_scan(self, scanned: bool):
+        """A closable bar over the pages for a file with no text layer, with a button
+        that opens OCR on it; once per file (closing it, or another file, ends it)."""
+        from qfluentwidgets import InfoBar, InfoBarIcon, InfoBarPosition, PushButton
+        if self.scan_bar is not None:
+            self.scan_bar.close()
+            self.scan_bar = None
+        if not scanned or self._path in self._hinted:
+            return
+        self._hinted.add(self._path)
+        bar = InfoBar(InfoBarIcon.INFORMATION, SCAN_TITLE, SCAN_TEXT, Qt.Horizontal,
+                      isClosable=True, duration=-1, position=InfoBarPosition.NONE, parent=self)
+        bar.setObjectName("scanBar")
+        run = PushButton(SCAN_BUTTON, bar)
+        path = self._path
+        run.clicked.connect(lambda: self.window_.open_tool("OCRTool", path))
+        bar.addWidget(run)
+        bar.run_button = run
+        bar.closedSignal.connect(lambda: setattr(self, "scan_bar", None))
+        self.layout().insertWidget(0, bar, 0, Qt.AlignLeft)
+        self.scan_bar = bar
+
+    def _fit_wide_pages(self):
+        """A new file whose widest page would overflow the view at the current zoom (a
+        landscape page at 125 %) opens fitted to the width; the zoom never grows here."""
+        room = self.view.viewport().width() - 2 * core_reader.GAP - 8
+        widest = max((r.width for r in self._page_rects), default=0)
+        if room < 200 or widest <= 0 or widest * self._zoom <= room:
+            return
+        # A whole percent (rounded down, so it still fits): the slider's own echo of
+        # the new value then finds the zoom already set, and its labels follow.
+        z = max(ZOOM_MIN, int(room / widest * 100) / 100)
+        self._zoom = z
+        self.view.zoom = z
+        self.zoom_slider.setValue(int(round(z * 100)))
 
     def activate(self):
         # Re-entering the tool: reopen the document closed on leaving it, once
@@ -143,6 +207,25 @@ class ReaderPage(WorkspacePage):
         if self._load(self._path):
             self.view.verticalScrollBar().setValue(int(frac * self._total_h))
             QTimer.singleShot(30, self._update_viewport)
+
+    _seen_edits = -1
+
+    def sync_document(self):
+        """The window's document changed (an edit in another tool, an undo):
+        read it again, at the same place."""
+        sd = self.window_.document
+        if (self._doc is None or not sd.is_open() or not same_path(sd.path, self._path)
+                or self._seen_edits == sd.edits):
+            return
+        frac = self._scroll_frac
+        if self._load(self._path):
+            self.view.verticalScrollBar().setValue(int(frac * self._total_h))
+            QTimer.singleShot(30, self._update_viewport)
+
+    def document_moved(self, path: str):
+        """Save as: the document belongs to *path* now."""
+        self._path = str(path)
+        self.path_label.setText(self._path)
 
     def deactivate(self):
         # Keep the path and scroll position for re-entry, but not the file open.
@@ -169,7 +252,9 @@ class ReaderPage(WorkspacePage):
     def clear_document(self):
         self.deactivate()
         self._path, self._scroll_frac = "", 0.0
+        self._hint_scan(False)
         self.path_label.setText("Open a PDF…")
+        self.sync_footer()
         self.refresh_document()
 
     # ── layout: page geometry only, no rendering ─────────────────────────────
@@ -248,7 +333,9 @@ class ReaderPage(WorkspacePage):
                 sc.removeItem(self._items.pop(idx))
         self._scroll_frac = max(0.0, top) / self._total_h if self._total_h else 0.0
         self._pg = first
-        self.page_label.setText(f"{first + 1}–{last + 1} / {len(self._tops)}")
+        # one page in view reads as the editors' counter does, "1 / 4", not "1–1 / 4"
+        shown = f"{first + 1}" if first == last else f"{first + 1}–{last + 1}"
+        self.page_label.setText(f"{shown} / {len(self._tops)}")
 
     def _request_page(self, idx: int):
         key = (idx, self._zoom)

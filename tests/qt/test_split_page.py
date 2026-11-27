@@ -1,7 +1,6 @@
 """The Qt Split page: one PDF cut into files at page ranges, at bookmarks, or at
 cut marks on its pages (owner, 2026-10-17: Split by Bookmarks is Split's
 "Cut at" choice; the pages show as thumbnails with the parts on them)."""
-import os
 
 import pymupdf as fitz
 import pytest
@@ -252,12 +251,13 @@ def test_a_part_over_the_source_name_goes_on_from_its_copy(window, dialogs, tmp_
     assert _texts(tmp_path / "02_Body.pdf") == ["Page 3", "Page 4"]
 
 
-def test_leaving_the_tool_closes_its_document_and_frees_the_file(window, tmp_path):
+def test_leaving_the_tool_keeps_the_document_for_the_next_tool(window, tmp_path):
+    # One document per window (owner, 2026-10-23): the window holds it.
     from paperknife.qt.pages import same_path
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     page = _open(window, src)
     held = page._doc
-    assert window.open_tool("MergeTool")     # (a tool showing the current document would hold it)
-    assert held.is_closed and page._doc is None and same_path(page.file.path(), src)
-    os.replace(make_pdf(tmp_path / "other.pdf", pages=1), src)   # fails while a handle holds it
-    assert _page(window) is page and page._doc is not None and page.order() == [0]
+    assert window.open_tool("MergeTool")
+    assert not held.is_closed and window.document.doc is held
+    assert _page(window) is page and page._doc is held and same_path(page.file.path(), src)
+    assert page.order() == [0, 1]

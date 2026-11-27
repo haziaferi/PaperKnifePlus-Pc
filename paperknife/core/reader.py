@@ -47,6 +47,18 @@ def preload_window(first: int, last: int, count: int, preload: int = PRELOAD):
     return max(0, first - preload), min(count - 1, last + preload)
 
 
+def looks_scanned(doc, sample: int = 5) -> bool:
+    """The first *sample* pages hold no text and at least one holds a picture: a scan
+    with no text layer (search and the text tools find nothing until OCR adds one)."""
+    pictures = False
+    for i in range(min(sample, doc.page_count)):
+        page = doc[i]
+        if page.get_text("text").strip():
+            return False
+        pictures = pictures or bool(page.get_images(full=False))
+    return pictures
+
+
 def rasterise(doc, lock, idx: int, zoom: float):
     """Render page *idx* of *doc* at *zoom* (shrunk to fit the pixel cap),
     holding *lock* so the document is never closed under the render."""

@@ -7,7 +7,8 @@ from qfluentwidgets import BodyLabel, LineEdit, PushButton
 
 from ...core import annotate as core_annotate
 from .. import dialogs, theme
-from ..pages import TallSlider, WorkspaceDoc, WorkspacePage, register_page
+from ..pages import (CHOOSE_COLOUR, NUMBER_BOX_W, WorkspaceDoc, WorkspacePage, register_page,
+                     spin_box)
 
 # Segoe Fluent Icons code points
 GLYPHS = {"highlight": 0xE7E6, "underline": 0xE8DC, "strikeout": 0xEDE0, "rect": 0xE739,
@@ -36,13 +37,11 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.opacity = 60
         self.note_text = "Note"
         self.sel_xref = None
-        self._undo_stack: list = []
         for key, (name, _desc) in TOOLS.items():
             self.add_rail(key, GLYPHS[key], name, lambda _=False, k=key: self.set_kind(k))
         self.add_pages_tool()
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo (Ctrl+Z)", self.undo, toggle=False)
-        self.primary("Save", self.save)
         self.enable_band(lambda: ("line" if self.kind == "line" else "rect",
                                   theme.hex_color("accent")),
                          self._add_at)
@@ -64,20 +63,18 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
             self.swatch.setFixedSize(32, 32)
             self._paint_swatch()
             row.addWidget(self.swatch)
-            pick = PushButton("Choose")
+            pick = PushButton(CHOOSE_COLOUR)
             pick.clicked.connect(self.pick_color)
             row.addWidget(pick)
             row.addStretch(1)
         if self.kind not in ("note", "freetext"):
             row = self.panel_field("Opacity")
-            self.opacity_slider = TallSlider(self.zoom_slider.orientation())
-            self.opacity_slider.setRange(10, 100)
-            self.opacity_slider.setValue(self.opacity)
-            lbl = BodyLabel(f"{self.opacity}%")
-            self.opacity_slider.valueChanged.connect(
-                lambda v: (setattr(self, "opacity", v), lbl.setText(f"{v}%")))
-            row.addWidget(self.opacity_slider, 1)
-            row.addWidget(lbl)
+            self.opacity_box = spin_box(10, 100, self.opacity, width=NUMBER_BOX_W)
+            self.opacity_box.setFixedWidth(NUMBER_BOX_W)
+            self.opacity_box.setSuffix("%")
+            self.opacity_box.valueChanged.connect(lambda v: setattr(self, "opacity", v))
+            row.addWidget(self.opacity_box)
+            row.addStretch(1)
         if self.kind in ("note", "freetext"):
             row = self.panel_field("Text")
             self.text_edit = LineEdit()
@@ -106,17 +103,9 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
     def open_path(self, path: str):
         if self.open_document(path, "Annotate") is None:
             return
-        self.sel_xref, self._removed = None, False
+        self.sel_xref = None
         self.build_panel()
         self.show_current()
-
-    _removed = False    # an annotation was deleted (Remove, Undo) since the file was opened
-
-    def appends_only(self) -> bool:
-        """Annotations only added: a save over the file appends them; one
-        removed (its text would stay readable in the file), or a page
-        deleted, writes it whole."""
-        return not (self._removed or self._pages_cut)
 
     def on_page(self):
         self.sel_xref = None
@@ -126,7 +115,7 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         self.sel_xref = None
 
     def clear_document(self):
-        self._undo_stack, self.sel_xref = [], None
+        self.sel_xref = None
         super().clear_document()
         self.build_panel()
 
@@ -147,14 +136,25 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         p0 = self.view.scene_to_page(x0, y0)
         p1 = self.view.scene_to_page(cx, cy)
         ann = None
+        self._push_undo(TOOLS[self.kind][0])
         try:
-            ann = core_annotate.add(page, self.kind, (p0.x, p0.y), (p1.x, p1.y), self.color,
-                                    self.opacity / 100.0, self.note_text)
+            ann = core_annotate.add(self._doc[self._pg], self.kind, (p0.x, p0.y), (p1.x, p1.y),
+                                    self.color, self.opacity / 100.0, self.note_text)
         except Exception as ex:
+            self._pop_undo()                # it may have half-added: the page as it was
             self.window_.set_status(f"Annotation error: {ex}", "danger")
-        if ann is not None:
-            self._undo_stack.append((self._pg, ann.xref))
+            self.show_current()
+            return
+        if ann is None:
+            self._drop_undo()               # nothing added: nothing to undo
+            if self.kind in core_annotate.MARKUP_KINDS:
+                self.window_.set_status("No text under the drag: drag across words to mark them.",
+                                        "warning")
+        else:
+            # Only added: a save over the file may append it (owner's choice 2026-10-12).
+            self._adds_pending = True
             self._dirty = True
+            self.strip_refresh([self._pg])
         self.show_current()
 
     def draw_overlay(self, page):
@@ -162,34 +162,17 @@ class AnnotatePage(WorkspaceDoc, WorkspacePage):
         if sel is not None:
             self.view.add_rect(sel.rect, theme.hex_color("danger"), dash=True, pad=3)
 
-    # ── undo / delete / save ─────────────────────────────────────────────────
-    def undo(self):
-        if self._doc is None:
-            return
-        # Annotations added since the last page change come off one by one;
-        # then the page change itself (one Undo for both, owner 2026-10-18).
-        while self._undo_stack and not self.page_step_on_top():
-            pg_num, xref = self._undo_stack.pop()
-            page = self._doc[pg_num]
-            annot = core_annotate.by_xref(page, xref)
-            if annot is not None:
-                page.delete_annot(annot)
-                self._dirty = self._removed = True
-                self.strip_refresh([pg_num])
-                break
-        else:
-            if self.undo_page_change():
-                return
-        self.show_current()
-
+    # ── delete (undo and save are the window's) ──────────────────────────────
     def delete(self):
         if not self.sel_xref or self._doc is None:
             return
         page = self._doc[self._pg]
         annot = core_annotate.by_xref(page, self.sel_xref)
         if annot is not None:
+            self._push_undo("Remove annotation")
             page.delete_annot(annot)
-            self._dirty = self._removed = True
+            self._dirty = True              # removed: the file is written whole
+            self.strip_refresh([self._pg])
         self.sel_xref = None
         self.build_panel()
         self.show_current()

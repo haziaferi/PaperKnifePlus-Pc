@@ -1,22 +1,25 @@
 """Redact — a document workspace (group A).
 
-Drawn boxes and search matches are overlays on the page view until the primary
-action: after the confirmation it burns them in through core.redact (line art
-cut at the box edge, the phrases scrubbed from metadata, bookmarks, attachments,
-notes and fields) and saves with garbage collection, all in one job."""
+Drawn boxes and search matches are marks on the page view, beside the window's
+document.  The primary action, after the confirmation, burns them into a copy
+of the document through core.redact (line art cut at the box edge, the phrases
+scrubbed from metadata, bookmarks, attachments, notes and fields) and writes
+that copy, with garbage collection, to a new file in one job: the document
+open here and its boxes stay as they were (owner, 2026-10-23)."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pymupdf as fitz
+from PySide6.QtWidgets import QSizePolicy
 from qfluentwidgets import BodyLabel, ComboBox, LineEdit, ListWidget, PushButton
 
 from ...core import redact as core_redact
+from ...core.password import carry_open_password
+from ...job_queue import atomic_output
 from .. import dialogs, theme
 from ..pages import (WorkspaceDoc, WorkspacePage, ask_keep_password, muted_caption,
                      register_page, same_path)
-
-PAGES_ONLY_QUESTION = "Save the page changes? No redaction boxes are drawn."
 
 # Segoe Fluent Icons code points
 GLYPHS = {"box": 0xE739, "search": 0xE721, "undo": 0xE7A7}
@@ -25,9 +28,12 @@ TOOLS = {
     "search": ("Find & redact text", "Mark every occurrence of a phrase on every page."),
 }
 SUBTITLE = "Draw rectangles over sensitive content"
+BOX_ROWS = 5            # pending boxes listed before the list scrolls
 WARN_TITLE = "⚠  Redaction is permanent and irreversible once applied."
-WARN_BODY = ("Content under redaction boxes is completely destroyed — "
-             "not merely covered. Always work on a copy.")
+WARN_BODY = "Content under redaction boxes is completely destroyed — not merely covered."
+# The action makes a new file and its name says so (step 5: a new file keeps a verb
+# naming it; critique 2026-11-21: "Apply and save" read as saving this file).
+APPLY_TEXT = "Save redacted copy…"
 
 
 @register_page("RedactTool")
@@ -37,12 +43,14 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
 
     def __init__(self, tool=None, window=None):
         super().__init__("Redact", SUBTITLE, tool=tool, window=window, page_strip=True)
-        self._undo_stack: list = []         # page changes (PagesStep); boxes undo as _pending
         self.kind = "box"
         self.fill = "Black"
         self.search_text = ""
         # (page number, fitz.Rect in unrotated page space, search phrase or None)
         self._pending: list = []
+        # each box's number on the window's counter (SharedDocument.tick): undo
+        # takes back a box or the document's last step, whichever came later
+        self._marked_at: list[int] = []
         # phrase burned out of page content -> match whole words only (drawn boxes)
         self._secrets: dict[str, bool] = {}
         for key, (name, _desc) in TOOLS.items():
@@ -50,7 +58,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self.add_pages_tool()
         self.add_rail_gap()
         self.add_rail("undo", GLYPHS["undo"], "Undo last (Ctrl+Z)", self.undo, toggle=False)
-        self.primary("Apply and save", self.save, danger=True)
+        self.primary(APPLY_TEXT, self.apply_redactions, danger=True)
         self.enable_band(lambda: ("rect", theme.hex_color("danger")), self._add_box,
                          drag_needs_doc=True)
         self.set_kind("box")
@@ -86,12 +94,18 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         self.panel_body.addSpacing(16)
         self.pending_label = BodyLabel()
         self.panel_body.addWidget(self.pending_label)
-        self.box_list = ListWidget()
-        self.box_list.setMinimumHeight(140)
-        self.panel_body.addWidget(self.box_list)
-        rm = PushButton("Remove")
+        # As tall as its boxes, up to BOX_ROWS, and gone while there are none: an empty
+        # list grew to fill the column and pushed the permanence warning out of sight
+        # (owner, 2026-10-22).
+        # Remove above the list (owner, 2026-10-31: it stays put; below the list it
+        # moved up as the list shrank).
+        rm = self.remove_button = PushButton("Remove")
         rm.clicked.connect(self.delete)
         self.panel_body.addWidget(rm)
+        self.panel_body.addSpacing(4)
+        self.box_list = ListWidget()
+        self.box_list.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.panel_body.addWidget(self.box_list)
         self.panel_body.addSpacing(16)
         warn = BodyLabel(WARN_TITLE)
         warn.setWordWrap(True)
@@ -112,64 +126,83 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
     def _refresh_boxes(self):
         n = len(self._pending)
         self.pending_label.setText(f"{n} box{'es' if n != 1 else ''} pending")
-        theme.keep_styled(self.pending_label, lambda w: w.setStyleSheet(
-            f"color: {theme.hex_color('danger')};" if len(self._pending) else ""))
+        # A role, not a style sheet: clearing the sheet for "0 boxes" also dropped the
+        # label's own colour, and it painted near-invisible grey (2026-10-22).
+        theme.label_role(self.pending_label, "danger" if n else "text")
         self.box_list.clear()
         for pg, _r, phrase in self._pending:
             self.box_list.addItem(f"Page {pg + 1} · '{phrase}'" if phrase
                                   else f"Page {pg + 1} · box")
+        rows = min(n, BOX_ROWS)
+        self.box_list.setVisible(n > 0)
+        if rows:
+            row_h = max(self.box_list.sizeHintForRow(0), 24)
+            frame = 2 * self.box_list.frameWidth() + 4
+            self.box_list.setFixedHeight(rows * row_h + frame)
+        self.remove_button.setEnabled(n > 0)
 
     # ── document ─────────────────────────────────────────────────────────────
     def open_path(self, path: str):
         if self.open_document(path, "Redact") is None:
             return
-        self._pending, self._secrets, self._undo_stack = [], {}, []
+        self._drop_boxes()
         self.build_panel()
         self.show_current()
 
     def clear_document(self):
-        self._pending, self._secrets, self._undo_stack = [], {}, []
+        self._drop_boxes()
         super().clear_document()
         self.build_panel()
 
-    def is_dirty(self) -> bool:
-        """Boxes pending, or pages redacted in memory and not saved yet."""
-        return self._doc is not None and (bool(self._pending) or self._dirty)
+    def _drop_boxes(self):
+        self._pending, self._secrets, self._marked_at = [], {}, []
+
+    def _tick(self) -> int:
+        sd = self._shared()
+        return sd.tick() if sd is not None else 0
+
+    def _add_marks(self, boxes):
+        self._pending += boxes
+        self._marked_at += [self._tick() for _ in boxes]
+
+    def unapplied_marks(self) -> int:
+        return len(self._pending)
+
+    def drop_marks(self):
+        self._drop_boxes()
+        self._refresh_boxes()
+        self.show_current()
 
     def recovery_extra(self) -> dict:
+        if not self._pending and not self._secrets:
+            return {}
         return {"boxes": [[pg, list(r), phrase] for pg, r, phrase in self._pending],
                 "secrets": dict(self._secrets)}
 
     def restore_extra(self, state: dict) -> None:
         n = len(self._doc)
-        self._pending = [(pg, fitz.Rect(r), phrase) for pg, r, phrase in state.get("boxes", [])
-                         if isinstance(pg, int) and 0 <= pg < n]
+        boxes = [(pg, fitz.Rect(r), phrase) for pg, r, phrase in state.get("boxes", [])
+                 if isinstance(pg, int) and 0 <= pg < n]
+        self._pending, self._marked_at = [], []
+        self._add_marks(boxes)
         self._secrets = {str(k): bool(v) for k, v in state.get("secrets", {}).items()}
         self.build_panel()
 
     # ── page changes (the page strip): the boxes follow their pages ────────
     def page_state(self):
-        return list(self._pending)
+        return list(self._pending), list(self._marked_at)
 
     def restore_page_state(self, state):
-        self._pending = list(state)
+        self._pending, self._marked_at = list(state[0]), list(state[1])
         self._refresh_boxes()
 
     def remap_pages(self, mapping, turned):
         # A box is kept in the page's unrotated space: a turn leaves it as it is.
-        self._pending = [(mapping[pg], r, phrase) for pg, r, phrase in self._pending
-                         if mapping.get(pg) is not None]
+        kept = [(b, at) for b, at in zip(self._pending, self._marked_at, strict=True)
+                if mapping.get(b[0]) is not None]
+        self._pending = [(mapping[pg], r, phrase) for (pg, r, phrase), _ in kept]
+        self._marked_at = [at for _, at in kept]
         self._refresh_boxes()
-
-    def pages_after(self):
-        return list(self._pending)
-
-    def page_step_on_top(self) -> bool:
-        """A box drawn since the last page change comes off before it."""
-        if not super().page_step_on_top():
-            return False
-        after = self._undo_stack[-1].after or []
-        return not (self._pending and not any(b is self._pending[-1] for b in after))
 
     # ── mouse ────────────────────────────────────────────────────────────────
     def _add_box(self, start, end, click: bool):
@@ -178,7 +211,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         (x0, y0), (cx, cy) = start, end
         r = fitz.Rect(self.view.scene_to_page(x0, y0),
                       self.view.scene_to_page(cx, cy)).normalize()
-        self._pending.append((self._pg, r, None))
+        self._add_marks([(self._pg, r, None)])
         self._refresh_boxes()
         self.show_current()
 
@@ -202,7 +235,7 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
             # A cancelled search marks nothing: half the matches would look like all.
             if kind != "done" or found is None:
                 return
-            self._pending += found
+            self._add_marks(found)
             self._refresh_boxes()
             self.show_current()
             if found:
@@ -219,35 +252,29 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
 
     # ── undo / delete ────────────────────────────────────────────────────────
     def undo(self):
-        if self.undo_page_change():
-            return
-        if self._pending:
+        """The last box drawn or marked, or the document's last edit,
+        whichever came later."""
+        sd = self._shared()
+        if self._pending and (sd is None or self._marked_at[-1] > sd.last_step_seq()):
             self._pending.pop()
+            self._marked_at.pop()
             self._refresh_boxes()
             self.show_current()
+            return True
+        return self.window_.undo()
 
     def delete(self):
         i = self.box_list.currentRow()
         if 0 <= i < len(self._pending):
             del self._pending[i]
+            del self._marked_at[i]
             self._refresh_boxes()
             self.show_current()
 
-    # ── apply and save ───────────────────────────────────────────────────────
-    def save(self, after=None):
+    # ── apply: a new redacted copy ───────────────────────────────────────────
+    def apply_redactions(self):
         if self._doc is None:
             return dialogs.warning("Apply", "Open a PDF first.")
-        if not self._pending and self._pages_changed:
-            # Pages moved, turned or deleted, no box (owner, 2026-10-18): the
-            # page changes are saved, the file written whole.
-            if not dialogs.ask_yes_no("Apply and save", PAGES_ONLY_QUESTION):
-                return
-
-            def saved():
-                self._pages_changed = False
-                if callable(after):
-                    after()
-            return WorkspaceDoc.save(self, saved)
         if not self._pending:
             return dialogs.info("Apply", "No redaction boxes drawn yet.")
         n = len(self._pending)
@@ -259,7 +286,13 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
         if not out:
             return
+        if same_path(out, self._src_path):
+            return dialogs.warning("Apply", "Choose another file: this one is the PDF open here.")
         kept = ask_keep_password(self._doc)
+        # The job's own copy (made here, on the main thread): the document
+        # open here keeps its content and its boxes.
+        copy = fitz.open("pdf", self._doc.tobytes())
+        carry_open_password(self._doc, copy)
         fill = core_redact.FILLS[self.fill]
         pending = list(self._pending)
         pages = len({p[0] for p in pending})
@@ -269,35 +302,27 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
         win = self.window_
 
         def work(stop):
-            core_redact.apply_boxes(self._doc, pending, fill, stop,
-                                    win.progress_callback(), modes, found)
-            if stop.is_set() and len(modes) < pages:
-                return None             # the boxes of the pages not done stay pending
-            # Every page is redacted in memory now, even if Cancel came during the
-            # last one: save, or nothing would ever be able to write them.
-            secrets = dict(self._secrets)
-            core_redact.merge_secrets(secrets, found)
-            removed = core_redact.scrub_secrets(self._doc, secrets)
-            # garbage=4 + no incremental save: the old content streams, Info dict
-            # and XMP stream must not survive as unreferenced objects in the file.
-            self._save_doc(out, deflate=True, garbage=4, clean=True)
-            saved.append(removed)
-            return removed
+            try:
+                core_redact.apply_boxes(copy, pending, fill, stop,
+                                        win.progress_callback(), modes, found)
+                if stop.is_set():
+                    return None         # nothing is written: a part would look like all
+                secrets = dict(self._secrets)
+                core_redact.merge_secrets(secrets, found)
+                removed = core_redact.scrub_secrets(copy, secrets)
+                # garbage=4, written whole: the old content streams, Info dict
+                # and XMP stream must not survive as unreferenced objects.
+                with atomic_output(out) as tmp:
+                    copy.save(tmp, deflate=True, garbage=4, clean=True)
+                saved.append(removed)
+                return removed
+            finally:
+                copy.close()
 
         def then(kind, _value):
-            # Pages done are redacted in memory whatever the outcome.
-            core_redact.merge_secrets(self._secrets, found)
-            self._pending = [p for p in self._pending if p[0] not in modes]
-            if modes:
-                # An undone page change would bring back what was redacted.
-                self._undo_stack = []
-                self.strip_refresh(sorted(modes))
-            self._refresh_boxes()
-            self.show_current()
-            if not saved:
-                self._dirty = self._dirty or bool(modes)    # redacted in memory, not saved
+            if kind != "done" or not saved:
                 return
-            self._dirty = self._pages_changed = False
+            core_redact.merge_secrets(self._secrets, found)
             removed = saved[0]
             whole = [str(p + 1) for p, m in modes.items() if m == "whole"]
             image = [str(p + 1) for p, m in modes.items() if m == "image"]
@@ -315,10 +340,8 @@ class RedactPage(WorkspaceDoc, WorkspacePage):
                     "by an image of itself. Its text can no longer be selected or searched.")
             extra = ("\n\nAlso removed from: " + ", ".join(removed)) if removed else ""
             dialogs.info("Saved", f"Redacted PDF saved:\n{out}{extra}")
-            if not same_path(out, self._src_path):
-                self.offer_output(out)
-            if callable(after):
-                after()
+            self.offer_output(out)
 
-        win.run_job(work, f"Redacting {pages} page(s)…", lock=True, then=then,
-                    keep_password=(kept, [out]))
+        if win.run_job(work, f"Redacting {pages} page(s)…", lock=True, then=then,
+                       keep_password=(kept, [out])) is None:
+            copy.close()

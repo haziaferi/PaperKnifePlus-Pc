@@ -26,14 +26,27 @@ def test_coming_back_after_leaving_shows_the_document_again(window, tmp_path, to
     old = page._doc
     window.show_page("home")
     pump(0.05)
-    assert old.is_closed and page._doc is None
-    assert page.view._page is None, "the page view still shows the closed document"
-    assert page.page_label.text() == "–"
-    page.view.set_zoom(1.5)                  # used to raise AssertionError('page is None')
-    page.show_current()
+    # The window keeps the one document (2026-10-23): back, the page shows it again.
+    assert not old.is_closed and window.document.doc is old
+    page.view.set_zoom(1.5)
     assert window.open_tool(tool)
     pump(0.05)
-    assert page._doc is not None and page._doc is not old
+    assert page._doc is old
     assert page.view._page is not None and page.page_label.text() == "1 / 2"
     assert _names(page, "doc.pdf")
+
+
+@pytest.mark.parametrize("tool", TOOLS)
+def test_a_closed_document_leaves_the_page_empty(window, tmp_path, tool):
+    src = make_pdf(tmp_path / "doc.pdf", pages=2)
+    assert window.open_tool(tool, src)
+    pump(0.1)
+    page = window.current_page()
+    window.show_page("home")
+    assert window.clear_current_document()
+    assert window.open_tool(tool)
+    pump(0.05)
+    assert page._doc is None and page.view._page is None and page.page_label.text() == "–"
+    page.view.set_zoom(1.5)                  # used to raise AssertionError('page is None')
+    page.show_current()
 

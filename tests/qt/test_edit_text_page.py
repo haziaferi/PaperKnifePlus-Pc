@@ -161,7 +161,8 @@ def test_undo_restores_text_and_keeps_image(window, tmp_path):
     assert "Hello world" in pg.get_text() and "Changed" not in pg.get_text()
     px = _pixel(pg, 300, 600)
     assert max(abs(a - b) for a, b in zip(px, BG_RGB, strict=True)) < 10, px
-    assert window.status_label.text() == "✓  Undo applied"
+    assert window.status_label.text() == "✓  Undone: Edit Text"
+    assert not page.is_dirty()                      # back at the file as opened
 
 
 def test_selection_is_forgotten_when_another_file_is_opened(window, tmp_path):
@@ -244,13 +245,13 @@ def test_save_writes_the_edited_text(window, dialogs, tmp_path):
     page.apply_edit()
     out = tmp_path / "out.pdf"
     dialogs.save(out)
-    window.page_hook("save")
+    window.save_as()
     wait_job(window)
     with fitz.open(out) as d:
         text = d[0].get_text()
     assert "Saved edit" in text and "Hello" not in text and "Other block" in text
     assert window.status_label.text() == "✓  Saved → out.pdf"
-    assert ("info", "Saved", f"Edited PDF saved:\n{out}") in dialogs.msgs
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
 
 
 def test_save_over_the_open_input_keeps_the_document(window, dialogs, tmp_path):
@@ -270,7 +271,7 @@ def test_save_over_the_open_input_keeps_the_document(window, dialogs, tmp_path):
 def test_cancelled_save_writes_nothing_and_keeps_the_document(window, dialogs, tmp_path):
     page = _open(window, _edit_pdf(tmp_path / "e.pdf"))
     doc = page._doc
-    page.save()                               # no path queued: the dialog is cancelled
+    window.save_as()                          # no path queued: the dialog is cancelled
     pump(0.1)
     assert window._current_job is None or not window._current_job.is_running
     assert page._doc is doc and not doc.is_closed
@@ -288,20 +289,20 @@ def test_drop_takes_pdfs_only(window, tmp_path):
 
 
 @pytest.mark.parametrize("target", ["home", "AnnotateTool"])
-def test_leaving_the_tool_closes_the_document(window, tmp_path, target):
+def test_leaving_the_tool_keeps_the_document(window, tmp_path, target):
     page = _open(window, _edit_pdf(tmp_path / "e.pdf"))
     doc = page._doc
     if target == "home":
         window.show_page("home")
     else:
         assert window.open_tool(target)
-    assert doc.is_closed and page._doc is None
+    assert not doc.is_closed and window.document.doc is doc
 
 
 # ── reflow (owner, 2026-10-11) ───────────────────────────────────────────────
 def _panel_title(page):
-    from qfluentwidgets import SubtitleLabel
-    return page._panel_box.findChildren(SubtitleLabel)[0].text()
+    from PySide6.QtWidgets import QLabel
+    return page._panel_box.findChild(QLabel, "panelTitle").text()
 
 
 def _para_pdf(path, picture=False):

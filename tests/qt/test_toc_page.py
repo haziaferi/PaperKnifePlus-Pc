@@ -1,6 +1,4 @@
 """The Qt Bookmarks / TOC page: list, edit, reorder and save PDF bookmarks."""
-import os
-
 import pymupdf as fitz
 
 from qt_harness import make_pdf, pump, spy_open, subtitle_with, wait_job
@@ -32,8 +30,9 @@ def _texts(path):
 
 
 def _save(window, dialogs, page, out):
+    """Save as *out* (the window's): the list is applied first."""
     dialogs.save(out)
-    page.save()
+    window.save_as()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
 
@@ -84,8 +83,8 @@ def test_add_and_save_writes_the_bookmark_and_keeps_the_pages(window, dialogs, t
     _save(window, dialogs, page, out)
     assert _toc_of(out) == [[1, "Chapter", 2]]
     assert _texts(out) == ["Page 1", "Page 2", "Page 3"]
-    assert dialogs.msgs[-1] == ("info", "Saved", f"PDF with updated bookmarks:\n{out}")
-    assert window.status_text() == "✓  Saved 1 bookmark(s) → out.pdf"
+    assert not dialogs.msgs                         # Save as: the dialog, no box
+    assert window.status_text() == "✓  Saved → out.pdf"
 
 
 def test_add_without_a_title_uses_new_bookmark_and_goes_below_the_selection(
@@ -165,10 +164,10 @@ def test_save_refuses_a_level_jump(window, dialogs, tmp_path):
     page._add()
     out = tmp_path / "out.pdf"
     dialogs.save(out)
-    page.save()
+    window.save_as()
     assert dialogs.msgs[-1][:2] == ("warning", "Save")
     assert "is level 3 but follows level 0" in dialogs.msgs[-1][2]
-    assert not out.exists()
+    assert not out.exists() and dialogs.saves == [str(out)]   # asked before the dialog
 
 
 def test_saves_over_the_open_input(window, dialogs, tmp_path):
@@ -178,8 +177,9 @@ def test_saves_over_the_open_input(window, dialogs, tmp_path):
     page.title_edit.setText("Chapter")
     page.page_edit.setText("2")
     page._add()
-    _save(window, dialogs, page, src)
-    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
+    page.save()                        # the window's Save: over the file
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
     assert _toc_of(src) == [[1, "Chapter", 2]]
     assert sorted(p.name for p in tmp_path.iterdir()) == ["in.pdf"]
 
@@ -197,9 +197,9 @@ def test_saving_over_an_encrypted_input_keeps_its_password(window, dialogs, tmp_
     page.title_edit.setText("Chapter")
     page.page_edit.setText("2")
     page._add()
-    dialogs.asks.append(True)               # "Keep the password on the new file?"
-    _save(window, dialogs, page, str(src))
-    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
+    page.save()                        # over its own file: the password stays, unasked
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
     with fitz.open(str(src)) as d:
         assert d.needs_pass
         assert d.authenticate("u")
@@ -229,42 +229,33 @@ def test_a_file_that_cannot_be_opened_keeps_the_open_one(window, dialogs, tmp_pa
     assert page.file.path() == src and page.count() == 1
 
 
-def test_cancelling_the_save_dialog_writes_nothing_and_opens_nothing(window, dialogs, tmp_path,
-                                                                     monkeypatch):
+def test_cancelling_save_as_writes_nothing_and_opens_nothing(window, dialogs, tmp_path,
+                                                             monkeypatch):
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=2))
     opened = spy_open(window, monkeypatch)
     page.title_edit.setText("X")
     page.page_edit.setText("1")
     page._add()
-    page.save()                         # no path queued: the dialog returns ""
+    window.save_as()                    # no path queued: the dialog returns ""
     assert opened == [] and window._current_job is None
     assert sorted(p.name for p in tmp_path.iterdir()) == ["in.pdf"]
     assert page._doc is not None and page._toc == [[1, "X", 1]]
 
 
-def test_leaving_the_tool_closes_its_document(window, dialogs, tmp_path, monkeypatch):
+def test_leaving_the_tool_keeps_the_document_and_the_list(window, dialogs, tmp_path,
+                                                          monkeypatch):
+    # One document per window (owner, 2026-10-23): opened once, shown again
+    # with the list as it was left.
     page = _page(window)
     opened = spy_open(window, monkeypatch)
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     page.file.set_path(src)
     held = page._doc
-    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
-    assert held.is_closed and opened == [held]
-    # Since 2026-10-10 (owner) leaving keeps the document: closed and its file
-    # freed, the path (and the list) kept; shown again, the page reopens it.
-    assert page._doc is None and page.file.path() == src
-    assert _page(window) is page and page._doc is not None and len(opened) == 2
-
-
-
-def test_a_file_opened_here_can_be_overwritten_after_leaving(window, dialogs, tmp_path):
-    src = make_pdf(tmp_path / "in.pdf", pages=2)
-    page = _page(window)
-    page.file.set_path(src)
-    held = page._doc
-    window.show_page("MergeTool")      # (a tool showing the current document would hold it)
-    assert held.is_closed
-    other = make_pdf(tmp_path / "other.pdf", pages=1)
-    os.replace(other, src)              # Windows refuses this while a handle is held
-    assert _texts(src) == ["Page 1"]
+    page.title_edit.setText("X")
+    page.page_edit.setText("1")
+    page._add()
+    window.show_page("MergeTool")
+    assert not held.is_closed and opened == [held]
+    assert _page(window) is page and page._doc is held and len(opened) == 1
+    assert page._toc == [[1, "X", 1]] and page.has_pending()

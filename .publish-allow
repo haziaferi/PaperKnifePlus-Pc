@@ -1,0 +1,5 @@
+# Public exceptions for ~/.claude/tools/publish_check.py: by rule and path only, never a value.
+# A made-up home path that tests path shortening in the middle.
+^path\|(history:)?tests/qt/test_layout_rules\.py(:[0-9]+)?\|
+# A third-party author's address in their licence notice.
+^email\|(history:)?THIRD-PARTY-NOTICES\.md(:[0-9]+)?\|

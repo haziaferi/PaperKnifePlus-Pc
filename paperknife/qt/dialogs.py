@@ -23,6 +23,7 @@ from qfluentwidgets import (BodyLabel, MessageBox, MessageBoxBase, PasswordLineE
                             SubtitleLabel)
 
 _last_dir = ""          # the folder of the last file chosen, for the next dialog
+_doc_dir = ""           # the current document's folder, when nothing else is known
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -53,12 +54,21 @@ def _remember(path: str) -> None:
         _last_dir = str(Path(path).parent if not os.path.isdir(path) else Path(path))
 
 
+def note_document(path: str | None) -> None:
+    """The current document changed: its folder is where a dialog starts when no
+    other folder is known (a file opened from Recent files set none, and the first
+    Save as opened in the app's own working folder, 2026-10-22)."""
+    global _doc_dir
+    _doc_dir = str(Path(path).parent) if path else ""
+
+
 def _start_dir(prefer_output: bool) -> str:
     from ..prefs import PREFS
     out = PREFS.get("output_dir", "")
     if prefer_output and out and os.path.isdir(out):
         return out
-    return _last_dir or (out if out and os.path.isdir(out) else "")
+    return (_last_dir or (out if out and os.path.isdir(out) else "")
+            or (_doc_dir if _doc_dir and os.path.isdir(_doc_dir) else ""))
 
 
 # ── Files and folders ─────────────────────────────────────────────────────────
@@ -90,6 +100,17 @@ def ask_save(default_name: str = "output.pdf", ext: str = ".pdf", filters=None) 
         path += ext
     _remember(path)
     return path or ""
+
+
+def ask_print(printer, pages: int) -> bool:
+    """Windows' print dialog for *printer*, pages 1..*pages* offered as its
+    range; whether Print was pressed (the printer then holds the choices)."""
+    from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog
+    dlg = QPrintDialog(printer, _parent())
+    dlg.setMinMax(1, max(1, pages))
+    dlg.setOption(QAbstractPrintDialog.PrintPageRange, True)
+    dlg.setOption(QAbstractPrintDialog.PrintToFile, False)
+    return dlg.exec() == QPrintDialog.Accepted
 
 
 def ask_dir(title: str = "Choose output folder") -> str:

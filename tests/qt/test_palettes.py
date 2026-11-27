@@ -203,7 +203,8 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, div), P.role("divider"), "app divider")
     title = _find(page, "BodyLabel", lambda w: w.text() == "Light")
     _has(img, _rect(win, title), P.role("fluent_text"), "label text")
-    desc = _find(card, "CaptionLabel")
+    # descriptions sit behind an "i" (2026-11-01): a caption still on the page
+    desc = _find(page, "CaptionLabel", lambda w: bool(w.text()))
     _has(img, _rect(win, desc), P.role("muted"), "muted caption")
     prim = next(b for b in page.findChildren(pages.PrimaryPushButton) if getattr(b, "pk_primary", 0))
     _has(img, _rect(win, prim, 4, 4, -4, -4), P.role("accent_fill"), "primary button")
@@ -308,14 +309,8 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     _has(img, _rect(win, sw_.indicator), P.role("on_accent"), "switch knob on")
     sw_.setChecked(False)
 
-    # ── Watermark: slider, line edit focus ──
+    # ── Watermark: line edit focus ──
     page = _open(win, "WatermarkTool")
-    img = _grab(win)
-    slider = _find(page, "Slider")
-    _has(img, _rect(win, slider), P.role("accent_fill"), "slider fill")
-    _has(img, _rect(win, slider), P.role("track"), "slider groove")
-    _has(img, _rect(win, slider.handle), P.routed(((69, 69, 69) if dark else (255, 255, 255)) + (255,),
-                                                  "control"), "slider handle ring")
     win.activateWindow()
     page.text.setFocus()
     pump(0.1)
@@ -346,6 +341,12 @@ def test_every_role_reaches_the_screen(probe, window, tmp_path):
     # With a document (none shows the drop target in the view's place):
     # the ground in the gap above page 1.
     _has(img, _rect(win, page.view, 10, 1, 60, 8), P.role("page_bg"), "page ground")
+    # The zoom slider (the settings' sliders are number boxes since 2026-10-23)
+    slider = _find(page, "Slider")
+    _has(img, _rect(win, slider), P.role("accent_fill"), "slider fill")
+    _has(img, _rect(win, slider), P.role("track"), "slider groove")
+    _has(img, _rect(win, slider.handle), P.routed(((69, 69, 69) if dark else (255, 255, 255)) + (255,),
+                                                  "control"), "slider handle ring")
     page = _open(win, "AnnotateTool")
     img = _grab(win)
     rail_btn = next(w for w in (page.rail.itemAt(i).widget() for i in range(page.rail.count()))

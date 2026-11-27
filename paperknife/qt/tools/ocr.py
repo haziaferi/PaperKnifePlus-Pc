@@ -6,17 +6,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from qfluentwidgets import InfoBar, InfoBarPosition, LineEdit
+from qfluentwidgets import InfoBar, InfoBarPosition
 
 from ...core import ocr as core_ocr
 from ...pages import selected_pages
-from ...prefs import PREFS, pref_dpi
 from .. import bridge
-from ..pages import (PagePickPage, card, group_title, labelled_slider, muted_caption,
-                     radio_rows, register_page)
-
-MODES = [("overlay", "Overlay", "invisible text layer"),
-         ("text", "Text-only PDF", "")]
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, batch_prototype, card, group_title, muted_caption,
+                     register_page)
+from ..tool_options import OCR_MODES as MODES  # noqa: F401
+from ..tool_options import OcrOptions
+TEXT_ONLY_ACTION = "Text-only PDF from OCR"     # a new file: a verb naming it, not Apply
 MISSING_TITLE = "⚠  pytesseract not installed"
 MISSING_TEXT = ("Install it with:  pip install pytesseract\n"
                 "Then install the Tesseract binary from:\n"
@@ -43,36 +42,25 @@ class OCRPage(PagePickPage):
                 if w is not None:
                     w.hide()
         self.settings.addStretch(1)
-        self.run_button = self.primary("Run OCR", self.run)
+        self.run_button = self.primary(APPLY, self.run)
         self.run_button.setEnabled(self.available)
+        if self.available:
+            if batch_prototype() == "B":
+                from ..folder_mode import FolderMode
+                FolderMode(self, self.opts, "ocr", "OCR", self.columns, self.grid_card,
+                           row=self.setting_row, hide=(self.context_bar_widget, self.drop_target,
+                                 self.pages_title, self.pages_card))
 
     def _build_options(self):
         s = self.settings
-        s.addWidget(group_title("Recognition"))
-        group = card(padding=0)
-        s.addWidget(group)
+        o = self.opts = OcrOptions(s, self.setting_row, parent=self)
+        self.lang, self.dpi = o.lang, o.dpi
+        self.mode_group, self.modes = o.mode_group, o.modes
+        self.mode_group.buttonToggled.connect(self._mode_changed)
 
-        row = self.setting_row(group, "Language code",
-                               "e.g.  eng  ·  ita  ·  deu  ·  fra  ·  eng+ita")
-        self.lang = LineEdit()
-        self.lang.setPlaceholderText("eng")
-        self.lang.setText(PREFS.ocr_lang or "eng")
-        self.lang.setFixedWidth(120)
-        row.layout().addWidget(self.lang)
-
-        row = self.setting_row(group, "Render DPI")
-        self.dpi = labelled_slider(row, 72, 400, pref_dpi(72, 400), " DPI", width=120,
-                                   fixed=False)
-        self.dpi_label = self.dpi.value_label
-
-        s.addWidget(group_title("Output mode"))
-        group = card(padding=0)
-        s.addWidget(group)
-        self.mode_group = radio_rows(group, MODES, "overlay", row=self.setting_row, parent=self)
-        self.modes = self.mode_group.buttons
-
-        s.addWidget(group_title("Pages"))
-        pages = card(padding=0)
+        self.pages_title = group_title("Pages")
+        s.addWidget(self.pages_title)
+        pages = self.pages_card = card(padding=0)
         s.addWidget(pages)
         self.setting_row(pages, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
@@ -94,6 +82,13 @@ class OCRPage(PagePickPage):
         if not getattr(self, "available", True) and hasattr(self, "run_button"):
             self.run_button.setEnabled(False)       # without Tesseract, never
 
+    def _mode_changed(self, *_):
+        # Overlay changes the document (Apply); Text-only makes a new file.
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.on:
+            return                                  # a folder: the folder mode names it
+        self.run_button.setText(TEXT_ONLY_ACTION if self.text_only else APPLY)
+
     @property
     def text_only(self) -> bool:
         return self.mode_group.value() == "text"
@@ -105,10 +100,14 @@ class OCRPage(PagePickPage):
     def run(self):
         if not self.available:
             return
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.run():
+            return                          # a folder is the input (prototype B)
         src = self.chosen_file("OCR")
         if not src or self._doc is None:
             return
         lang = self.lang.text().strip() or "eng"
+        core_ocr.remember_lang(lang)                # the next default (owner, 2026-10-22)
         dpi = int(self.dpi.value())
         text_only = self.text_only
         log = self.log
@@ -129,6 +128,16 @@ class OCRPage(PagePickPage):
             return ("success", f"✓  OCR complete — {total} page(s) → {Path(out).name}",
                     "OCR Complete", f"OCR PDF saved:\n{out}\n\nPages processed: {total}")
 
-        self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report, src=src,
-                         save=("ocr_output.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-                         open_doc=self.job_copy)
+        def applied(total):
+            log.setText(f"✓  Done — {total} page(s) processed")
+            return ("success", f"✓  OCR complete — {total} page(s) searchable" + SAVE_NOTE,
+                    None, True)
+
+        if text_only:       # a new file of plain text: the document stays as it is
+            self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", report, src=src,
+                             save=("ocr_text.pdf", ".pdf", [("PDF", "*.pdf")]),
+                             prepare=prepare, open_doc=self.job_copy)
+        else:               # a text layer on the document's pages (owner's sort 2026-10-23)
+            self.run_on_file("OCR", work, f"OCR — {dpi} DPI · lang={lang}", None, src=src,
+                             prepare=prepare, open_doc=self.job_copy, in_place="OCR",
+                             applied=applied)

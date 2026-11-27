@@ -61,8 +61,26 @@ def remove_home(home: str = _HOME) -> None:
     print(f"warning: could not remove the test HOME {home}", file=sys.stderr)
 
 
+_EXIT: dict[str, int] = {}
+
+
 def pytest_sessionfinish(session, exitstatus):
     remove_home()
+    _EXIT["status"] = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    """End the process with pytest's own status once its report is written.
+    Python's shutdown then tears down the QApplication and the Fluent widgets
+    in whatever order the garbage collector picks, and that sometimes crashes
+    after a green run (exit 1 on GitHub's runner, 127 here), turning a passed
+    suite into a failed one. Nothing of the run is lost: every test, fixture
+    teardown and the summary have finished by now."""
+    if "status" in _EXIT:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_EXIT["status"])
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +101,30 @@ def isolated_store(tmp_path_factory, monkeypatch):
     prefs.PREFS._data.clear()
     prefs.PREFS._data.update(saved_prefs)
     recent.RECENT._entries = saved_recent
+
+
+@pytest.fixture(autouse=True)
+def isolated_pk_env():
+    """The PK_* layout switches as they were before each test: a structure window
+    sets PK_BATCH=C for itself (structure.FilesWorkspace), and a later test that
+    builds Batch's default mode must not inherit it."""
+    saved = {k: v for k, v in os.environ.items() if k.startswith("PK_")}
+    yield
+    for k in [k for k in os.environ if k.startswith("PK_")]:
+        if k not in saved:
+            del os.environ[k]
+    os.environ.update(saved)
+
+
+@pytest.fixture(autouse=True)
+def ocr_languages(monkeypatch):
+    """The same OCR languages on every machine: a fixed installed list and no Windows
+    display language (so the first-time default is English); tests change either."""
+    from paperknife.core import ocr
+    langs = {"installed": ["deu", "eng", "fra", "ita"], "windows": ""}
+    monkeypatch.setattr(ocr, "installed_languages", lambda: list(langs["installed"]))
+    monkeypatch.setattr(ocr, "windows_language", lambda: langs["windows"])
+    return langs
 
 
 @pytest.fixture(scope="session")

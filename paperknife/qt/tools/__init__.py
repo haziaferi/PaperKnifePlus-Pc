@@ -8,10 +8,8 @@ from . import watermark  # noqa: F401
 from . import normalise  # noqa: F401
 from . import headerfooter  # noqa: F401
 from . import ocr  # noqa: F401
-from . import pdf2img  # noqa: F401
 from . import extract  # noqa: F401
 from . import pdf2doc  # noqa: F401
-from . import doc2pdf  # noqa: F401
 from . import img2pdf  # noqa: F401
 from . import merge  # noqa: F401
 from . import batch  # noqa: F401
@@ -23,3 +21,4 @@ from . import edit_text  # noqa: F401
 from . import find_replace  # noqa: F401
 from . import redact  # noqa: F401
 from . import reader  # noqa: F401
+from .. import structure  # noqa: F401,E402  (the structure prototypes' hosts)

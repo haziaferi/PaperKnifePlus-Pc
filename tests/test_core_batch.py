@@ -82,6 +82,7 @@ def test_ocr_operation_adds_a_text_layer(tmp_path, monkeypatch):
     monkeypatch.setattr(pytesseract, "image_to_data", lambda img, lang=None, **k: {
         "text": ["", "HELLO"], "conf": [-1, 95], "left": [0, 100], "top": [0, 200],
         "width": [0, 150], "height": [0, 40]})
+    monkeypatch.setattr(core_ocr, "upright_turn", lambda img: 0)
     src = make_pdf(tmp_path / "a.pdf", pages=1)
     res = core.OPS["OCR"](src, str(tmp_path), {"lang": "eng", "dpi": 72}, threading.Event())
     with fitz.open(res) as d:
@@ -125,7 +126,8 @@ def test_each_operation_cancelled_mid_file_returns_none_and_writes_nothing(tmp_p
         finally:
             stop.set()
     monkeypatch.setattr(owner, name, step_then_cancel)
-    monkeypatch.setattr(core_ocr, "ocr_words", lambda img, lang, scale: [])
+    monkeypatch.setattr(core_ocr, "ocr_words", lambda *a, **k: [])
+    monkeypatch.setattr(core_ocr, "upright_turn", lambda img: 0)
     if op == "OCR":
         pytesseract = pytest.importorskip("pytesseract")
         monkeypatch.setattr(pytesseract, "get_tesseract_version", lambda: "5.0")

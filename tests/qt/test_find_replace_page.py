@@ -129,9 +129,9 @@ def test_replace_then_save_writes_the_replacement(window, dialogs, tmp_path):
     assert window.status_text() == "✓  Replaced 1 occurrence(s) · Save to write to disk"
     out = tmp_path / "out.pdf"
     dialogs.save(out)
-    page.save()
+    window.save_as()
     wait_job(window)
-    assert ("info", "Saved", f"PDF saved:\n{out}") in dialogs.msgs
+    assert window.status_text() == "✓  Saved → out.pdf"
     with fitz.open(out) as d:
         text = d[0].get_text()
         assert "dog" in text and "fox" not in text and "quick" in text
@@ -297,7 +297,7 @@ def test_drop_takes_pdfs_only(window, tmp_path):
 
 def test_cancelled_save_dialog_writes_nothing_and_keeps_the_document(window, dialogs, tmp_path):
     page = _open(window, _text_pdf(tmp_path / "in.pdf"))
-    page.save()                                  # no path queued: the dialog is cancelled
+    window.save_as()                             # no path queued: the dialog is cancelled
     assert window._current_job is None
     assert list(tmp_path.glob("*.pdf")) == [tmp_path / "in.pdf"]
     assert page._doc is not None and not page._doc.is_closed
@@ -307,8 +307,7 @@ def test_save_over_the_open_input_keeps_the_document(window, dialogs, tmp_path):
     src = _text_pdf(tmp_path / "in.pdf")
     page = _open(window, src)
     _replace(window, dialogs, page, "fox", "dog")
-    dialogs.save(src)
-    page.save()
+    page.save()                                  # the window's Save: over the file
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     assert page._doc is not None and not page._doc.is_closed and len(page._doc) == 1
@@ -317,14 +316,14 @@ def test_save_over_the_open_input_keeps_the_document(window, dialogs, tmp_path):
 
 
 @pytest.mark.parametrize("how", ["home", "other tool"])
-def test_leaving_the_tool_closes_the_document(window, tmp_path, how):
+def test_leaving_the_tool_keeps_the_document(window, tmp_path, how):
     page = _open(window, _text_pdf(tmp_path / "in.pdf"))
     doc = page._doc
     if how == "home":
         window.show_page("home")
     else:
         window.open_tool("AnnotateTool")
-    assert doc.is_closed and page._doc is None
+    assert not doc.is_closed and window.document.doc is doc
 
 
 # ── reflow (owner, 2026-10-11) ───────────────────────────────────────────────

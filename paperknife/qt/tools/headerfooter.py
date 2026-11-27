@@ -4,7 +4,6 @@ document's pages); the options sit in the column at the right."""
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QPainter, QPen
@@ -14,8 +13,11 @@ from qfluentwidgets import ComboBox, LineEdit
 from ...core import headerfooter as core_hf
 from ...pages import selected_pages
 from .. import dialogs, theme
-from ..pages import (PagePickPage, RadioChoice, card, group_title, muted_caption,
-                     radio_button, register_page)
+from ..pages import (APPLY, SAVE_NOTE, PagePickPage, RadioChoice, card, example_chips,
+                     group_title, number_box, radio_button, register_page)
+
+SIZE_RANGE = (4, 72)        # pt: a header or footer line
+MARGIN_RANGE = (0, 300)     # pt from the page edge
 
 TOKENS = ("Use {page} for page number · {total} for total pages · "
           "{date} for today's date")
@@ -88,6 +90,10 @@ class HeaderFooterPage(PagePickPage):
         row = self.setting_row(group, "Content", TOKENS)
         self.content = _field("Page {page} of {total}", width=170)
         row.layout().addWidget(self.content)
+        self.content_examples = example_chips(
+            [("Page n of N", "Page {page} of {total}"), ("Page n", "{page}"),
+             ("Today's date", "{date}")], self.content.setText)
+        row.parentWidget().layout().addWidget(self.content_examples)
 
         s.addWidget(group_title("Style"))
         group = card(padding=0)
@@ -98,16 +104,16 @@ class HeaderFooterPage(PagePickPage):
         self.font.setCurrentText("Helvetica")
         self.font.setMinimumWidth(140)
         row.layout().addWidget(self.font)
-        row = self.setting_row(group, "Size and margin")
-        self.size = _field("10", width=56)
+        # One field per row (owner, 2026-10-31: one width for a card's fields; two
+        # side by side were squeezed to 96 px).
+        # Number boxes with the unit inside, as Watermark's Font size (critique
+        # 2026-11-21: a text field with "pt" outside it, under the card's scrollbar).
+        row = self.setting_row(group, "Font size")
+        self.size = number_box(row, *SIZE_RANGE, 10, " pt")
         self.size.setAccessibleName("Size")
-        row.layout().addWidget(self.size)
-        row.layout().addWidget(muted_caption("pt"))
-        row.layout().addSpacing(8)
-        self.margin = _field("20", width=56)
+        row = self.setting_row(group, "Margin")
+        self.margin = number_box(row, *MARGIN_RANGE, 20, " pt")
         self.margin.setAccessibleName("Margin")
-        row.layout().addWidget(self.margin)
-        row.layout().addWidget(muted_caption("pt"))
 
         s.addWidget(group_title("Pages"))
         group = card(padding=0)
@@ -115,7 +121,7 @@ class HeaderFooterPage(PagePickPage):
         self.setting_row(group, "Apply to", "or click the pages").layout().addWidget(
             self.make_range_field(width=140))
         s.addStretch(1)
-        self.primary("Apply Header / Footer", self.run)
+        self.primary(APPLY, self.run)
 
     @property
     def pos(self) -> str:
@@ -134,7 +140,7 @@ class HeaderFooterPage(PagePickPage):
             return dialogs.warning("Header/Footer", "Enter content text.")
         pos, font = self.pos, self.font_name
         try:
-            size, margin = core_hf.parse_style(self.size.text(), self.margin.text())
+            size, margin = core_hf.parse_style(str(self.size.value()), str(self.margin.value()))
         except ValueError as e:
             return dialogs.warning("Header/Footer", str(e))
         range_str = self.range_text()
@@ -151,8 +157,7 @@ class HeaderFooterPage(PagePickPage):
                                      today, stop)
 
         self.run_on_file(
-            "Header/Footer", work, lambda: f"Stamping {len(pages)} page(s)…",
-            lambda _r, out: ("success", f"✓  Stamped {len(pages)} page(s) → {Path(out).name}",
-                             "Done", f"PDF with header/footer saved:\n{out}"),
-            src=src, save=("stamped.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-            open_doc=self.job_copy)
+            "Header/Footer", work, lambda: f"Stamping {len(pages)} page(s)…", None, src=src,
+            prepare=prepare, open_doc=self.job_copy, in_place="Header / Footer",
+            applied=lambda _r: ("success", f"✓  Stamped {len(pages)} page(s)" + SAVE_NOTE,
+                                None, True))

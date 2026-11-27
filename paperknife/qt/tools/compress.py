@@ -5,27 +5,21 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...core import enhance as core_enhance
-from ...prefs import PREFS
-from ..pages import ToolPage, card, group_title, radio_rows, register_page
-
-LEVELS = [
-    ("light", "Light", "Clean and deflate only. Safe for every file."),
-    ("medium", "Medium", "Also resample images to 150 DPI, JPEG quality 80%."),
-    ("aggressive", "Aggressive", "Also scale images to 96 DPI. Visible quality loss."),
-]
+from ..pages import APPLY, ToolPage, batch_prototype, register_page, setting_row
+from ..tool_options import LEVELS, CompressOptions  # noqa: F401  (LEVELS: Batch's)
 
 
-def size_report(orig: int, new: int, out: str):
-    """(role, status line, dialog title, dialog text) for a finished compression."""
+def size_report(orig: int, new: int):
+    """(role, status line, box text or None, take it) for a finished
+    compression: a result no smaller leaves the document as it was."""
     orig_kb, new_kb = orig // 1024, new // 1024
     if new < orig:
         pct = round((1 - new / orig) * 100)
-        return ("success", f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) → {Path(out).name}",
-                "Compressed", f"Compressed PDF saved:\n{out}\n\n"
-                              f"Original: {orig_kb} KB  →  New: {new_kb} KB  ({pct}% smaller)")
+        return ("success", f"✓  {orig_kb} KB → {new_kb} KB (−{pct}%) · Save writes it to the file",
+                None, True)
     return ("warning", f"⚠  No size reduction: {orig_kb} KB → {new_kb} KB",
-            "Compress", f"The output is not smaller than the original:\n{out}\n\n"
-                        f"Original: {orig_kb} KB  →  New: {new_kb} KB")
+            "Compressing would not make this PDF smaller "
+            f"({orig_kb} KB → {new_kb} KB): it is left as it was.", False)
 
 
 @register_page("CompressTool")
@@ -35,30 +29,34 @@ class CompressPage(ToolPage):
                          tool=tool, window=window)
         self.doc_input()
         self.body.addSpacing(16)
-        self.body.addWidget(group_title("Compression level"))
-        group = card(padding=0)
-        self.body.addWidget(group)
-        self.level_group = radio_rows(group, LEVELS, PREFS.compress_level or "medium",
-                                      parent=self)
-        self.radios = self.level_group.buttons
+        self.opts = CompressOptions(self.body, setting_row, parent=self)
+        self.level_group, self.radios = self.opts.level_group, self.opts.radios
         self.body.addStretch(1)
-        self.primary("Compress", self.run)
+        self.primary(APPLY, self.run)
+        if batch_prototype() == "B":
+            from ..folder_mode import FolderMode
+            FolderMode(self, self.opts, "compress", "Compress", self.body, self.drop_target)
 
     @property
     def level(self) -> str:
         return self.level_group.value()
 
     def run(self):
+        fm = self.__dict__.get("_folder_mode")
+        if fm is not None and fm.run():
+            return                          # a folder is the input (prototype B)
         level, orig = self.level, [0]
 
+        src = self.file.path()
+
         def prepare(doc):
-            orig[0] = Path(doc.name).stat().st_size
+            # the file's size: the job's copy of the document is in memory
+            orig[0] = Path(src).stat().st_size
 
         def work(doc, out, stop, progress):
             core_enhance.compress_pdf(doc, out, level)
             return Path(out).stat().st_size
 
-        self.run_on_file("Compress", work, "Compressing PDF…",
-                         lambda new, out: size_report(orig[0], new, out),
-                         save=("compressed.pdf", ".pdf", [("PDF", "*.pdf")]), prepare=prepare,
-                         cancellable=False, warning_box=True)
+        self.run_on_file("Compress", work, "Compressing PDF…", None, prepare=prepare,
+                         cancellable=False, warning_box=True, in_place="Compress",
+                         applied=lambda new: size_report(orig[0], new))

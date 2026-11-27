@@ -46,13 +46,15 @@ def test_save_writes_every_value_to_prefs_and_the_file(window, dialogs, isolated
     dialogs.dirs.append(str(out_dir))
     page.pick_output_dir()
     page.max_recent.setValue(7)
-    page.appearance.setCurrentText("dark")
-    page.default_dpi.setValue(300)
-    page.compress_level.setCurrentText("aggressive")
+    page.appearance.set_value("dark")
+    page.ocr_dpi.setValue(300)
+    page.export_dpi.setValue(240)
+    page.compress_level.set_value("aggressive")
     page.ocr_lang.setText("ita")
     page.save()
     want = {"output_dir": str(out_dir), "max_recent": 7, "appearance": "dark",
-            "default_dpi": 300, "compress_level": "aggressive", "ocr_lang": "ita"}
+            "ocr_dpi": 300, "export_dpi": 240, "compress_level": "aggressive",
+            "ocr_lang": "ita"}
     for key, val in want.items():
         assert PREFS.get(key) == val, key
     stored = json.loads(isolated_prefs.read_text(encoding="utf-8"))
@@ -66,14 +68,14 @@ def test_save_writes_every_value_to_prefs_and_the_file(window, dialogs, isolated
 def test_the_colour_mode_is_applied_on_save(window, dialogs, mode, dark):
     from qfluentwidgets import isDarkTheme
     page = _page(window)
-    page.appearance.setCurrentText(mode)
+    page.appearance.set_value(mode)
     page.save()
     assert isDarkTheme() is dark
 
 
 def test_the_saved_preferences_reach_the_tools(window, dialogs):
     page = _page(window)
-    page.compress_level.setCurrentText("light")
+    page.compress_level.set_value("light")
     page.save()
     window.open_tool("CompressTool")
     pump(0.05)
@@ -89,12 +91,13 @@ def test_numbers_are_held_to_their_ranges(window, dialogs):
     assert page.max_recent.value() == 1
     page.max_recent.setValue(RECENT_STORE_MAX + 1)
     assert page.max_recent.value() == RECENT_STORE_MAX
-    page.default_dpi.setValue(1)
-    assert page.default_dpi.value() == DPI_RANGE[0]
-    page.default_dpi.setValue(10_000)
-    assert page.default_dpi.value() == DPI_RANGE[1]
+    for spin in (page.ocr_dpi, page.export_dpi):
+        spin.setValue(1)
+        assert spin.value() == DPI_RANGE[0]
+        spin.setValue(10_000)
+        assert spin.value() == DPI_RANGE[1]
     # The page's own check refuses an out-of-range number as the CTk tool did.
-    page.values = lambda: {"max_recent": 0, "default_dpi": 150}
+    page.values = lambda: {"max_recent": 0, "ocr_dpi": 150}
     page.save()
     assert dialogs.msgs[-1] == ("warning", "Not saved",
                                 f"Max recent files shown must be a whole number from 1 to "
@@ -130,7 +133,8 @@ def test_restore_defaults_asks_then_resets_and_refills(window, dialogs, isolated
     assert PREFS.window_geometry == "800x600+0+0"
     assert window.status_text() == "✓  Preferences restored to defaults"
     assert not [m for m in dialogs.msgs if m[0] == "info"]
-    assert json.loads(isolated_prefs.read_text(encoding="utf-8"))["ocr_lang"] == "eng"
+    # restored, the language is "not chosen yet" again (the picker shows the default)
+    assert json.loads(isolated_prefs.read_text(encoding="utf-8"))["ocr_lang"] == ""
 
 
 def test_declining_restore_changes_nothing(window, dialogs, isolated_prefs):
@@ -157,5 +161,15 @@ def test_leaving_the_tool_drops_unsaved_changes(window, isolated_prefs):
     page.ocr_lang.setText("fra")
     assert window.open_tool("CompressTool")
     assert _page(window) is page
-    assert page.ocr_lang.text() == PREFS.ocr_lang != "fra"
+    assert page.ocr_lang.text() == (PREFS.ocr_lang or "eng") != "fra"
     assert not isolated_prefs.exists()
+
+
+def test_the_dpi_preferences_are_number_boxes_like_the_tools(window):
+    # Step 5 (owner, 2026-10-23): one kind of number box, one width, its unit shown.
+    from paperknife.qt.pages import NUMBER_BOX_W
+    page = _page(window)
+    pump(0.05)
+    for box in (page.ocr_dpi, page.export_dpi):
+        assert box.text().endswith(" DPI") and box.width() == NUMBER_BOX_W
+    assert page.max_recent.width() == NUMBER_BOX_W

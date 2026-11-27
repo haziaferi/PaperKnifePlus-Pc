@@ -8,7 +8,7 @@ import os
 
 import pymupdf as fitz
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, save_as, spy_open, wait_job
 
 OPEN_PW, OWNER_PW = "open-pw", "owner-pw"
 # Print and accessibility only: no copy, no modify, no annotate, no assemble.
@@ -65,17 +65,22 @@ def _tool(window, name):
     return window.current_page()
 
 
-# ── a run_on_file page: Compress ─────────────────────────────────────────────
+# ── a run_on_file page: Compress (applied to the document), then Save as ────
 def _compress(window, dialogs, src, out, answer=None, password=OPEN_PW):
+    """Compress *src* (it changes the window's document, which keeps its open
+    password), then Save as *out*: the question whether the new file keeps
+    the password is Save as's (*answer*).  out None: Save as is cancelled."""
     page = _tool(window, "CompressTool")
     if password is not None:
         dialogs.passwords.append(password)      # asked when the file opens
     page.file.set_path(src)
+    page.run()
+    wait_job(window)
     if out is not None:
         dialogs.save(out)
     if answer is not None:
         dialogs.asks.append(answer)
-    page.run()
+    window.save_as()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     return page
@@ -130,9 +135,10 @@ def test_an_owner_password_only_input_asks_nothing(window, dialogs, tmp_path):
 
 
 def test_a_non_pdf_output_asks_nothing(window, dialogs, tmp_path):
-    page = _tool(window, "Pdf2ImgTool")
+    page = _tool(window, "Pdf2DocTool")
     dialogs.passwords.append(OPEN_PW)             # asked when the file opens
     page.file.set_path(_locked(tmp_path / "in.pdf", pages=1))
+    page.fmt.setCurrentText("PNG")
     dialogs.save(tmp_path / "pages.zip")
     page.run()
     wait_job(window)
@@ -190,10 +196,11 @@ def test_remove_password_opens_a_yes_output_with_the_open_password_alone(window,
     page.file.set_path(str(kept))
     page.cur_pw.setText(OPEN_PW)
     out = tmp_path / "unlocked.pdf"
-    dialogs.save(out)
-    page.unprotect()
-    wait_job(window)
+    page.unprotect()                    # the document's protection: none (2026-10-23)
     assert not dialogs.errors(), dialogs.errors()
+    save_as(window, dialogs, out)
+    assert not [m for m in dialogs.msgs if m[1] == "Password" and m[0] == "ask_yes_no"
+                and "kept.pdf" in m[2]]           # nothing to keep: not asked
     _assert_open(out)
     with fitz.open(out) as d:
         assert d[2].get_text().strip() == "Page 3"
@@ -209,22 +216,32 @@ def _metadata(window, dialogs, src):
 
 
 def _save(window, dialogs, page, out, answer=None):
+    """Save as *out* (the window's; it asks whether the new file keeps the
+    password: *answer*)."""
     dialogs.save(out)
     if answer is not None:
         dialogs.asks.append(answer)
-    page.save()
+    window.save_as()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
 
 
-def test_metadata_yes_and_no(window, dialogs, tmp_path):
+def _save_over(window, dialogs):
+    """Save (the window's): over the file, its password kept, nothing asked."""
+    window.save()
+    wait_job(window)
+    assert not dialogs.errors(), dialogs.errors()
+
+
+def test_metadata_save_as_yes_and_no(window, dialogs, tmp_path):
     src = _locked(tmp_path / "in.pdf")
     page = _metadata(window, dialogs, src)
     page.fields["title"].setText("Kept")
     _save(window, dialogs, page, tmp_path / "yes.pdf", True)
     _assert_kept(tmp_path / "yes.pdf", src)
-    _save(window, dialogs, page, tmp_path / "no.pdf", False)
+    _save(window, dialogs, page, tmp_path / "no.pdf", False)   # (the document is yes.pdf now)
     _assert_open(tmp_path / "no.pdf")
+    # (the question names the file the password was given for)
     assert dialogs.msgs.count(_question("in.pdf")) == 2
 
 
@@ -236,22 +253,22 @@ def test_metadata_saved_over_its_source_twice_keeps_the_password_both_times(wind
     p_in = _p_of(src)
     page = _metadata(window, dialogs, src)
     page.fields["title"].setText("One")
-    _save(window, dialogs, page, src, True)
+    _save_over(window, dialogs)
     assert _p_of(src) == p_in
     _assert_kept(src, src)
     page.fields["title"].setText("Two")
-    _save(window, dialogs, page, src, True)
+    _save_over(window, dialogs)
     _assert_kept(src, src)
     assert _p_of(src) == p_in
     with fitz.open(src) as d:
         d.authenticate(OPEN_PW)
         assert d.metadata["title"] == "Two"
-    assert dialogs.msgs.count(_question("in.pdf")) == 2
+    assert dialogs.msgs.count(_question("in.pdf")) == 0         # Save keeps it, unasked
 
 
 def test_cancel_at_a_doc_holder_save_dialog_asks_nothing(window, dialogs, tmp_path):
-    page = _metadata(window, dialogs, _locked(tmp_path / "in.pdf"))
-    page.save()                                   # no path queued: Cancel
+    _metadata(window, dialogs, _locked(tmp_path / "in.pdf"))
+    window.save_as()                              # no path queued: Cancel
     assert window._current_job is None
     assert not [m for m in dialogs.msgs if m[0] == "ask_yes_no"]
 
@@ -263,7 +280,7 @@ def test_the_held_password_is_forgotten_when_the_document_is_closed(window, dial
     kept = core.open_password_of(held)
     assert kept is not None and kept.user_pw == OPEN_PW
     assert OPEN_PW not in repr(kept)              # never in a log line or a traceback
-    page.park_document()                          # the tool is left: the document closes
+    assert window.clear_current_document()        # the document is closed
     assert held.is_closed and page._doc is None
     assert core.open_password_of(held) is None
     assert OPEN_PW not in repr(vars(held))
@@ -280,16 +297,19 @@ def test_annotate_save_keeps_the_password(window, dialogs, tmp_path):
     _assert_kept(out, src)
 
 
-def test_toc_saved_over_its_source_asks_and_no_drops_the_password(window, dialogs, tmp_path):
+def test_toc_save_as_no_writes_an_open_copy_and_the_source_keeps_it(window, dialogs,
+                                                                    tmp_path):
     src = _locked(tmp_path / "in.pdf", toc=[[1, "A", 1]])
     page = _tool(window, "TocTool")
     dialogs.passwords.append(OPEN_PW)
     page.file.set_path(src)
-    _save(window, dialogs, page, src, False)
-    window.show_page("CompressTool")
-    _assert_open(src)
-    with fitz.open(src) as d:
+    out = tmp_path / "open.pdf"
+    _save(window, dialogs, page, out, False)
+    _assert_open(out)
+    with fitz.open(out) as d:
         assert d.get_toc() == [[1, "A", 1]]
+    with fitz.open(src) as d:
+        assert d.needs_pass
 
 
 def test_toc_saved_over_an_owner_password_only_source_keeps_its_encryption(window, dialogs,
@@ -306,10 +326,14 @@ def test_toc_saved_over_an_owner_password_only_source_keeps_its_encryption(windo
     p_in = _p_of(src)
     page = _tool(window, "TocTool")
     page.file.set_path(str(src))
-    _save(window, dialogs, page, str(src))
-    window.show_page("CompressTool")
+    page.title_edit.setText("B")
+    page.page_edit.setText("1")
+    page._add()
+    _save_over(window, dialogs)
     assert not [m for m in dialogs.msgs if m[0] in ("ask_yes_no", "ask_password")]
     assert _p_of(src) == p_in
+    with fitz.open(src) as d:
+        assert d.metadata.get("encryption") and [e[1] for e in d.get_toc()] == ["A", "B"]
 
 
 def test_redact_asks_after_its_confirmation_and_the_save_dialog(window, dialogs, tmp_path):
@@ -322,7 +346,7 @@ def test_redact_asks_after_its_confirmation_and_the_save_dialog(window, dialogs,
     out = tmp_path / "redacted.pdf"
     dialogs.save(out)
     dialogs.asks.extend([True, True])             # Confirm Redaction, then keep the password
-    page.save()
+    page.apply_redactions()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     asked = [m[1] for m in dialogs.msgs if m[0] == "ask_yes_no"]
@@ -501,8 +525,9 @@ def test_every_yes_output_reaches_its_name_already_encrypted(window, dialogs, tm
     moves = _spy_final_moves(monkeypatch)
     _compress(window, dialogs, src, tmp_path / "small.pdf", answer=True)    # run_on_file
     page = _metadata(window, dialogs, src)                                   # DocHolder
-    _save(window, dialogs, page, src, True)                                  # over the source
-    window.show_page("CompressTool")
+    page.fields["title"].setText("Saved")
+    _save_over(window, dialogs)                                              # over the source
+    assert window.clear_current_document()          # Split and Merge read the file afresh
     out_dir = tmp_path / "parts"
     out_dir.mkdir()
     page = _tool(window, "SplitTool")                                        # a split
@@ -515,10 +540,14 @@ def test_every_yes_output_reaches_its_name_already_encrypted(window, dialogs, tm
     _merge(window, dialogs, [src, _locked(tmp_path / "b.pdf", pages=1)],    # Merge
            [OPEN_PW, OPEN_PW], tmp_path / "merged.pdf", answer=True)
     assert not dialogs.errors(), dialogs.errors()
-    names = [n for n, _ in moves]
-    assert names == ["small.pdf", "in.pdf", "in_part01_p1-1.pdf", "in_part02_p2-2.pdf",
-                     "in_part03_p3-3.pdf", "merged.pdf"]
-    assert all(enc for _, enc in moves), moves
+    # (Compress's own output is a temporary file the document takes in:
+    # "applied.pdf", unencrypted and never a name the user sees)
+    # The crash-recovery copy ("document.pdf", in the app's own folder) is
+    # written under the open password too; it is checked in test_recovery.py.
+    theirs = [(n, enc) for n, enc in moves if n not in ("applied.pdf", "document.pdf")]
+    assert [n for n, _ in theirs] == ["small.pdf", "in.pdf", "in_part01_p1-1.pdf",
+                                      "in_part02_p2-2.pdf", "in_part03_p3-3.pdf", "merged.pdf"]
+    assert all(enc for _, enc in theirs), moves
 
 
 def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialogs, tmp_path,
@@ -535,19 +564,19 @@ def test_a_crash_before_the_encryption_leaves_no_unprotected_file(window, dialog
     page = _tool(window, "CompressTool")
     dialogs.passwords.append(OPEN_PW)             # asked when the file opens
     page.file.set_path(src)
+    page.run()                                    # changes the document, in memory
+    wait_job(window)
     dialogs.save(tmp_path / "small.pdf")
     dialogs.asks.append(True)
-    page.run()
+    window.save_as()                              # the new file is to keep the password
     wait_job(window)
     assert not (tmp_path / "small.pdf").exists()
     page = _metadata(window, dialogs, src)
     page.fields["title"].setText("Changed")
-    dialogs.save(src)
-    dialogs.asks.append(True)
-    page.save()
+    window.save()
     wait_job(window)
     dialogs.unsaved.append("discard")             # the failed save left the edit unsaved
-    window.show_page("CompressTool")
+    assert window.clear_current_document()
     assert open(src, "rb").read() == before
     assert sorted(os.listdir(tmp_path)) == ["in.pdf"]       # no .part left either
     assert len(dialogs.errors()) == 2

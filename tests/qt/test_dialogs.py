@@ -24,6 +24,7 @@ def file_dialog(qapp, monkeypatch):
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(save))
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(folder))
     monkeypatch.setattr(dmod, "_last_dir", "")
+    monkeypatch.setattr(dmod, "_doc_dir", "")
     return rec
 
 
@@ -57,3 +58,29 @@ def test_a_missing_output_folder_is_not_offered(file_dialog, tmp_path):
     dmod.ask_save("a.pdf", ".pdf")
     dmod.ask_dir()
     assert file_dialog["calls"][0][1] == "a.pdf" and file_dialog["calls"][1] == ("dir", "")
+
+
+def test_with_no_folder_known_a_dialog_starts_beside_the_document(file_dialog, tmp_path):
+    """Opened from Recent files, a document left no folder behind, and the first
+    Save as opened in the app's working folder (the walk, 2026-10-22)."""
+    from paperknife.prefs import PREFS
+    from paperknife.qt import dialogs as dmod
+    PREFS.output_dir = ""
+    doc = tmp_path / "docs" / "in.pdf"
+    doc.parent.mkdir()
+    dmod.note_document(str(doc))
+    dmod.ask_save("out.pdf", ".pdf")
+    assert file_dialog["calls"][-1][1] == os.path.join(str(doc.parent), "out.pdf")
+    dmod.note_document(None)
+    dmod.ask_save("out.pdf", ".pdf")
+    assert file_dialog["calls"][-1][1] == "out.pdf"
+
+
+def test_the_current_document_tells_the_dialogs_its_folder(window, tmp_path):
+    from qt_harness import make_pdf
+    from paperknife.qt import dialogs as dmod
+    src = make_pdf(tmp_path / "in.pdf")
+    window.set_current_document(src)
+    assert dmod._doc_dir == str(tmp_path)
+    window.set_current_document(None)
+    assert dmod._doc_dir == ""

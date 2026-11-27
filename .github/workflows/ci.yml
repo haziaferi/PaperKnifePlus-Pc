@@ -1,0 +1,61 @@
+# The project's gate (README "Test"): ruff, compileall, the core suite and the Qt suite,
+# on Windows (the only platform the app supports, SPEC R03), with Tesseract installed so
+# the OCR tests run instead of skipping.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    env:
+      PYTHONUTF8: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-fluent.txt
+            requirements-dev.txt
+
+      - name: Install dependencies (Fluent widgets with --no-deps, as setup.bat)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install --no-deps -r requirements-fluent.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Install Tesseract (default folder, not on PATH)
+        run: |
+          choco install tesseract --no-progress -y
+          & "C:\Program Files\Tesseract-OCR\tesseract.exe" --version
+          & "C:\Program Files\Tesseract-OCR\tesseract.exe" --list-langs
+
+      - name: Ruff
+        run: python -m ruff check paperknife tests --select F,E9,B
+
+      - name: Compile
+        run: python -m compileall -q paperknife
+
+      - name: Core tests
+        run: python -m pytest -q -p no:cacheprovider tests --ignore=tests/qt
+
+      - name: Qt tests
+        run: python -m pytest -q -p no:cacheprovider tests/qt

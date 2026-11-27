@@ -36,7 +36,6 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
     def __init__(self, tool=None, window=None):
         super().__init__("Find & Replace", "Open a PDF to start", tool=tool, window=window,
                          page_strip=True)
-        self._undo_stack: list = []
         self._hits: list = []           # (page_num, [rect per line of the match])
         self._hit_idx = -1
         self.skips: list = []           # reflow.Skip of the last Replace All
@@ -46,11 +45,25 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.add_rail_gap()
         self.add_rail("undo", GLYPH_UNDO, "Undo (Ctrl+Z)", self.undo, toggle=False)
         self.mark_rail("find")
+        # Find first, then the bulk change, which waits for hits of the text in
+        # Find (critique 2026-11-21: Replace All led the card, before any search).
         self.secondary("Find All", self.find_all)
-        self.secondary("Replace All", self.replace_all)
-        self.primary("Save", self.save)
+        self.replace_btn = self.secondary("Replace All", self.replace_all)
+        self.replace_btn.setEnabled(False)
         self.build_panel()
         self.show_current()
+
+    # Replace All is on while the hits shown are those of the text in Find.
+    @property
+    def _hits(self):
+        return self.__dict__.get("_hits_now", [])
+
+    @_hits.setter
+    def _hits(self, hits):
+        self.__dict__["_hits_now"] = hits
+        btn = self.__dict__.get("replace_btn")
+        if btn is not None:
+            btn.setEnabled(bool(hits))
 
     # ── panel ────────────────────────────────────────────────────────────────
     def build_panel(self):
@@ -60,6 +73,8 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.find_edit = LineEdit()
         self.find_edit.setPlaceholderText("Search text…")
         self.find_edit.returnPressed.connect(self.find_all)
+        # other text: the hits shown are not its hits (Replace All waits again)
+        self.find_edit.textEdited.connect(lambda _t: self.replace_btn.setEnabled(False))
         row.addWidget(self.find_edit, 1)
         row = self.panel_field("Replace")
         self.repl_edit = LineEdit()
@@ -124,7 +139,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
         self.show_current()
 
     def clear_document(self):
-        self._undo_stack, self._hits, self._hit_idx = [], [], -1
+        self._hits, self._hit_idx = [], -1
         self.hit_label.setText("")
         self._show_skips([])
         super().clear_document()
@@ -212,7 +227,7 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
             found = core_text.find_all(self._doc, needle, stop, first_half)
             if not found or stop.is_set():
                 return
-            self._push_undo()
+            self._push_undo("Replace all")
             state["snapshot"] = True
             try:
                 state["result"] = reflow.replace_all(self._doc, needle, repl, unit, stop,
@@ -270,17 +285,11 @@ class FindReplacePage(WorkspaceDoc, WorkspacePage):
                 self.view.add_rect(rect, accent if cur else HIT_EDGE,
                                    fill=HIT_CUR if cur else HIT)
 
-    # ── undo / save ──────────────────────────────────────────────────────────
-    def undo(self):
-        """Restores the whole document as it was before the last Replace All
-        (or the last page change, whichever came last)."""
-        if self.undo_page_change():
-            return
-        if not self._undo_stack or self._doc is None:
-            return
-        self._pop_undo()
-        self._dirty = True
+    # ── undo (the window's: the whole document as before the step) ───────────
+    def restore_step(self, state):
+        """A Replace All undone: its hits and skips go with it."""
+        if state is not None:
+            return super().restore_step(state)
         self._hits, self._hit_idx = [], -1
         self._show_skips([])
         self.hit_label.setText("Replace undone")
-        self.show_current()

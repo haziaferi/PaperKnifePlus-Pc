@@ -18,8 +18,8 @@ def _texts(path):
 def test_compress_never_reports_a_negative_saving(window, dialogs, tmp_path):
     # CTk test_compress_never_reports_a_negative_saving
     from paperknife.qt.tools.compress import size_report
-    role, status, title, text = size_report(1000 * 1024, 1200 * 1024, str(tmp_path / "o.pdf"))
-    assert role == "warning"
+    role, status, text, take = size_report(1000 * 1024, 1200 * 1024)
+    assert role == "warning" and not take
     assert "smaller)" not in text and "%" not in status and "%" not in text, (status, text)
     # End to end on a file compression cannot shrink much.
     assert window.open_tool("CompressTool")
@@ -29,11 +29,16 @@ def test_compress_never_reports_a_negative_saving(window, dialogs, tmp_path):
     page.file.set_path(src)
     page.radios["medium"].setChecked(True)
     out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     said = " ".join(m[2] for m in dialogs.msgs) + " " + window.status_text()
+    if window.document.dirty:           # smaller: applied; the file as it would be saved
+        dialogs.save(out)
+        window.save_as()
+        wait_job(window)
+    else:
+        out = src
     assert not re.search(r"[-−]\d+% smaller|\([-−][-−]", said), said
     if out.stat().st_size >= (tmp_path / "in.pdf").stat().st_size:
         assert "smaller)" not in said, said
@@ -48,8 +53,9 @@ def test_compress_page_can_overwrite_its_input(window, dialogs, tmp_path):
     src = image_pdf(tmp_path / "in.pdf")
     page.file.set_path(src)
     page.radios["medium"].setChecked(True)
-    dialogs.save(src)
-    page.run()
+    page.run()                          # applied to the document, then Save over the file
+    wait_job(window)
+    window.save()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     with fitz.open(src) as d:
@@ -99,17 +105,18 @@ def test_while_a_save_holds_the_document_the_window_cannot_reach_it(window, dial
     pump(0.1)
     page = window.current_page()
     release = threading.Event()
-    real_save = type(page)._save_doc
+    sd = window.document                # the window's Save writes it (2026-10-23)
+    real_save = type(sd)._save_doc
 
     def slow_save(self, out, **kw):
         release.wait(20)
         return real_save(self, out, **kw)
 
-    monkeypatch.setattr(type(page), "_save_doc", slow_save)
+    monkeypatch.setattr(type(sd), "_save_doc", slow_save)
     opened = []
     monkeypatch.setattr(page, "open", lambda: opened.append(1))
     dialogs.save(tmp_path / "out.pdf")
-    page.save()
+    window.save_as()
     try:
         assert window.is_locked()
         assert window.show_page("home") is False            # refused

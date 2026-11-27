@@ -21,8 +21,8 @@ from ...core import organise
 from ...core.password import carry_open_password
 from ...pages import PageRangeError, parse_parts, parts_text
 from .. import theme
-from ..pages import (HeldDoc, OrganiserPage, Refusal, _clear_layout, card, group_title,
-                     muted_caption, radio_rows, register_page)
+from ..pages import (HeldDoc, OrganiserPage, Refusal, _clear_layout, card, example_chips,
+                     group_title, muted_caption, radio_rows, register_page)
 
 RANGES, TOP, ALL = "ranges", "top", "all"
 CUT_AT = [(RANGES, "Page ranges", ""), (TOP, "Bookmarks, top level", ""),
@@ -67,6 +67,10 @@ class SplitPage(HeldDoc, OrganiserPage):
                 self.ranges.setClearButtonEnabled(True)
                 self.ranges.setMinimumWidth(160)
                 self._range_row.layout().addWidget(self.ranges)
+                self.range_examples = example_chips(
+                    [("Every page", ""), ("Every 2 pages", self._every_two),
+                     ("Page 1 apart", "1; 2-end")], self.ranges.setText)
+                self._range_row.parentWidget().layout().addWidget(self.range_examples)
             return control
         self.cut_at = radio_rows(group, CUT_AT, RANGES, row=row, parent=self)
         self.radios = self.cut_at.buttons
@@ -82,6 +86,11 @@ class SplitPage(HeldDoc, OrganiserPage):
         self.settings.addStretch(1)
         self.primary("Split", self.run)
         self._recompute()
+
+    def _every_two(self) -> str:
+        """The ranges for parts of two pages each, for the document open here."""
+        n = len(self._doc) if self._doc is not None else 0
+        return "; ".join(f"{i}-{i + 1}" if i < n else f"{i}" for i in range(1, n + 1, 2))
 
     # ── document ─────────────────────────────────────────────────────────────
     def load(self, path: str):

@@ -24,11 +24,13 @@ from ...pages import PageRangeError, ordered_pages, ordered_ranges_text, parse_r
 from .. import dialogs, theme
 from ..pages import (SETTINGS_W, THUMB_BOX, THUMBS_PER_TICK, CollectionPage, Divider, ElidedLabel,
                      PageStrip, _tool_button, ask_keep_password, muted_caption, plain_card,
-                     register_page)
+                     register_page, shared_copy)
 
 RANGE_PLACEHOLDER = "all  or  1-3, 5, 8-end"
 HINT = ("Add PDFs in order · optionally set page ranges per file"
         " (e.g.  1-3, 5, 8-end)  ·  leave blank to include all pages")
+DROP_TEXT = "Drop PDFs here or click to add them"
+LIST_EMPTY = "No files yet."
 STRIP_HINT = "Select pages to leave out or put back · drag them to a new place"
 NOTHING_LEFT = "Every page is left out: put back at least one."
 THUMB_ZOOM = 0.28
@@ -39,7 +41,7 @@ class MergePage(CollectionPage):
     def __init__(self, tool=None, window=None):
         super().__init__("Merge", "Combine PDFs · set per-file page ranges",
                          tool=tool, window=window, exts=(".pdf",), add_text="Add PDFs",
-                         empty_text=HINT, settings=False)
+                         empty_text=LIST_EMPTY, settings=False)
         self._docs: dict[int, fitz.Document] = {}
         self._names: dict[int, str] = {}
         self._next_fid = 0
@@ -79,10 +81,24 @@ class MergePage(CollectionPage):
         v.addWidget(self.strip_rule)
         self.strip = PageStrip(self._moved, self._strip_selection, card)
         v.addWidget(self.strip, 1)
-        self.strip_empty = muted_caption(HINT)
-        self.strip_empty.setWordWrap(True)
-        self.strip_empty.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.strip_empty.setContentsMargins(24, 48, 24, 48)
+        # The empty centre is the drop target, as the Document's is, with the hint
+        # once (critique 2026-11-21: the hint twice, and no target to aim at).
+        from ..docui import DropTarget
+        self.strip_empty = QWidget(card)
+        ev = QVBoxLayout(self.strip_empty)
+        ev.setContentsMargins(24, 24, 24, 24)
+        self.drop_target = DropTarget(None, self.strip_empty)
+        self.drop_target.choose = lambda: self.add_btn.click()
+        self.drop_target.label.setText(DROP_TEXT)
+        self.drop_target.setAccessibleName(DROP_TEXT)
+        tv = self.drop_target.layout()
+        sub = muted_caption(HINT)
+        sub.setWordWrap(True)
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        tv.addWidget(sub)                  # the target's width, wrapped (not cut at 220 px)
+        ev.addWidget(self.drop_target)
+        ev.addStretch(1)
         v.addWidget(self.strip_empty, 1)
         self.strip_card = card
         cols.insertWidget(0, card, 1)
@@ -122,7 +138,10 @@ class MergePage(CollectionPage):
         n = 0
         win = self.window_
         for p in paths:
-            src = win.open_pdf_safe(str(p)) if win is not None else fitz.open(str(p))
+            # The open document as it is now, unsaved edits included (2026-10-23).
+            src = shared_copy(win, str(p)) if win is not None else None
+            if src is None:
+                src = win.open_pdf_safe(str(p)) if win is not None else fitz.open(str(p))
             if src is None:
                 continue
             mem = fitz.open("pdf", src.tobytes())

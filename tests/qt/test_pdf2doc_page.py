@@ -1,4 +1,5 @@
-"""The Qt PDF → Doc / Text page."""
+"""The Qt PDF → Other page (PDF → Doc / Text, with PDF → Images folded in:
+owner, 2026-10-18)."""
 import io
 import zipfile
 
@@ -46,12 +47,12 @@ def test_the_page_builds_and_each_format_shows_its_options(window):
     from paperknife.qt.tools.pdf2doc import INFO
     for fmt in INFO:
         page.fmt.setCurrentText(fmt)
-        assert page.fmt_info.text() == INFO[fmt]
+        assert page.fmt_info.info_text == INFO[fmt]
         assert page.image_card.isVisibleTo(page) == (fmt in ("PNG", "JPEG", "PPTX"))
         assert page.quality_row.isVisibleTo(page) == (fmt == "JPEG")
         assert not page.missing.isVisibleTo(page)        # every library is installed here
-    assert page.dpi_slider.value_label.text() == f"{page.dpi_slider.value()} DPI"
-    assert page.quality_slider.value() == 92 and page.quality_slider.value_label.text() == "92%"
+    assert page.dpi_box.text() == f"{page.dpi_box.value()} DPI"
+    assert page.quality_box.value() == 92 and page.quality_box.text() == "92%"
 
 
 def test_a_missing_library_is_named(window, monkeypatch):
@@ -180,7 +181,7 @@ def test_image_formats_follow_the_resolution(window, dialogs, tmp_path, fmt, ext
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     widths = {}
     for dpi in (72, 144):
-        page.dpi_slider.setValue(dpi)
+        page.dpi_box.setValue(dpi)
         out = tmp_path / f"{dpi}.zip"
         _convert(window, dialogs, page, fmt, src, out)
         with zipfile.ZipFile(out) as zf:
@@ -200,11 +201,11 @@ def test_jpeg_quality_changes_the_output(window, dialogs, tmp_path):
     d.new_page().insert_image(fitz.Rect(0, 0, 400, 400), stream=buf.getvalue())
     d.save(str(src))
     d.close()
-    page.dpi_slider.setValue(72)
+    page.dpi_box.setValue(72)
     sizes = {}
     for q in (50, 100):
         page.fmt.setCurrentText("JPEG")
-        page.quality_slider.setValue(q)
+        page.quality_box.setValue(q)
         assert page.options() == (72, q)
         out = tmp_path / f"q{q}.zip"
         _convert(window, dialogs, page, "JPEG", src, out)
@@ -215,10 +216,10 @@ def test_jpeg_quality_changes_the_output(window, dialogs, tmp_path):
 
 def test_options_fall_back_when_the_format_has_none(window):
     page = _page(window)
-    page.dpi_slider.setValue(200)
-    page.quality_slider.setValue(60)
+    page.dpi_box.setValue(200)
+    page.quality_box.setValue(60)
     page.fmt.setCurrentText("TXT")
-    assert page.options() == (150, 92)
+    assert page.options() == (200, 92)
     page.fmt.setCurrentText("PPTX")
     assert page.options() == (200, 92)
 
@@ -259,7 +260,7 @@ def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_pat
 def test_cancelling_the_job_leaves_no_file(window, dialogs, tmp_path, monkeypatch):
     page = _page(window)
     page.fmt.setCurrentText("PNG")
-    page.dpi_slider.setValue(300)
+    page.dpi_box.setValue(300)
     page.file.set_path(make_pdf(tmp_path / "in.pdf", pages=40))
     out = tmp_path / "pages.zip"
     dialogs.save(out)
@@ -277,4 +278,18 @@ def test_leaving_the_tool_holds_no_document(window, dialogs, tmp_path, monkeypat
     opened = spy_open(window, monkeypatch)
     _convert(window, dialogs, page, "TXT", make_pdf(tmp_path / "in.pdf"), tmp_path / "o.txt")
     assert window.show_page("home")
-    assert opened and all(d.is_closed for d in opened)
+    # the jobs' copies are closed; the window keeps the one document (2026-10-23)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert shared is not None and not shared.is_closed
+
+
+def test_named_pdf_to_other_and_the_dpi_defaults_from_preferences(window, monkeypatch):
+    # PDF → Images's own checks, folded in with its screen (owner, 2026-10-18).
+    from paperknife.prefs import PREFS
+    monkeypatch.setitem(PREFS._data, "export_dpi", 250)
+    assert window.open_tool("Pdf2DocTool")
+    page = window.current_page()
+    assert page.title_label.text() == "PDF → Other"
+    assert window._labels["Pdf2DocTool"] == "PDF → Other"
+    assert int(page.dpi_box.value()) == 250

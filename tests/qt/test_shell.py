@@ -92,7 +92,7 @@ def test_home_first_and_preferences_at_bottom(window):
 def test_labels_have_no_emoji(window):
     assert window._labels["CompressTool"] == "Compress"
     assert window._labels["EditTextTool"] == "Edit Text"
-    assert window._labels["Img2PdfTool"] == "Image → PDF"
+    assert window._labels["Img2PdfTool"] == "Other → PDF"
 
 
 def test_search_filters_by_label_and_hides_empty_groups(window):
@@ -102,7 +102,7 @@ def test_search_filters_by_label_and_hides_empty_groups(window):
     assert not headers["Enhance"].isHidden()
     assert headers["Organise"].isHidden()
     window.search.edit.setText("PDF")
-    assert set(window.visible_tools()) >= {"Img2PdfTool", "Pdf2ImgTool", "PdfToolsTool"}
+    assert set(window.visible_tools()) >= {"Img2PdfTool", "Pdf2DocTool", "PdfToolsTool"}
     window.clear_search()
     assert len(window.visible_tools()) == len(TOOLS)
     assert all(not h.isHidden() for h in headers.values())
@@ -154,11 +154,18 @@ def test_shortcut_keys_reach_the_page(window, hook_page):
     window.setFocus()
     pump(0.05)
     hook_page.calls.clear()
+    saves = []
+    window.save = lambda after=None: saves.append("save")          # the window's, since 2026-10-23
+    window.save_as = lambda after=None: saves.append("save as")
+    window.print_document = lambda: saves.append("print")
     QTest.keyClick(window, Qt.Key_O, Qt.ControlModifier)
     QTest.keyClick(window, Qt.Key_S, Qt.ControlModifier)
+    QTest.keyClick(window, Qt.Key_S, Qt.ControlModifier | Qt.ShiftModifier)
+    QTest.keyClick(window, Qt.Key_P, Qt.ControlModifier)
     QTest.keyClick(window, Qt.Key_Z, Qt.ControlModifier)
     pump(0.05)
-    assert hook_page.calls == ["open", "save", "undo"]
+    assert hook_page.calls == ["open", "undo"]
+    assert saves == ["save", "save as", "print"]
 
 
 def test_delete_ignored_in_text_field(window, hook_page):

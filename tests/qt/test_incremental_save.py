@@ -36,8 +36,13 @@ def test_the_text_check_finds_page_text(tmp_path):
 
 
 def _save_over(window, dialogs, page, src):
-    dialogs.save(src)
-    page.save()
+    """Save over the document's file (the window's Save), or Save as *src*."""
+    from paperknife.qt.pages import same_path
+    if same_path(src, window.document.path):
+        window.save()
+    else:
+        dialogs.save(src)
+        window.save_as()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     assert not page.is_dirty()
@@ -56,13 +61,17 @@ def test_annotate_added_notes_are_appended(window, dialogs, tmp_path):
     before = _bytes(src)
     assert window.open_tool("AnnotateTool", src)
     page = window.current_page()
+    page._push_undo("Note")
     page._doc[0].add_text_annot((72, 72), "new note")
+    page._adds_pending = True           # as Annotate marks a note: it only adds
     page._dirty = True
     _save_over(window, dialogs, page, src)
     assert _bytes(src).startswith(before) and len(_bytes(src)) > len(before)
     # The page goes on with the file: a second save appends again.
     second = _bytes(src)
+    page._push_undo("Note")
     page._doc[1].add_text_annot((72, 72), "and another")
+    page._adds_pending = True
     page._dirty = True
     _save_over(window, dialogs, page, src)
     assert _bytes(src).startswith(second)
@@ -126,8 +135,8 @@ def test_rotate_turns_and_moves_are_appended(window, dialogs, tmp_path):
     with fitz.open(src) as d:
         assert [p.get_text().strip() for p in d] == ["Page 1", "Page 3", "Page 2"]
         assert [p.rotation for p in d] == [0, 90, 0]
-    # The page now shows the file as it is: in order, unturned, nothing unsaved.
-    assert page.order() == [0, 1, 2] and page._extra == {0: 0, 1: 0, 2: 0}
+    # The page shows the document as it is: in order, nothing unsaved.
+    assert page.order() == [0, 1, 2] and not page.is_dirty()
     page.select(0)
     page.rotate(180)
     _save_over(window, dialogs, page, src)

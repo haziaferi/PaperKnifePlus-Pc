@@ -7,9 +7,10 @@ import inspect
 def test_no_page_hides_a_doc_holder_method(qapp):
     import paperknife.qt.tools  # noqa: F401
     from paperknife.core.doc_state import DocHolder
-    from paperknife.qt.pages import QT_PAGES
+    from paperknife.qt.pages import QT_PAGES, SharedDocPage
     names = {n for n, v in vars(DocHolder).items() if inspect.isfunction(v)}
+    # SharedDocPage overrides them on purpose: the window's document (2026-10-23).
     bad = [f"{cls.__name__}.{n}" for cls in QT_PAGES.values() if issubclass(cls, DocHolder)
-           for k in cls.__mro__ if k is not DocHolder and k is not object
+           for k in cls.__mro__ if k not in (DocHolder, SharedDocPage, object)
            for n in names if n in vars(k)]
     assert not bad, bad

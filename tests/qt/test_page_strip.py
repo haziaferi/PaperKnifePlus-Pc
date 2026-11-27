@@ -223,11 +223,11 @@ def _box(page, pg):
 
 def test_annotate_writes_the_file_whole_after_a_delete(window, tmp_path, dialogs):
     page, _ = _open(window, tmp_path)
-    assert page.appends_only()
+    assert window.document.adds_only
     _select(page, 3)
     dialogs.asks.append(True)
     page.delete_pages()
-    assert not page.appends_only()
+    assert not window.document.adds_only
 
 
 def test_the_new_order_is_saved(window, tmp_path, dialogs):
@@ -235,7 +235,7 @@ def test_the_new_order_is_saved(window, tmp_path, dialogs):
     page._strip_moved([3, 2, 1, 0])
     out = tmp_path / "out.pdf"
     dialogs.save(out)
-    page.save()
+    window.save_as()
     wait_job(window)
     with fitz.open(out) as d:
         assert _texts(d) == ["Page 4", "Page 3", "Page 2", "Page 1"]
@@ -264,26 +264,24 @@ def test_redact_a_box_drawn_after_a_page_change_comes_off_first(window, tmp_path
     assert _texts(page._doc)[0] == "Page 1"
 
 
-def test_redact_saves_page_changes_without_a_box(window, tmp_path, dialogs):
-    from paperknife.qt.tools.redact import PAGES_ONLY_QUESTION
-    page, _ = _open(window, tmp_path, "RedactTool")
+def test_redact_s_page_changes_are_the_document_s_and_save_writes_them(window, tmp_path,
+                                                                       dialogs):
+    # One document per window (owner, 2026-10-23): Redact's page strip edits the
+    # document; Save writes it, no question about boxes.
+    page, src = _open(window, tmp_path, "RedactTool")
     _select(page, 1)
-    dialogs.asks.extend([True, True])
+    dialogs.asks.append(True)
     page.delete_pages()
-    out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.save()
     wait_job(window)
-    assert ("ask_yes_no", "Apply and save", PAGES_ONLY_QUESTION) in dialogs.msgs
-    assert PAGES_ONLY_QUESTION == "Save the page changes? No redaction boxes are drawn."
-    with fitz.open(out) as d:
+    with fitz.open(src) as d:
         assert _texts(d) == ["Page 1", "Page 3", "Page 4"]
     assert not page.is_dirty()
 
 
 def test_redact_without_boxes_or_page_changes_still_says_so(window, tmp_path, dialogs):
     page, _ = _open(window, tmp_path, "RedactTool")
-    page.save()
+    page.apply_redactions()
     assert dialogs.msgs[-1] == ("info", "Apply", "No redaction boxes drawn yet.")
 
 

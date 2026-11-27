@@ -3,8 +3,9 @@ paperknife.qt.docui
 The current document's controls (owner's decisions 2026-10-10): a row
 directly under each single-input page's subtitle, at the page's left
 margin, with the Open split control ("Open", the arrow listing the recent
-files then "Browse…") and the document as a chip (its name, a clear x);
-and DropTarget, the empty-state target a single-input page shows while it
+files then "Browse…") and the document as a chip (its name, a clear x),
+then (owner, 2026-10-23, step 5 option A) "Save" split (its arrow: "Save as…") and
+"Print", shown with the chip; and DropTarget, the empty-state target a single-input page shows while it
 has no document: clicking it opens the file dialog.
 """
 from __future__ import annotations
@@ -28,6 +29,9 @@ NO_DOCUMENT = "No document"
 DROP_TEXT = "Drop a PDF here or click to choose one"
 CLEAR_TIP = "Clear"
 CHIP_NAME_MIN = 160          # the name's least room: twice the 80 px of before (owner)
+SAVE_TEXT = "Save"
+SAVE_AS_TEXT = "Save as…"
+PRINT_TEXT = "Print"
 
 
 def recent_paths() -> list[str]:
@@ -77,6 +81,29 @@ class OpenControl(SplitPushButton):
         self.setFlyout(self.menu())
         if old is not None:
             old.deleteLater()
+
+
+class SaveControl(SplitPushButton):
+    """"Save v": the main part saves over the file (Ctrl+S), the arrow
+    offers Save as… (Ctrl+Shift+S)."""
+
+    def __init__(self, window, parent=None):
+        from qfluentwidgets import FluentIcon
+        super().__init__(parent)
+        self.setText(SAVE_TEXT)
+        self.setIcon(FluentIcon.SAVE)
+        self.setObjectName("saveControl")
+        self.setToolTip("Save (Ctrl+S)")
+        self.window_ = window
+        self.clicked.connect(lambda: window is not None and window.save())
+        menu = RoundMenu(parent=self)
+        a = Action(FluentIcon.SAVE_AS, SAVE_AS_TEXT, menu)
+        a.setShortcut("Ctrl+Shift+S")        # shown only: the window owns the shortcut
+        a.setShortcutContext(Qt.WidgetShortcut)
+        a.triggered.connect(lambda _=False: window is not None and window.save_as())
+        menu.addAction(a)
+        self.save_as_action = a
+        self.setFlyout(menu)
 
 
 class _Rounded(QWidget):
@@ -160,11 +187,26 @@ class DocBar(QWidget):
         self.chip = DocChip(window, self)
         self.chip.setFixedHeight(32)
         h.addWidget(self.chip, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        from qfluentwidgets import FluentIcon, PushButton
+        self.save_control = SaveControl(window, self)
+        h.addWidget(self.save_control, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        self.print_button = PushButton(FluentIcon.PRINT, PRINT_TEXT, self)
+        self.print_button.setObjectName("printButton")
+        self.print_button.setToolTip("Print (Ctrl+P)")
+        self.print_button.clicked.connect(
+            lambda: window is not None and window.print_document())
+        h.addWidget(self.print_button, 0, Qt.AlignLeft | Qt.AlignVCenter)
         h.addStretch(1)
-        self.chip.show_path("")
+        self.show_path("")
+
+    def document_controls(self) -> tuple:
+        """What belongs to the document, shown only while one is open."""
+        return (self.chip, self.save_control, self.print_button)
 
     def show_path(self, path: str):
         self.chip.show_path(path)
+        self.save_control.setVisible(bool(path))
+        self.print_button.setVisible(bool(path))
 
 
 class DropTarget(_Rounded):

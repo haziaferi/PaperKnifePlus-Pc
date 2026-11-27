@@ -2,7 +2,7 @@
 import pymupdf as fitz
 import pytest
 
-from qt_harness import make_pdf, pump, spy_open, wait_job
+from qt_harness import make_pdf, pump, save_as, spy_open, wait_job
 
 
 def _page(window):
@@ -24,9 +24,9 @@ def _src(path, sizes=((300, 400),), red=False):
 
 def _run(window, dialogs, page, src, out):
     page.file.set_path(src)
-    dialogs.save(out)
     page.run()
     wait_job(window)
+    save_as(window, dialogs, out)
     assert not dialogs.errors(), dialogs.errors()
 
 
@@ -58,8 +58,8 @@ def test_normalise_end_to_end_resizes_every_page_and_reports(window, dialogs, tm
     assert _sizes(out) == [(595, 842), (595, 842)]
     with fitz.open(out) as d:
         assert "Page 1" in d[0].get_text() and "Page 2" in d[1].get_text()
-    assert dialogs.msgs[-1] == ("info", "Done", f"Normalised PDF saved:\n{out}")
-    assert window.status_text() == "✓  Normalised → out.pdf"
+    assert not [m for m in dialogs.msgs if m[0] == "info"]
+    assert window.applied_status == "✓  Pages normalised · Save writes it to the file"
 
 
 @pytest.mark.parametrize("size,expect", [("A4", (595, 842)), ("A3", (842, 1191)),
@@ -111,13 +111,18 @@ def test_a_dropped_pdf_is_taken_and_others_are_refused(window, tmp_path):
     assert page.accept_drop(src) is True and page.file.path() == src
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_applying_asks_no_file_name_and_closes_its_copy(window, dialogs, tmp_path,
+                                                          monkeypatch):
+    # Applied to the document (owner's sort, 2026-10-23): no save dialog (the
+    # harness would hand it nothing), and the job's own copy is closed.
     page = _page(window)
     page.file.set_path(make_pdf(tmp_path / "in.pdf"))
     opened = spy_open(window, monkeypatch)
     page.run()
-    assert opened and opened[0].is_closed
-    assert not window._current_job
+    wait_job(window)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert window.document.dirty and not dialogs.errors()
 
 
 def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, monkeypatch):
@@ -125,4 +130,7 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     opened = spy_open(window, monkeypatch)
     _run(window, dialogs, page, make_pdf(tmp_path / "in.pdf"), tmp_path / "o.pdf")
     assert window.show_page("home")
-    assert opened and all(d.is_closed for d in opened)
+    # the jobs' copies are closed; the window keeps the one document (2026-10-23)
+    shared = window.document.doc
+    assert opened and all(d.is_closed for d in opened if d is not shared)
+    assert shared is not None and not shared.is_closed

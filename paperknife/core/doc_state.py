@@ -10,7 +10,7 @@ import tempfile
 import pymupdf as fitz
 
 from ..job_queue import atomic_output
-from .password import carry_open_password
+from .password import carry_open_password, open_password_of
 
 UNDO_DEPTH = 10     # whole-document snapshots kept by the editing tools
 
@@ -23,13 +23,28 @@ def same_file(name: str, path: str) -> bool:
             and os.path.samefile(name, path))
 
 
+def snapshot(doc) -> bytes:
+    """*doc*'s content as bytes, for an undo step or an in-memory copy to go
+    on with.  A file encrypted with an owner password only (none to open it)
+    keeps its encryption: plain tobytes() writes it unencrypted and clears the
+    document's own /Encrypt, so a later PDF_ENCRYPT_KEEP save had nothing to
+    keep.  A file opened with a password is written plain: its password is
+    put back on every file saved from it (core.password.protecting)."""
+    if (doc.metadata or {}).get("encryption") and open_password_of(doc) is None:
+        return doc.tobytes(encryption=fitz.PDF_ENCRYPT_KEEP)
+    return doc.tobytes()
+
+
 def can_append(doc) -> bool:
     """Whether *doc* can be saved by appending its edits to its own file: it
     was read from a file, is not encrypted (a kept or dropped password is
     written whole), and MuPDF can update it (not repaired on opening, and
     so on)."""
-    # is_encrypted turns False once the password is given: the trailer says.
+    # is_encrypted turns False once the password is given: the trailer says,
+    # until tobytes() (an undo snapshot) clears its /Encrypt; the metadata
+    # read at opening still names the encryption then.
     return (os.path.isfile(doc.name or "") and doc.xref_get_key(-1, "Encrypt")[0] == "null"
+            and not (doc.metadata or {}).get("encryption")
             and doc.can_save_incrementally())
 
 
@@ -85,7 +100,7 @@ class DocHolder:
         """Before *path* is replaced: if self._doc holds it, continue on an
         in-memory copy of the same content and close the file."""
         if self._holds(path):
-            self._replace_doc(fitz.open("pdf", self._doc.tobytes()))
+            self._replace_doc(fitz.open("pdf", snapshot(self._doc)))
 
     def _save_doc(self, out: str, *, incremental: bool = False, **save_opts) -> str:
         """Save self._doc to *out*; "incremental" or "full", how it was written.
@@ -116,16 +131,16 @@ class DocHolder:
             return
         with atomic_output(out) as tmp:
             doc.save(tmp, **save_opts)
-            # Only after the save: tobytes() writes unencrypted, and an
-            # encryption=PDF_ENCRYPT_KEEP save after it would too.
-            self._replace_doc(fitz.open("pdf", doc.tobytes()))
+            # Only after the save: a plain tobytes() writes unencrypted, and
+            # an encryption=PDF_ENCRYPT_KEEP save after it would too.
+            self._replace_doc(fitz.open("pdf", snapshot(doc)))
 
     # apply_redactions rewrites page resources as well as content, so undo
     # restores a serialised copy.  MuPDF's journal cannot be used: get_text on
     # a rotated page writes /Rotate outside an operation, which it refuses.
     def _push_undo(self) -> None:
         self._undo_stack = self._undo_stack[-(UNDO_DEPTH - 1):] + [
-            (self._pg, self._doc.tobytes())]
+            (self._pg, snapshot(self._doc))]
 
     def _pop_undo(self) -> None:
         self._pg, data = self._undo_stack.pop()

@@ -19,11 +19,9 @@ CTK_REGISTRY_AT_PHASE_8 = [
     ("HeaderFooterTool", "ENHANCE", "📋  Header / Footer"),
     ("CropTool", "ENHANCE", "✂   Crop / Trim"),
     ("PdfToolsTool", "ENHANCE", "🔧  PDF Tools"),
-    ("Img2PdfTool", "CONVERT", "🖼   Image → PDF"),
-    ("Pdf2ImgTool", "CONVERT", "📸  PDF → Images"),
+    ("Img2PdfTool", "CONVERT", "🖼   Other → PDF"),
     ("ExtractTool", "CONVERT", "🖼   Extract Images"),
-    ("Pdf2DocTool", "CONVERT", "📄  PDF → Doc / Text"),
-    ("Doc2PdfTool", "CONVERT", "📤  Doc / Text → PDF"),
+    ("Pdf2DocTool", "CONVERT", "📄  PDF → Other"),
     ("EditTextTool", "CONTENT", "✏️   Edit Text"),
     ("FindReplaceTool", "CONTENT", "🔍  Find & Replace"),
     ("AnnotateTool", "CONTENT", "📝  Annotate"),
@@ -36,5 +34,7 @@ CTK_REGISTRY_AT_PHASE_8 = [
 
 def test_tool_registry_keeps_every_tool_the_ctk_app_had():
     assert [tuple(e) for e in TOOL_REGISTRY] == CTK_REGISTRY_AT_PHASE_8
-    # Split by Bookmarks became Split's "Cut at" choice (owner, 2026-10-17).
-    assert len(TOOL_REGISTRY) == 25
+    # Split by Bookmarks became Split's "Cut at" choice (owner, 2026-10-17);
+    # PDF → Images went into PDF → Other and Doc / Text → PDF into Other → PDF
+    # (owner, 2026-10-18).
+    assert len(TOOL_REGISTRY) == 23

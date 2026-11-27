@@ -2,7 +2,7 @@
 import pymupdf as fitz
 import pytest
 
-from qt_harness import image_pdf, make_pdf, pump, spy_open, wait_job
+from qt_harness import image_pdf, make_pdf, pump, save_as, spy_open, wait_job
 
 
 def _page(window):
@@ -37,40 +37,48 @@ def test_each_level_writes_a_smaller_file_and_reports_it(window, dialogs, tmp_pa
     page.radios[level].setChecked(True)
     assert page.level == level
     out = tmp_path / f"out-{level}.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
-    assert out.exists()
-    with fitz.open(out) as d:
-        assert len(d) == 1
-        assert [img[2] for img in d[0].get_images(full=True)] == [width]
-        assert "Searchable text 1" in d[0].get_text()
-    kind = dialogs.msgs[-1][0]
-    if level == "light":
-        assert kind in ("info", "warning")
+    status = window.status_text()
+    save_as(window, dialogs, out)
+    # (a result no smaller leaves the document unchanged and nothing to save)
+    d = fitz.open(out) if out.exists() else window.document.doc
+    assert len(d) == 1
+    assert [img[2] for img in d[0].get_images(full=True)] == [width]
+    assert "Searchable text 1" in d[0].get_text()
+    if level == "light":                # may be no smaller: then a warning, nothing changed
+        assert window.document.dirty == status.startswith("✓")
     else:
-        assert kind == "info" and out.stat().st_size < (tmp_path / "big.pdf").stat().st_size
+        assert status.endswith("· Save writes it to the file") and window.document.path == str(out)
+        assert out.stat().st_size < (tmp_path / "big.pdf").stat().st_size
+        assert not [m for m in dialogs.msgs if m[0] == "info"]
 
 
 def test_no_reduction_is_reported_as_a_warning(window, dialogs, tmp_path):
     from paperknife.qt.tools.compress import size_report
-    role, status, title, _ = size_report(1000, 1200, str(tmp_path / "o.pdf"))
-    assert role == "warning" and "No size reduction" in status and title == "Compress"
-    role, status, *_ = size_report(10240, 5120, str(tmp_path / "o.pdf"))
-    assert role == "success" and "(−50%)" in status
+    role, status, box, take = size_report(1000, 1200)
+    assert role == "warning" and "No size reduction" in status and box and not take
+    role, status, box, take = size_report(10240, 5120)
+    assert role == "success" and "(−50%)" in status and box is None and take
 
 
-def test_cancelling_the_save_dialog_closes_the_document(window, dialogs, tmp_path, monkeypatch):
+def test_compress_asks_no_file_name_and_closes_its_copy(window, dialogs, tmp_path,
+                                                         monkeypatch):
+    # Applied in place (owner's sort, 2026-10-23): no save dialog (the harness
+    # would hand it nothing), and the job's own copy is closed when it ends.
     page = _page(window)
-    page.file.set_path(make_pdf(tmp_path / "in.pdf"))
+    page.file.set_path(image_pdf(tmp_path / "big.pdf"))
     opened = spy_open(window, monkeypatch)
-    page.run()                     # no save path queued: the dialog returns ""
-    assert opened and opened[0].is_closed
+    page.radios["aggressive"].setChecked(True)
+    page.run()
+    wait_job(window)
+    assert window.document.dirty and window.document.undo_label() == "Compress"
+    assert all(d.is_closed for d in opened)
 
 
 def test_no_size_gain_is_reported_in_a_warning_box(window, dialogs, tmp_path, monkeypatch):
-    # The output is saved but no smaller: the box matches its ⚠ status line
-    # (owner's choice, 2026-10-09; Crop and Extract keep information boxes).
+    # The result is no smaller: the box matches its ⚠ status line (owner's
+    # choice, 2026-10-09), and the document is left as it was (2026-10-23).
     import shutil
     from paperknife.qt.tools import compress as page_mod
     monkeypatch.setattr(page_mod.core_enhance, "compress_pdf",
@@ -78,10 +86,9 @@ def test_no_size_gain_is_reported_in_a_warning_box(window, dialogs, tmp_path, mo
     page = _page(window)
     src = make_pdf(tmp_path / "in.pdf")
     assert page.accept_drop(src)
-    out = tmp_path / "out.pdf"
-    dialogs.save(out)
     page.run()
     wait_job(window)
-    assert out.exists()
     assert dialogs.msgs[-1][:2] == ("warning", "Compress")
+    assert "it is left as it was" in dialogs.msgs[-1][2]
     assert "No size reduction" in window.status_text()
+    assert not window.document.dirty and not window.document.can_undo()   # unchanged

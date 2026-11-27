@@ -111,19 +111,41 @@ def image_page(doc, path) -> None:
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp", ".gif")
 
 
-def images_to_pdf(paths, out: str, stop, progress=None) -> bool:
-    """Write one page per image in *paths*, in order, to a PDF at *out*.
-    Returns False (and leaves *out* untouched) if *stop* was set."""
+# The documents Other → PDF takes, by extension (the images are IMAGE_EXTS).
+DOC_EXTS = {".txt": "TXT", ".html": "HTML", ".htm": "HTML", ".xml": "XML", ".rtf": "RTF",
+            ".docx": "DOCX", ".pptx": "PPTX", ".xlsx": "XLSX"}
+TO_PDF_EXTS = IMAGE_EXTS + tuple(DOC_EXTS)
+
+
+def files_to_pdf(paths, out: str, stop, progress=None) -> list[str] | None:
+    """One PDF at *out* from *paths*, in order (Other → PDF, owner 2026-10-18):
+    an image becomes a page of its own size (image_page), a document adds its
+    pages (doc_to_pdf, its format from the extension).  Returns the notes on
+    fallbacks, each "<file name>: <note>", or None if cancelled (*out* is
+    then left untouched)."""
+    import tempfile
     n = len(paths)
-    with atomic_output(out) as tmp, fitz.open() as doc:
+    notes: list[str] = []
+    with atomic_output(out) as tmp, fitz.open() as doc, \
+            tempfile.TemporaryDirectory(prefix="pk-topdf-") as work:
         for i, p in enumerate(paths):
             if stop.is_set():
-                return False
-            image_page(doc, p)
+                return None
+            ext = Path(p).suffix.lower()
+            if ext in IMAGE_EXTS:
+                image_page(doc, p)
+            else:
+                part = os.path.join(work, f"{i}.pdf")
+                got = doc_to_pdf(p, DOC_EXTS[ext], part, stop)
+                if got is None:
+                    return None
+                notes += [f"{Path(p).name}: {note}" for note in got]
+                with fitz.open(part) as d:
+                    doc.insert_pdf(d)
             if progress:
                 progress((i + 1) / n)
         doc.save(tmp, deflate=True)
-    return True
+    return notes
 
 
 def text_story(text: str):

@@ -3,15 +3,11 @@ selected entry's Level, Title and Page with an explicit "Update selected"."""
 from __future__ import annotations
 
 from collections import Counter
-from pathlib import Path
-
-import pymupdf as fitz
 from qfluentwidgets import ComboBox, FluentIcon, LineEdit, PushButton
 
 from ...core import organise
-from ...core.password import open_password_of
 from .. import dialogs
-from ..pages import HeldDoc, MasterDetailPage, ask_keep_password, register_page
+from ..pages import APPLY, SAVE_NOTE, HeldDoc, MasterDetailPage, register_page
 
 LEVELS = ["1", "2", "3", "4"]
 
@@ -37,7 +33,7 @@ class TocPage(HeldDoc, MasterDetailPage):
         self.add_tool("Down", FluentIcon.DOWN, lambda: self._move(1), needs_selection=True)
         self.add_tool("Delete", FluentIcon.DELETE, self._delete, needs_selection=True)
         self._build_detail()
-        self.primary("Save PDF", self.save)
+        self.primary(APPLY, self.apply)
 
     # ── detail column ────────────────────────────────────────────────────────
     def _build_detail(self):
@@ -81,9 +77,7 @@ class TocPage(HeldDoc, MasterDetailPage):
         doc = self.open_held(path, "Bookmarks / TOC")
         if doc is None:
             return
-        self._toc = [list(e) for e in doc.get_toc()]
-        self._saved_toc = [list(e) for e in self._toc]
-        self._refresh_list()
+        self._show_document_toc()
 
     def _clear(self):
         self.release_held()
@@ -97,17 +91,49 @@ class TocPage(HeldDoc, MasterDetailPage):
 
     _saved_toc: list = []
 
-    def is_dirty(self) -> bool:
-        """Bookmarks added, changed, moved or deleted since the file was opened or saved."""
+    def _show_document_toc(self):
+        self._toc = [list(e) for e in self._doc.get_toc()]
+        self._saved_toc = [list(e) for e in self._toc]
+        self._refresh_list()
+
+    def has_pending(self) -> bool:
+        """Bookmarks added, changed, moved or deleted here and not applied yet."""
         return self._doc is not None and self._toc != self._saved_toc
 
-    def recovery_state(self) -> dict | None:
-        return {"toc": [list(e[:3]) for e in self._toc]}
-
-    def apply_recovery(self, state: dict) -> bool:
-        self._toc = [[int(level), str(title), int(page)] for level, title, page in state["toc"]]
-        self._refresh_list()
+    def commit_edits(self) -> bool:
+        """The bookmark list into the document, as one undoable edit."""
+        if not self.has_pending():
+            return True
+        problem = organise.toc_level_error(self._toc)
+        if problem:
+            dialogs.warning("Save", problem)
+            return False
+        toc = [list(item) for item in self._toc]
+        # Bookmarks only added (every title there was is still there): appended
+        # to the file on Save (owner's choice 2026-10-12); one renamed or
+        # deleted is written whole, so its old title goes.
+        adds = not (Counter(e[1] for e in self._saved_toc) - Counter(e[1] for e in toc))
+        self.edit_document("Bookmarks", lambda d: d.set_toc(toc), adds=adds)
+        self._saved_toc = [list(e) for e in toc]
         return True
+
+    def document_replaced(self):
+        if self._doc is not None and not self.has_pending():
+            self._show_document_toc()
+
+    def recovery_extra(self) -> dict:
+        """A list edited and not applied: crash recovery copies it too."""
+        return {"toc": [list(e[:3]) for e in self._toc]} if self.has_pending() else {}
+
+    def restore_extra(self, state: dict) -> None:
+        toc = state.get("toc")
+        if toc is not None:
+            self._toc = [[int(level), str(title), int(page)] for level, title, page in toc]
+            self._refresh_list()
+
+    def drop_marks(self):
+        if self._doc is not None:
+            self._show_document_toc()
 
     # ── edit operations ──────────────────────────────────────────────────────
     def _move(self, d: int):
@@ -166,46 +192,21 @@ class TocPage(HeldDoc, MasterDetailPage):
     def delete(self):
         self._delete()
 
-    # ── save ─────────────────────────────────────────────────────────────────
+    # ── Apply (the card's action): the typed list into the document ──
+    def apply(self) -> bool:
+        if self._doc is None:
+            dialogs.warning("Apply", "Open a PDF first.")
+            return False
+        if not self.has_pending():
+            self.window_.set_status("No changes to apply")
+            return True
+        if not self.commit_edits():
+            return False
+        self.window_.set_status("✓  Bookmarks applied" + SAVE_NOTE, "success")
+        return True
+
+    # ── save (the window's: the list is applied first) ───────────────────────
     def save(self, after=None):
         if self._doc is None:
             return dialogs.warning("Save", "Open a PDF first.")
-        problem = organise.toc_level_error(self._toc)
-        if problem:
-            return dialogs.warning("Save", problem)
-        out = dialogs.ask_save(self.save_name, ".pdf", [("PDF", "*.pdf")])
-        if not out:
-            return
-        toc = [list(item) for item in self._toc]
-        # A file opened with a password: the answer decides (run_job re-saves
-        # the output with it on Yes).  One without an open password (an owner
-        # password only) saved over itself keeps its encryption, as before.
-        asked = open_password_of(self._doc) is not None
-        kept = ask_keep_password(self._doc)
-        win = self.window_
-
-        # Bookmarks only added (every title there was is still there): appended
-        # to the file (owner's choice 2026-10-12); one renamed or deleted is
-        # written whole, so its old title goes.
-        adds_only = not (Counter(e[1] for e in self._saved_toc) - Counter(e[1] for e in toc))
-
-        def work(stop):
-            self._doc.set_toc(toc)
-            keep = ({"encryption": fitz.PDF_ENCRYPT_KEEP} if self._holds(out) and not asked
-                    else {})
-            # garbage=1: the old outline's titles do not stay in a whole file.
-            self._save_doc(out, incremental=adds_only, garbage=1, deflate=True, **keep)
-
-        def then(kind, _value):
-            if kind != "done":
-                return
-            self._saved_toc = [list(e) for e in toc]    # the edits are saved
-            win.set_status(f"✓  Saved {len(toc)} bookmark(s) → {Path(out).name}", "success")
-            dialogs.info("Saved", f"PDF with updated bookmarks:\n{out}")
-            if self.saved_elsewhere(out):
-                self.offer_output(out)
-            if callable(after):
-                after()
-
-        win.run_job(work, f"Saving {Path(out).name}…", lock=True, then=then, cancellable=False,
-                    keep_password=(kept, [out]))
+        return self.window_.save(after)

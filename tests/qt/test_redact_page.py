@@ -46,7 +46,7 @@ def _apply_save(window, dialogs, page, out, fill="Black"):
     page.set_fill(fill)
     dialogs.asks.append(True)
     dialogs.save(out)
-    page.save()
+    page.apply_redactions()
     wait_job(window)
     assert not dialogs.errors(), dialogs.errors()
     return out
@@ -61,7 +61,7 @@ def test_the_page_builds_with_its_rail_and_one_main_action(window):
     keys = [getattr(page.rail.itemAt(i).widget(), "pk_key", None)
             for i in range(page.rail.count())]
     assert [k for k in keys if k] == ["box", "search", "pages", "undo"]
-    assert [b.text() for b in page._buttons if b.pk_primary] == ["Apply and save"]
+    assert [b.text() for b in page._buttons if b.pk_primary] == ["Save redacted copy…"]
     page.set_kind("search")
     pump(0.05)
     assert page.search_edit.isVisibleTo(page)
@@ -70,12 +70,12 @@ def test_the_page_builds_with_its_rail_and_one_main_action(window):
 def test_apply_without_a_document_or_boxes_warns_and_writes_nothing(window, dialogs, tmp_path):
     assert window.open_tool("RedactTool")
     page = window.current_page()
-    page.save()
+    page.apply_redactions()
     assert dialogs.msgs == [("warning", "Apply", "Open a PDF first.")]
     page = _open(window, make_pdf(tmp_path / "in.pdf", pages=1))
     dialogs.msgs.clear()
     dialogs.save(tmp_path / "out.pdf")
-    page.save()
+    page.apply_redactions()
     assert dialogs.msgs == [("info", "Apply", "No redaction boxes drawn yet.")]
     assert not (tmp_path / "out.pdf").exists()
 
@@ -128,7 +128,7 @@ def test_mark_all_then_apply_removes_the_secret_from_the_whole_file(window, dial
     saved = [m for m in dialogs.msgs if m[1] == "Saved"]
     assert saved and saved[0][2].startswith(f"Redacted PDF saved:\n{out}")
     assert "Also removed from: " in saved[0][2]
-    assert page._pending == []
+    assert len(page._pending) == n                 # the document here keeps its boxes
     assert window.status_text() == f"✓  {n} redaction(s) applied · Saved → redacted.pdf"
 
     raw = out.read_bytes()
@@ -191,7 +191,7 @@ def test_a_box_on_a_rotated_page_covers_the_drawn_content(window, dialogs, tmp_p
     _drag(page, (word.x0 - 2, word.y0 - 2), (word.x1 + 2, word.y1 + 2))
     assert len(page._pending) == 1
     _apply_save(window, dialogs, page, out)
-    assert "TOPSECRET" not in page._doc[0].get_text()
+    assert "TOPSECRET" in page._doc[0].get_text()   # the copy is redacted, not the document
     with fitz.open(out) as d:
         assert d[0].rotation == 90
         assert "TOPSECRET" not in d[0].get_text() and "Visible" in d[0].get_text()
@@ -399,7 +399,7 @@ def test_declining_the_confirmation_changes_nothing(window, dialogs, tmp_path):
     _drag(page, (60, 80), (200, 110))
     dialogs.asks.append(False)
     dialogs.save(tmp_path / "out.pdf")
-    page.save()
+    page.apply_redactions()
     # Redaction runs in a background job: a decline must not start one at all,
     # and the checks below mean something only once anything started has ended.
     assert window._current_job is None
@@ -415,22 +415,40 @@ def test_cancelling_the_save_dialog_applies_nothing_and_keeps_the_document(
     page = _open(window, src)
     _drag(page, (60, 80), (200, 110))
     dialogs.asks.append(True)
-    page.save()                       # no path queued: the save dialog is cancelled
+    page.apply_redactions()           # no path queued: the save dialog is cancelled
     pump(0.1)
     assert window._current_job is None or not window._current_job.is_running
     assert len(page._pending) == 1
     assert page._doc is not None and "Page 1" in page._doc[0].get_text()
 
 
-def test_apply_and_save_over_the_open_input(window, dialogs, tmp_path):
+def test_apply_makes_a_new_copy_and_the_document_keeps_its_boxes(window, dialogs, tmp_path):
+    # Owner, 2026-10-23: applying redactions makes a new redacted copy; the
+    # document open here keeps its content and its marks.
     src = make_pdf(tmp_path / "in.pdf", pages=2)
     page = _open(window, src)
     _drag(page, (60, 80), (200, 110))
-    _apply_save(window, dialogs, page, src)
-    assert page._doc is not None and not page._doc.is_closed and len(page._doc) == 2
-    window.show_page("home")
-    with fitz.open(src) as d:
+    out = _apply_save(window, dialogs, page, tmp_path / "copy.pdf")
+    with fitz.open(out) as d:
         assert len(d) == 2 and "Page 1" not in d[0].get_text() and "Page 2" in d[1].get_text()
+    assert "Page 1" in page._doc[0].get_text() and len(page._pending) == 1
+    assert not window.document.dirty
+    with fitz.open(src) as d:
+        assert "Page 1" in d[0].get_text()
+
+
+def test_apply_over_the_open_file_is_refused(window, dialogs, tmp_path):
+    src = make_pdf(tmp_path / "in.pdf", pages=1)
+    page = _open(window, src)
+    _drag(page, (60, 80), (200, 110))
+    dialogs.asks.append(True)
+    dialogs.save(src)
+    page.apply_redactions()
+    assert ("warning", "Apply", "Choose another file: this one is the PDF open here.") \
+        in dialogs.msgs
+    assert window._current_job is None
+    with fitz.open(src) as d:
+        assert "Page 1" in d[0].get_text()
 
 
 def test_drop_takes_pdfs_only(window, dialogs, tmp_path):
@@ -440,27 +458,46 @@ def test_drop_takes_pdfs_only(window, dialogs, tmp_path):
     other.write_text("x", encoding="utf-8")
     assert page.accept_drop(str(other)) is False
     assert len(page._doc) == 1 and len(page._pending) == 1
-    dialogs.unsaved.append("discard")             # the pending box is an unsaved edit
+    # Boxes are marks beside the document, not edits of it: another file opens
+    # without the unsaved-edits question, and the marks go with the old one.
     assert page.accept_drop(make_pdf(tmp_path / "second.pdf", pages=3)) is True
     assert len(page._doc) == 3 and page._pending == []
     assert page.subtitle_label.text() == subtitle_with(SUBTITLE, "second.pdf")
 
 
-def test_leaving_the_tool_closes_the_document(window, dialogs, tmp_path):
-    # Since 2026-10-10 a pending box is an unsaved edit: leaving asks (Discard here).
+def test_leaving_the_tool_keeps_the_document_and_its_boxes(window, dialogs, tmp_path):
+    # One document per window (owner, 2026-10-23): another tool works on the
+    # same document, and Redact's boxes are there when it comes back.
     page = _open(window, make_pdf(tmp_path / "in.pdf", pages=1))
     _drag(page, (60, 80), (200, 110))
     doc = page._doc
-    dialogs.unsaved.append("discard")
     window.show_page("home")
-    assert doc.is_closed and page._doc is None and page._pending == []
+    assert not doc.is_closed and window.document.doc is doc
+    assert window.open_tool("RedactTool")
+    assert page._doc is doc and len(page._pending) == 1
+
+
+def test_undo_takes_back_a_box_or_a_page_change_whichever_came_last(window, dialogs,
+                                                                      tmp_path):
+    page = _open(window, make_pdf(tmp_path / "in.pdf", pages=2))
+    _drag(page, (60, 80), (200, 110))              # a box
+    page.thumbs.setCurrentRow(1)
+    page.rotate_pages(90)                          # then a page change
+    _drag(page, (60, 300), (200, 330))             # then another box
+    assert len(page._pending) == 2 and page._doc[1].rotation == 90
+    page.undo()
+    assert len(page._pending) == 1 and page._doc[1].rotation == 90
+    page.undo()
+    assert len(page._pending) == 1 and page._doc[1].rotation == 0
+    page.undo()
+    assert page._pending == []
 
 
 
-def test_cancel_during_the_last_page_still_saves_the_redactions(window, dialogs, tmp_path,
-                                                                 monkeypatch):
-    # Every page is redacted in memory by the time Cancel lands; giving up then
-    # emptied the box list and left the redacted document impossible to save.
+def test_cancel_during_apply_writes_nothing_and_keeps_the_boxes(window, dialogs, tmp_path,
+                                                                   monkeypatch):
+    # The redaction is made on the job's own copy: Cancel, even on the last
+    # page, writes no file, and the document and its boxes are as they were.
     import os
     from paperknife.core import redact as core_redact
     src = make_pdf(tmp_path / "doc.pdf", pages=1, text="SECRET {n}")
@@ -477,8 +514,27 @@ def test_cancel_during_the_last_page_still_saves_the_redactions(window, dialogs,
     out = tmp_path / "out.pdf"
     dialogs.asks.append(True)
     dialogs.save(out)
-    page.save()
+    page.apply_redactions()
     wait_job(window)
-    assert os.path.exists(out)
-    with fitz.open(out) as d:
-        assert "SECRET" not in d[0].get_text()
+    assert not os.path.exists(out)
+    assert len(page._pending) == 1 and "SECRET" in page._doc[0].get_text()
+
+
+def test_closing_with_unapplied_boxes_warns(window, dialogs, tmp_path):
+    # Owner, 2026-10-23: boxes are not edits, so Save does not keep them; closing warns.
+    page = _open(window, make_pdf(tmp_path / "in.pdf", pages=1))
+    _drag(page, (60, 80), (200, 110))
+    _drag(page, (60, 300), (200, 330))
+    assert not window.has_unsaved() and window.unapplied_marks() == 2
+    dialogs.asks.append(False)
+    window.close()
+    pump(0.05)
+    assert window.isVisible()
+    assert dialogs.msgs[-1] == ("ask_yes_no", "Close",
+                                "2 redaction boxes drawn and not applied will be lost. "
+                                "Close anyway?")
+    page.box_list.setCurrentRow(0)
+    page.delete()
+    page.box_list.setCurrentRow(0)
+    page.delete()
+    assert window.unapplied_marks() == 0          # nothing left to warn about
