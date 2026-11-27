@@ -142,3 +142,75 @@ def test_remove_pages_never_removes_every_page(tmp_path):
     with pytest.raises(ValueError, match="at least one page"):
         pdftools.remove_pages(fitz.open(src), str(out), [0, 1])
     assert not out.exists()
+
+
+def _scan(doc, level=248, marks=(), dpi=150):
+    """A page holding one JPEG of A4 paper at *dpi*: grain around *level*, and
+    each (box, grey) of *marks* drawn on it."""
+    import io
+    from PIL import Image, ImageDraw
+    size = (round(8.27 * dpi), round(11.69 * dpi))
+    im = Image.effect_noise(size, 3).point(lambda v: max(0, min(255, v - 128 + level)))
+    draw = ImageDraw.Draw(im)
+    for box, grey in marks:
+        draw.rectangle(box, fill=grey)
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "JPEG", quality=75)
+    page = doc.new_page(width=595.28, height=841.89)
+    page.insert_image(page.rect, stream=buf.getvalue())
+
+
+def test_a_scanned_page_of_empty_paper_is_blank_and_one_with_a_mark_is_not(tmp_path):
+    """2026-11-27: every page holding an image was refused, so the back of a
+    scanned sheet was never found.  A short pen stroke (about 0.5 x 3.6 mm) keeps
+    its page."""
+    doc = fitz.open()
+    _scan(doc)                                              # empty paper
+    _scan(doc, level=205)                                   # grey recycled paper
+    _scan(doc, marks=[((600, 800, 602, 820), 40)])          # one short pen stroke
+    _scan(doc, marks=[((560, 800, 640, 806), 165)])         # a light pencil line
+    _scan(doc, level=40)                                    # a dark page: not paper
+    _scan(doc, marks=[((200, 300, 1000, 1400), 120)])       # a picture on the page
+    assert pdftools.blank_pages(doc) == [0, 1]
+    plain = doc.new_page()                                  # no image: not a scan
+    assert pdftools.is_scan(doc[0]) and not pdftools.is_scan(plain)
+    doc.close()
+
+
+def test_a_mark_near_the_edge_keeps_its_page_and_an_edge_shadow_does_not(tmp_path):
+    """A footer 1.6 % from the bottom edge was cut off with the edge band; a
+    scanner's shadow is a strip along the whole edge, a footer has gaps."""
+    w = round(8.27 * 150)
+    words = [((x, 1726, x + 40, 1738), 30) for x in range(200, 900, 60)]
+    doc = fitz.open()
+    _scan(doc, marks=words)                                 # a footer near the bottom edge
+    _scan(doc, marks=[((0, 0, round(w * 0.012), 1754), 70)])   # a shadow down the left edge
+    _scan(doc, marks=[((0, 0, w, 15), 60), ((0, 0, 15, 1754), 60)])   # two dark scan borders
+    assert pdftools.blank_pages(doc) == [1, 2]
+    doc.close()
+
+
+def test_a_very_large_page_holding_an_image_is_read_without_running_out(tmp_path):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 40), "white").save(buf, "PNG")
+    doc = fitz.open()
+    page = doc.new_page(width=14400, height=14400)          # the largest a PDF page may be
+    page.insert_image(fitz.Rect(0, 0, 200, 200), stream=buf.getvalue())
+    assert pdftools.blank_pages(doc) == [0]
+    doc.close()
+
+
+def test_blank_pages_reports_progress_and_stops_when_asked(tmp_path):
+    import threading
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    seen = []
+    assert pdftools.blank_pages(doc, progress=seen.append) == [0, 1, 2, 3]
+    assert seen == [0.25, 0.5, 0.75, 1.0]
+    stop = threading.Event()
+    stop.set()
+    assert pdftools.blank_pages(doc, stop) == []
+    doc.close()

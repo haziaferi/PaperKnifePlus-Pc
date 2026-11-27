@@ -98,7 +98,8 @@ def test_remove_blank_pages_asks_naming_them_and_writes_the_rest(window, dialogs
     out = tmp_path / "out.pdf"
     dialogs.asks.append(True)
     page.run()
-    wait_job(window)
+    wait_job(window)                        # the look for blank pages, a job of its own
+    wait_job(window)                        # then their removal
     save_as(window, dialogs, out)
     assert ("ask_yes_no", "Remove blank pages",
             "Remove pages 2 and 4? They have no text or drawing.") in dialogs.msgs
@@ -113,13 +114,17 @@ def test_remove_blank_pages_said_no_or_none_found_writes_nothing(window, dialogs
     page.file.set_path(_with_blanks(tmp_path / "in.pdf", ["one", ""]))
     dialogs.asks.append(False)
     page.run()
+    wait_job(window)
     assert ("ask_yes_no", "Remove blank pages",
             "Remove page 2? It has no text or drawing.") in dialogs.msgs
-    assert window._current_job is None
+    assert not window._current_job.is_running          # only the look ran
     page.file.set_path(_with_blanks(tmp_path / "full.pdf", ["one", "two"]))
+    before = window._current_job
     page.run()
+    wait_job(window)
+    assert window._current_job is not before            # the look ran again, then nothing
     assert dialogs.msgs[-1] == ("info", "Remove blank pages", "No blank page was found.")
-    assert window._current_job is None and not list(tmp_path.glob("out*.pdf"))
+    assert not list(tmp_path.glob("out*.pdf"))
 
 
 def test_a_file_of_blank_pages_keeps_one(window, dialogs, tmp_path):
@@ -127,6 +132,7 @@ def test_a_file_of_blank_pages_keeps_one(window, dialogs, tmp_path):
     page.radios["blank"].click()
     page.file.set_path(_with_blanks(tmp_path / "in.pdf", ["", ""]))
     page.run()
+    wait_job(window)
     assert dialogs.msgs[-1] == ("error", "PDF Tools",
                                 "A PDF needs at least one page: keep one or more.")
 
@@ -197,3 +203,27 @@ def test_leaving_the_tool_leaves_no_document_open(window, dialogs, tmp_path, mon
     shared = window.document.doc
     assert opened and all(d.is_closed for d in opened if d is not shared)
     assert shared.page_count == 3 and not shared.is_closed
+
+
+def test_a_scanned_blank_page_is_found_and_the_question_says_why(window, dialogs, tmp_path):
+    import io
+    from PIL import Image
+    src = tmp_path / "scan.pdf"
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), "one", fontsize=12)
+    im = Image.effect_noise((1240, 1754), 3).point(lambda v: v + 120).convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=75)
+    page = doc.new_page()
+    page.insert_image(page.rect, stream=buf.getvalue())     # the back of a scanned sheet
+    doc.save(str(src))
+    doc.close()
+    tool = _page(window)
+    tool.radios["blank"].click()
+    tool.file.set_path(str(src))
+    dialogs.asks.append(False)
+    tool.run()
+    wait_job(window)
+    assert ("ask_yes_no", "Remove blank pages",
+            "Remove page 2? It has no text or drawing. "
+            "Scanned pages count when they show only empty paper.") in dialogs.msgs

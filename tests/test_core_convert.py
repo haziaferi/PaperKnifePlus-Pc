@@ -286,3 +286,80 @@ def test_extract_images_a_write_error_is_raised_not_counted_as_failed(tmp_path, 
         core.extract_images(doc, str(tmp_path), "Original", 50, threading.Event(),
                             lambda v: None)
     assert doc.is_closed
+
+
+# Image page size (2026-11-27): a scanner's resolution gives the sheet's size, up
+# to A3; a phone photo or a screenshot (72, 96 or no resolution) fits A4, never enlarged.
+@pytest.mark.parametrize("px, dpi, size", [
+    ((4000, 3000), (72, 72), (793.7, 595.3)),        # phone photo, landscape: A4 on its side
+    ((3000, 4000), None, (595.3, 793.7)),            # phone photo, portrait: A4's width
+    ((2480, 3508), (300, 300), (595.2, 841.9)),      # A4 scanned at 300 DPI: A4
+    ((1654, 2339), (200, 200), (595.4, 842.0)),      # A4 scanned at 200 DPI: its real size
+    ((2550, 3300), (300, 300), (612.0, 792.0)),      # US Letter scanned: Letter, not A4
+    ((2550, 4200), (300, 300), (612.0, 1008.0)),     # US Legal scanned: Legal
+    ((3508, 4961), (300, 300), (841.9, 1190.6)),     # A3 scanned: A3
+    ((6000, 4000), (300, 300), (841.9, 561.3)),      # a camera's 300 DPI, larger than A3: A4
+    ((1728, 1145), (204, 98), (609.9, 841.2)),       # a fax at 204 x 98 DPI: portrait, its size
+    ((500, 400), (72, 0), (500.0, 400.0)),           # a resolution of 0: none
+    ((1920, 1080), (96, 96), (841.9, 473.6)),        # a screenshot: A4 across
+    ((300, 200), None, (300.0, 200.0)),              # a small image: its own size
+    ((600, 300), (150, 150), (288.0, 144.0)),        # a small scan: its real size
+])
+def test_an_image_page_is_sized_by_its_scan_resolution_and_fits_a4(px, dpi, size):
+    assert core.image_page_size(*px, dpi) == pytest.approx(size, abs=0.1)
+
+
+def test_a_phone_photo_becomes_an_a4_page_not_a_141_cm_one(tmp_path):
+    from PIL import Image
+    src = tmp_path / "photo.jpg"
+    Image.new("RGB", (4000, 3000), "white").save(src, "JPEG", dpi=(72, 72))
+    out = tmp_path / "out.pdf"
+    core.files_to_pdf([str(src)], str(out), threading.Event())
+    with fitz.open(out) as d:
+        assert (round(d[0].rect.width), round(d[0].rect.height)) == (794, 595)
+        assert d[0].get_images(full=True)[0][2:4] == (4000, 3000)    # every pixel kept
+
+
+def test_a_photo_turned_by_its_exif_fits_a4_upright(tmp_path):
+    from PIL import Image
+    src = tmp_path / "turned.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6                                   # shown turned a quarter clockwise
+    Image.new("RGB", (4000, 3000), "white").save(src, "JPEG", exif=exif, dpi=(72, 72))
+    out = tmp_path / "out.pdf"
+    core.files_to_pdf([str(src)], str(out), threading.Event())
+    with fitz.open(out) as d:
+        assert (round(d[0].rect.width), round(d[0].rect.height)) == (595, 794)
+
+
+def test_a_square_photo_turned_by_its_exif_swaps_its_resolution(tmp_path):
+    from PIL import Image
+    src = tmp_path / "square.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    Image.new("RGB", (2000, 2000), "white").save(src, "JPEG", exif=exif, dpi=(200, 400))
+    out = tmp_path / "out.pdf"
+    core.files_to_pdf([str(src)], str(out), threading.Event())
+    with fitz.open(out) as d:
+        assert (round(d[0].rect.width), round(d[0].rect.height)) == (360, 720)
+
+
+@pytest.mark.parametrize("fmt", ["PNG", "JPEG"])
+def test_pages_exported_as_images_come_back_at_their_size(tmp_path, fmt):
+    """PDF → Other's PNG / JPEG carry the export resolution, so Other → PDF
+    gives each page its size again (A5 and Letter were fitted to A4)."""
+    src = fitz.open()
+    src.new_page(width=419.53, height=595.28)               # A5
+    src.new_page(width=612, height=792)                     # US Letter
+    zpath = tmp_path / "pages.zip"
+    core.pages_to_zip(str(zpath), src, 150, fmt, 85, threading.Event(), lambda v: None)
+    src.close()
+    with zipfile.ZipFile(zpath) as zf:
+        zf.extractall(tmp_path / "x")
+    images = sorted(str(f) for f in (tmp_path / "x").iterdir())
+    out = tmp_path / "back.pdf"
+    core.files_to_pdf(images, str(out), threading.Event())
+    with fitz.open(out) as d:
+        sizes = [(p.rect.width, p.rect.height) for p in d]
+    assert sizes[0] == pytest.approx((419.53, 595.28), abs=0.6)
+    assert sizes[1] == pytest.approx((612, 792), abs=0.6)

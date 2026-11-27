@@ -55,6 +55,8 @@ Kinds: O owner rule · D decided · I inherited · A assumed · Q open.
 | D-R43 | Text rewrite unit | 8. Tools |
 | D-R44 | Find & Replace case | 8. Tools |
 | D-R45 | Batch input | 8. Tools |
+| D-R55 | Blank pages, scanned ones too | 8. Tools |
+| D-R56 | Image page size | 8. Tools |
 | D-R46 | Save to a file another program holds | 9. Real-world cases |
 | D-R47 | File changed on disk while open | 9. Real-world cases |
 | D-R48 | Ctrl+S on Preferences | 9. Real-world cases |
@@ -103,11 +105,11 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 | Convert to or from PDF, extract images | occasionally | the output files are written |
 | Batch a folder | rarely | every file in the folder has its result |
 
-**Evidence:** Owner's answer of 2026-11-26 names the first three rows as most frequent; the order of the others is the builder's.
+**Evidence:** Owner's answer of 2026-11-26 names the first three rows as most frequent; the order of the others is the builder's. The screens each job uses, and where they overlap, are in `docs/purpose-map.md` (checked in the code 2026-11-27).
 
 **Acceptance:** none: a frequency is not checked by a test; R37 is its visible consequence.
 
-**Since:** 2026-11-26 · owner · migrated
+**Since:** 2026-11-27 · owner · migrated
 
 ### D-R02 · Who it is for
 
@@ -694,6 +696,43 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 
 **Since:** 2026-11-26 · builder · migrated
 
+### D-R55 · Blank pages, scanned ones too
+
+**Rule:** PDF Tools' Remove blank pages counts a page as blank when it has no text, no comment, no form field and no drawing that shows, and any image on it shows only empty paper: rendered in grey, its paper tone (the median away from the edges) is light, and almost no pixel stands out from it, a shadow strip along an edge aside. The pages are looked for in a job with progress and Cancel, then named in the question; when a scanned page is among them, the question adds "Scanned pages count when they show only empty paper."
+
+**Why:** A blank page left in is harmless and a page with a mark removed is not, so a page with any mark, dust included, is kept.
+
+**Values:**
+
+| Constant | Value |
+|---|---|
+| Render resolution | 72 DPI, at most 4 million pixels |
+| Edge band | 2 % of each side |
+| An edge band is a shadow, and ignored, when marked along | 95 % of its length or more |
+| Darkest paper tone | 160 |
+| Distance from the paper tone that marks a pixel | 40 grey levels |
+| Most marked pixels on a blank page | 4 |
+
+**Evidence:** `paperknife/core/pdftools.py` `_shows_only_paper`; measured in `docs/blank-scans-2026-11-27.md`: every simulated blank scan counts 0, the smallest content (a 9 pt "x") 14, and on 1,375 pages that installed programs ship no page with an image is called blank; a scanned page costs 45-87 ms. Not checked: the question's added sentence is the builder's wording.
+
+**Acceptance:** The scanned-page, edge, very-large-page and progress tests in `tests/test_core_pdftools_more.py`, and `tests/qt/test_pdftools_page.py::test_a_scanned_blank_page_is_found_and_the_question_says_why`, pass.
+
+**Not:** Refusing every page that holds an image: the back of a scanned sheet, the common case, was never found.
+
+**Since:** 2026-11-27 · builder · migrated
+
+### D-R56 · Image page size
+
+**Rule:** Other → PDF makes each image a page sized by the resolution the file states, on each axis, when its larger axis is 100 DPI or more (a scan, a fax), and at one point per pixel otherwise (a phone photo, a screenshot). A page larger than A3 (841.89 × 1190.55 pt) from a stated resolution, or larger than A4 (595.28 × 841.89 pt) without one, is scaled down to fit A4 in the image's own orientation; a smaller one is never enlarged, and the image keeps every pixel. PDF → Other writes its export resolution into each PNG and JPEG it makes.
+
+**Evidence:** `paperknife/core/convert.py` `image_page_size`, `pages_to_zip`; examples in `docs/blank-scans-2026-11-27.md`.
+
+**Acceptance:** A 4000 × 3000 JPEG at 72 DPI becomes a 793.7 × 595.3 pt page; A4, US Letter and A3 sheets scanned at 300 DPI keep their size; a 1728 × 1145 fax at 204 × 98 DPI becomes a 609.9 × 841.2 pt page; a 300 × 200 image with no resolution stays 300 × 200 pt; an A5 page exported by PDF → Other as PNG or JPEG comes back A5 (`tests/test_core_convert.py`).
+
+**Not:** One point per pixel for every image: a 4000 × 3000 phone photo made a page about 141 cm wide.
+
+**Since:** 2026-11-27 · builder · migrated
+
 ## 9. Real-world cases
 
 ### D-R46 · Save to a file another program holds
@@ -832,6 +871,8 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 - R43 · Text rewrite unit: `tests/qt/test_find_replace_page.py` and `tests/qt/test_edit_text_page.py` pass; a replacement on a page with a table row is listed as skipped.
 - R44 · Find & Replace case: With the switch off, "iva" finds "iva", "Iva" and "IVA"; with it on, only "iva"; a fresh profile shows it off.
 - R45 · Batch input: A folder with a subfolder PDF, a PDF with an open password and a PDF with only an owner password reports the first protected one as an error, processes the owner-password one and leaves the subfolder's file untouched.
+- R55 · Blank pages, scanned ones too: The scanned-page, edge, very-large-page and progress tests in `tests/test_core_pdftools_more.py`, and `tests/qt/test_pdftools_page.py::test_a_scanned_blank_page_is_found_and_the_question_says_why`, pass.
+- R56 · Image page size: A 4000 × 3000 JPEG at 72 DPI becomes a 793.7 × 595.3 pt page; A4, US Letter and A3 sheets scanned at 300 DPI keep their size; a 1728 × 1145 fax at 204 × 98 DPI becomes a 609.9 × 841.2 pt page; a 300 × 200 image with no resolution stays 300 × 200 pt; an A5 page exported by PDF → Other as PNG or JPEG comes back A5 (`tests/test_core_convert.py`).
 - R46 · Save to a file another program holds: For each row's cause (a process holding the file with no shared delete access, the read-only attribute, a folder denying write, a full test volume) Save shows that row's line, the `*` stays, and no `.part` or `.bak` file remains.
 - R47 · File changed on disk while open: A file touched by another process after opening shows the question on Save; "Cancel" leaves both the file and the `*` as they were; an untouched file saves with no question.
 - R48 · Ctrl+S on Preferences: With an unsaved document and Preferences shown, `Ctrl+S` removes the `*` and leaves the preferences unsaved.
