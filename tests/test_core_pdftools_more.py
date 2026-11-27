@@ -171,5 +171,6 @@ def test_a_scanned_page_of_empty_paper_is_blank_and_one_with_a_mark_is_not(tmp_p
     _scan(doc, level=40)                                    # a dark page: not paper
     _scan(doc, marks=[((200, 300, 1000, 1400), 120)])       # a picture on the page
     assert pdftools.blank_pages(doc) == [0, 1]
-    assert pdftools.is_scan(doc[0]) and not pdftools.is_scan(fitz.open().new_page())
+    plain = doc.new_page()                                  # no image: not a scan
+    assert pdftools.is_scan(doc[0]) and not pdftools.is_scan(plain)
     doc.close()
