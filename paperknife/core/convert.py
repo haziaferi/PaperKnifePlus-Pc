@@ -77,32 +77,50 @@ def pages_to_zip(path, doc, dpi, fmt, quality, stop, progress, pages=None) -> No
                 raise Cancelled
             progress((n + 1) / total)
             pix = render(page, dpi / 72.0)
+            # The export's resolution goes into each file, so Other → PDF
+            # makes the page its size again (image_page_size).
             if fmt == "JPEG":
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 buf = io.BytesIO()
-                img.save(buf, "JPEG", quality=quality)
+                img.save(buf, "JPEG", quality=quality, dpi=(dpi, dpi))
                 zf.writestr(f"page_{i + 1:04d}.jpg", buf.getvalue())
             else:
+                pix.set_dpi(dpi, dpi)
                 zf.writestr(f"page_{i + 1:04d}.png", pix.tobytes("png"))
 
 
 # An image's page size (2026-11-27).  A scanner writes its real resolution
-# (150, 200, 300 DPI...) into the file, so the page comes out the size of the
-# sheet.  Phones and screenshots write 72 or 96 or nothing: at one point per
-# pixel a 4000 x 3000 photo made a page about 141 cm wide.  So a resolution
-# below SCANNER_DPI counts as none, and a page larger than A4 is scaled down to
-# fit A4 in the image's own orientation; a small image is never enlarged.
+# (150, 200, 300 DPI; a fax 204 x 98) into the file, so the page comes out the
+# size of the sheet, up to A3.  Phones and screenshots write 72 or 96 or
+# nothing: at one point per pixel a 4000 x 3000 photo made a page about 141 cm
+# wide.  So a resolution whose larger axis is below SCANNER_DPI counts as none,
+# and a page that comes out larger than A3 from a stated resolution (a camera
+# writing 300 DPI on a 6000 x 4000 photo), or larger than A4 without one, is
+# scaled down to fit A4 in the image's own orientation; a small image is never
+# enlarged.
 SCANNER_DPI = 100
 A4_PT = (595.28, 841.89)    # ISO 216 exactly: fitz.paper_rect rounds to 595 x 842
+A3_PT = (841.89, 1190.55)
+
+
+def _fits(w: float, h: float, paper: tuple[float, float]) -> bool:
+    pw, ph = paper if h >= w else paper[::-1]
+    return w <= pw + 0.5 and h <= ph + 0.5
 
 
 def image_page_size(px_w: int, px_h: int, dpi=None) -> tuple[float, float]:
     """The page size in points for an image of *px_w* x *px_h* pixels with
     the resolution *dpi* ((x, y), as PIL reports it, or None)."""
-    dx, dy = (dpi if dpi else (0, 0))[:2]
-    if not (dx >= SCANNER_DPI and dy >= SCANNER_DPI):
-        dx = dy = 72
+    try:
+        dx, dy = (float(v) for v in tuple(dpi)[:2]) if dpi else (0.0, 0.0)
+    except (TypeError, ValueError):
+        dx = dy = 0.0
+    stated = dx > 0 and dy > 0 and max(dx, dy) >= SCANNER_DPI
+    if not stated:
+        dx = dy = 72.0
     w, h = px_w * 72 / dx, px_h * 72 / dy
+    if stated and _fits(w, h, A3_PT):
+        return w, h
     aw, ah = A4_PT if h >= w else A4_PT[::-1]
     s = min(1.0, aw / w, ah / h)
     return w * s, h * s
@@ -113,8 +131,9 @@ def image_page(doc, path) -> None:
     upright, transparency flattened onto white."""
     with Image.open(path) as src:
         dpi = src.info.get("dpi")
+        turn = src.getexif().get(0x0112, 1)
         im = ImageOps.exif_transpose(src)
-        if src.format == "JPEG" and src.getexif().get(0x0112, 1) == 1:
+        if src.format == "JPEG" and turn == 1:
             data = Path(path).read_bytes()        # already upright: embed without recompressing
         else:
             if im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info:
@@ -127,7 +146,7 @@ def image_page(doc, path) -> None:
             buf = io.BytesIO()
             im.save(buf, "PNG")
             data = buf.getvalue()
-        if dpi and im.size != src.size:
+        if dpi and turn in (5, 6, 7, 8):
             dpi = (dpi[1], dpi[0])            # turned a quarter: the axes swap
         w, h = image_page_size(*im.size, dpi)
     page = doc.new_page(width=w, height=h)

@@ -162,7 +162,8 @@ def _scan(doc, level=248, marks=(), dpi=150):
 
 def test_a_scanned_page_of_empty_paper_is_blank_and_one_with_a_mark_is_not(tmp_path):
     """2026-11-27: every page holding an image was refused, so the back of a
-    scanned sheet was never found.  A short pen stroke (0.3 x 3 mm) keeps its page."""
+    scanned sheet was never found.  A short pen stroke (about 0.5 x 3.6 mm) keeps
+    its page."""
     doc = fitz.open()
     _scan(doc)                                              # empty paper
     _scan(doc, level=205)                                   # grey recycled paper
@@ -173,4 +174,43 @@ def test_a_scanned_page_of_empty_paper_is_blank_and_one_with_a_mark_is_not(tmp_p
     assert pdftools.blank_pages(doc) == [0, 1]
     plain = doc.new_page()                                  # no image: not a scan
     assert pdftools.is_scan(doc[0]) and not pdftools.is_scan(plain)
+    doc.close()
+
+
+def test_a_mark_near_the_edge_keeps_its_page_and_an_edge_shadow_does_not(tmp_path):
+    """A footer 1.6 % from the bottom edge was cut off with the edge band; a
+    scanner's shadow is a strip along the whole edge, a footer has gaps."""
+    w = round(8.27 * 150)
+    words = [((x, 1726, x + 40, 1738), 30) for x in range(200, 900, 60)]
+    doc = fitz.open()
+    _scan(doc, marks=words)                                 # a footer near the bottom edge
+    _scan(doc, marks=[((0, 0, round(w * 0.012), 1754), 70)])   # a shadow down the left edge
+    _scan(doc, marks=[((0, 0, w, 15), 60), ((0, 0, 15, 1754), 60)])   # two dark scan borders
+    assert pdftools.blank_pages(doc) == [1, 2]
+    doc.close()
+
+
+def test_a_very_large_page_holding_an_image_is_read_without_running_out(tmp_path):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 40), "white").save(buf, "PNG")
+    doc = fitz.open()
+    page = doc.new_page(width=14400, height=14400)          # the largest a PDF page may be
+    page.insert_image(fitz.Rect(0, 0, 200, 200), stream=buf.getvalue())
+    assert pdftools.blank_pages(doc) == [0]
+    doc.close()
+
+
+def test_blank_pages_reports_progress_and_stops_when_asked(tmp_path):
+    import threading
+    doc = fitz.open()
+    for _ in range(4):
+        doc.new_page()
+    seen = []
+    assert pdftools.blank_pages(doc, progress=seen.append) == [0, 1, 2, 3]
+    assert seen == [0.25, 0.5, 0.75, 1.0]
+    stop = threading.Event()
+    stop.set()
+    assert pdftools.blank_pages(doc, stop) == []
     doc.close()

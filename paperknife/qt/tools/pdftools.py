@@ -9,7 +9,7 @@ from __future__ import annotations
 from ...core import pdftools as core
 from .. import dialogs
 from ..pages import (APPLY, KEEP_ONE, SAVE_NOTE, ToolPage, card, group_title, pages_phrase, radio_rows,
-                     register_page, setting_row, toggle_switch)
+                     register_page, setting_row, shared_copy, toggle_switch)
 
 SUBTITLE = "Repair, sanitise or flatten a PDF · remove its blank pages"
 TOOLS = [
@@ -146,25 +146,57 @@ class PdfToolsPage(ToolPage):
                                                 flatten_text(found), True))
 
     def _run_blank(self):
-        blanks: list[int] = []
+        """Look for the blank pages in a job (a scanned page is rendered to be
+        looked at, 30-90 ms each: a long scan would hold the window), then ask,
+        then remove them in place."""
+        src = self.chosen_file("PDF Tools")
+        if not src:
+            return
+        win = self.window_
+        doc = shared_copy(win, src) or win.open_pdf_safe(src)
+        if doc is None:
+            return
+        found: dict = {}
+        progress = win.progress_callback()
+
+        def look(stop):
+            try:
+                found["pages"] = core.blank_pages(doc, stop, progress)
+                found["scans"] = any(core.is_scan(doc[i]) for i in found["pages"])
+                found["count"] = len(doc)
+            finally:
+                doc.close()
+
+        def then(kind, _value):
+            if kind == "done":
+                self._remove_blank(src, found)
+
+        if win.run_job(look, "Looking for blank pages…", lock=True, then=then) is None:
+            doc.close()
+
+    def _remove_blank(self, src: str, found: dict):
+        blanks = found["pages"]
+        if not blanks:
+            dialogs.info(ACTION["blank"], NO_BLANK)
+            return
+        if len(blanks) == found["count"]:
+            dialogs.error("PDF Tools", KEEP_ONE)
+            return
 
         def prepare(doc):
-            blanks[:] = core.blank_pages(doc)
-            if not blanks:
-                dialogs.info(ACTION["blank"], NO_BLANK)
-                return False
-            if len(blanks) == len(doc):
-                raise ValueError(KEEP_ONE)
+            if len(doc) != found["count"]:
+                raise ValueError("The document changed while it was being read: try again.")
             what = pages_phrase([i + 1 for i in blanks])
             why = "It has" if len(blanks) == 1 else "They have"
             # A scanned blank holds a picture: say what made it count (2026-11-27).
-            scans = SCANNED_BLANK if any(core.is_scan(doc[i]) for i in blanks) else ""
+            scans = SCANNED_BLANK if found["scans"] else ""
             return dialogs.ask_yes_no(ACTION["blank"],
                                       f"Remove {what}? {why} no text or drawing.{scans}")
 
         self.run_on_file("PDF Tools",
                          lambda doc, out, stop, _p: core.remove_pages(doc, out, blanks),
-                         "Removing blank pages…", None, prepare=prepare, cancellable=False,
+                         "Removing blank pages…", None, src=src, prepare=prepare,
+                         cancellable=False,
                          in_place="Remove blank pages",
                          applied=lambda n: ("success", f"✓  Removed {n} blank page(s)"
                                             + SAVE_NOTE, None, True))

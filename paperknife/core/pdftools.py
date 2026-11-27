@@ -132,26 +132,42 @@ def _white(fill) -> bool:
 # A page that holds images (a scan) is blank when, rendered, nothing on it
 # stands out from the paper.  Measured 2026-11-27 on simulated scans at 200 and
 # 300 DPI, colour and grey (docs/blank-scans-2026-11-27.md): empty paper, cream
-# or recycled paper, text showing through from the back and a 1 % edge shadow
-# all count 0 pixels; the smallest content, a single 9 pt "x", counts 14.  A
-# few specks of dust can count as many as that small mark, so a dusty page is
-# kept: a blank page left in is harmless, a page with a mark removed is not.
-_SCAN_DPI = 72          # render resolution of the look (13 ms a page)
-_SCAN_CROP = 0.02       # each edge left out: a scanner's shadow along the sheet
+# or recycled paper, text showing through from the back and an edge shadow all
+# count 0 pixels; the smallest content, a single 9 pt "x", counts 14.  A few
+# specks of dust can count as many as that small mark, so a dusty page is kept:
+# a blank page left in is harmless, a page with a mark removed is not.
+_SCAN_DPI = 72          # render resolution of the look
+_SCAN_MAX_PIXELS = 4_000_000    # a very large page is rendered smaller (A0 at 72 DPI is 8 M)
+_SCAN_EDGE = 0.02       # width of each edge band where a scanner's shadow may lie
+_SCAN_STRIP = 0.95      # an edge band marked along this share of its length is a shadow
 _SCAN_DIFF = 40         # grey levels from the paper that make a pixel a mark
 _SCAN_MARKS = 4         # more marked pixels than this: the page holds something
 _SCAN_PAPER = 160       # a page darker than this overall is not empty paper
 
 
+def _strip_share(band, along_x: bool) -> float:
+    """The share of *band*'s length (its width when along_x) with a mark in it."""
+    from PIL import Image
+    line = band.resize((band.width, 1) if along_x else (1, band.height), Image.BOX)
+    return 1 - line.histogram()[0] / max(1, line.width * line.height)
+
+
 def _shows_only_paper(page) -> bool:
     """True when the rendered page is one even light tone (paper) with at most
-    _SCAN_MARKS pixels standing out from it, darker or lighter."""
+    _SCAN_MARKS pixels standing out from it, darker or lighter.  A band along
+    an edge counts only when it is not a shadow, a strip marked along almost
+    all of that edge: a footer or a stamp near the edge has gaps, and keeps
+    the page."""
     from PIL import Image
-    pix = page.get_pixmap(matrix=fitz.Matrix(_SCAN_DPI / 72, _SCAN_DPI / 72),
-                          colorspace=fitz.csGRAY, alpha=False)
+    r = page.rect
+    zoom = min(_SCAN_DPI / 72, (_SCAN_MAX_PIXELS / max(1.0, r.width * r.height)) ** 0.5)
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), colorspace=fitz.csGRAY, alpha=False)
     im = Image.frombytes("L", (pix.width, pix.height), pix.samples)
-    cy, cx = int(pix.height * _SCAN_CROP), int(pix.width * _SCAN_CROP)
-    hist = im.crop((cx, cy, pix.width - cx, pix.height - cy)).histogram()
+    w, h = im.size
+    ex, ey = max(1, round(w * _SCAN_EDGE)), max(1, round(h * _SCAN_EDGE))
+    if w <= 2 * ex or h <= 2 * ey:
+        return False                        # too small to tell: keep it
+    hist = im.crop((ex, ey, w - ex, h - ey)).histogram()   # the paper, away from the edges
     half, run, paper = sum(hist) / 2, 0, 255
     for value, n in enumerate(hist):
         run += n
@@ -160,8 +176,13 @@ def _shows_only_paper(page) -> bool:
             break
     if paper < _SCAN_PAPER:
         return False
-    marks = sum(hist[:max(0, paper - _SCAN_DIFF)]) + sum(hist[paper + _SCAN_DIFF + 1:])
-    return marks <= _SCAN_MARKS
+    lo, hi = paper - _SCAN_DIFF, paper + _SCAN_DIFF
+    marks = im.point([255 if v < lo or v > hi else 0 for v in range(256)])
+    for box, along_x in (((0, 0, w, ey), True), ((0, h - ey, w, h), True),
+                         ((0, 0, ex, h), False), ((w - ex, 0, w, h), False)):
+        if _strip_share(marks.crop(box), along_x) >= _SCAN_STRIP:
+            marks.paste(0, box)             # a shadow along this edge
+    return marks.histogram()[255] <= _SCAN_MARKS
 
 
 def is_blank(page) -> bool:
@@ -185,12 +206,17 @@ def is_scan(page) -> bool:
     return bool(page.get_images(full=False))
 
 
-def blank_pages(doc, stop=None) -> list[int]:
-    """The 0-based numbers of *doc*'s blank pages (is_blank)."""
+def blank_pages(doc, stop=None, progress=None) -> list[int]:
+    """The 0-based numbers of *doc*'s blank pages (is_blank).  A scanned page
+    is rendered to be looked at (30-90 ms each), so a caller with a window
+    runs this as a job: progress(fraction) after each page, stop to end early."""
     out = []
+    n = len(doc)
     for i, page in enumerate(doc):
         if stop is not None and stop.is_set():
             break
+        if progress is not None:
+            progress((i + 1) / n)
         if is_blank(page):
             out.append(i)
     return out
