@@ -103,11 +103,11 @@ PaperKnife+ PC does the everyday PDF jobs on a Windows PC without sending the fi
 | Convert to or from PDF, extract images | occasionally | the output files are written |
 | Batch a folder | rarely | every file in the folder has its result |
 
-**Evidence:** Owner's answer of 2026-11-26 names the first three rows as most frequent; the order of the others is the builder's.
+**Evidence:** Owner's answer of 2026-11-26 names the first three rows as most frequent; the order of the others is the builder's. The screens each job uses, and where they overlap, are in `docs/purpose-map.md` (checked in the code 2026-11-27).
 
 **Acceptance:** none: a frequency is not checked by a test; R37 is its visible consequence.
 
-**Since:** 2026-11-26 · owner · migrated
+**Since:** 2026-11-27 · owner · migrated
 
 ### D-R02 · Who it is for
 

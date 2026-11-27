@@ -146,7 +146,7 @@ The OCR tool requires the Tesseract OCR engine to be installed separately. Paper
 
 ## 5. Tools Reference
 
-The navigation pane lists 23 tools in five groups, with Preferences at the bottom.
+The navigation pane lists 22 tools in five groups, with Preferences at the bottom.
 
 A setting's or panel's description is not shown under its name: click the circled **i** beside the name to see it in a small card, which closes when you click elsewhere. A file path, and a hint on a row without a name, stay in view.
 
